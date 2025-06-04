@@ -8,9 +8,11 @@ export type EIAExtensionObject = {
   note?: string;
 } & { [key in EIAExtension]?: string };
 
+export type EIACompressionMethod = "lz4" | "lz4-base64";
+
 export type EIAManifestV1 = {
   t: "eia"; //type
-  c: "lz4"; //compressor
+  c: EIACompressionMethod; //compressor
   v: 1; //version
   f: string[]; //features
   e: EIAExtension[]; //extensions

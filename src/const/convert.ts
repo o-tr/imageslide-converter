@@ -3,6 +3,7 @@ import type {
   TTextureConverterFormat,
 } from "@/_types/text-zip/formats";
 import { selectedFiles2EIAv1RGB24Cropped } from "@/lib/selectedFiles2EIA/selectedFiles2EIAv1RGB24Cropped";
+import { selectedFiles2EIAv1RGB24CroppedBase64 } from "@/lib/selectedFiles2EIA/selectedFiles2EIAv1RGB24CroppedBase64";
 import {
   selectedFiles2v0RGBA32,
   selectedFiles2v1DXT1,
@@ -103,4 +104,14 @@ export const TargetFormats: FormatItemType[] = [
     estimatedCompressionRatio: 0.2,
     converter: selectedFiles2EIAv1RGB24Cropped,
   },
+  {
+    id: "eia-v1-RGB24-cropped-base64",
+    label: "EIA v1 RGB24 (cropped, base64)",
+    bytePerPixel: 4.5,
+    priority: 0,
+    container: "eia-v1",
+    format: "RGB24-cropped-base64",
+    estimatedCompressionRatio: 0.2,
+    converter: selectedFiles2EIAv1RGB24CroppedBase64,
+  }
 ];
