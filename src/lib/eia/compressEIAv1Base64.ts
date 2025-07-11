@@ -8,7 +8,7 @@ import type { RawImageObjV1Cropped } from "@/_types/text-zip/v1";
 import { FileSizeLimit } from "@/const/convert";
 import lz4 from "lz4js";
 
-export const compressEIAv1 = async (
+export const compressEIAv1Base64 = async (
   data: RawImageObjV1Cropped[],
   signage?: EIASignageManifest,
   count = 1,
@@ -19,27 +19,27 @@ export const compressEIAv1 = async (
 
   for (let i = 0; i < count; i++) {
     const part = data.slice(i * partCount, (i + 1) * partCount);
-    const compressedPart = await compressEIAv1Part(part, signage);
+    const compressedPart = await compressEIAv1Base64Part(part, signage);
 
     if (compressedPart.length > FileSizeLimit) {
-      return compressEIAv1(data, signage, count + 1);
+      return compressEIAv1Base64(data, signage, count + 1);
     }
 
-    result.push(compressedPart);
+    result.push(Buffer.from(compressedPart, "utf-8"));
   }
 
   return result;
 };
 
-const compressEIAv1Part = async (data: RawImageObjV1Cropped[], signage?: EIASignageManifest) => {
+const compressEIAv1Base64Part = async (data: RawImageObjV1Cropped[], signage?: EIASignageManifest) => {
   const usedFormats = new Set<string>();
   const files: EIAFileV1[] = [];
-  const buffer: Buffer[] = [];
+  const buffer: string[] = [];
   let bufferLength = 0;
 
   for (const image of data) {
     if (!image.cropped) {
-      const compressed = Buffer.from(lz4.compress(image.buffer));
+      const compressed = Buffer.from(lz4.compress(image.buffer)).toString("base64");
       buffer.push(compressed);
       usedFormats.add(image.format);
       files.push({
@@ -75,7 +75,7 @@ const compressEIAv1Part = async (data: RawImageObjV1Cropped[], signage?: EIASign
     }
     
     const mergedBuffer = Buffer.concat(fileBuffer);
-    const compressed = Buffer.from(lz4.compress(mergedBuffer));
+    const compressed = Buffer.from(lz4.compress(mergedBuffer)).toString("base64");
     buffer.push(compressed);
     
     files.push({
@@ -96,15 +96,15 @@ const compressEIAv1Part = async (data: RawImageObjV1Cropped[], signage?: EIASign
 
   const manifest: EIAManifestV1 = {
     t: "eia",
-    c: "lz4",
+    c: "lz4-base64",
     v: 1,
     f: Array.from(usedFormats).map((format) => `Format:${format}`),
     e: ["note"],
     i: files,
-    m: signage
+    m: signage,
   };
 
-  const encodedBuffer = Buffer.concat([Buffer.from(`EIA^${JSON.stringify(manifest)}$`),...buffer,]);
+  const encodedBuffer = [`EIA^${JSON.stringify(manifest)}$`,...buffer,].join("");
   
   return encodedBuffer;
 };

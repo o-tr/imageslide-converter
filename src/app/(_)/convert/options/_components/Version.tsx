@@ -11,7 +11,7 @@ export const Version: FC = () => {
   return (
     <Flex vertical gap={"middle"}>
       <h2 className={"text-xl"}>使用している環境を選択してください</h2>
-      <Radio.Group onChange={(e) => setVersion(e.target.value)} value={version}>
+      <Radio.Group onChange={(e) => setVersion(e.target.value)} value={version} className="!flex flex-wrap flex-row">
         {TargetVersions.map((v) => (
           <Radio.Button
             key={v.label}
@@ -30,6 +30,14 @@ export const Version: FC = () => {
             </Flex>
           </Radio.Button>
         ))}
+          <Radio.Button
+            value={"all"}
+            className={"w-[256px] !h-[256px]"}
+          >
+            <Flex vertical className={"p-2 text-center"}>
+              <p>すべて表示</p>
+            </Flex>
+          </Radio.Button>
       </Radio.Group>
     </Flex>
   );
