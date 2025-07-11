@@ -2,6 +2,7 @@ import type {
   EIAFileV1,
   EIAFileV1CroppedPart as EIAFileV1CroppedPart,
   EIAManifestV1 as EIAManifestV1,
+  EIASignageManifest,
 } from "@/_types/eia/v1";
 import type { RawImageObjV1Cropped } from "@/_types/text-zip/v1";
 import { FileSizeLimit } from "@/const/convert";
@@ -9,6 +10,7 @@ import lz4 from "lz4js";
 
 export const compressEIAv1Base64 = async (
   data: RawImageObjV1Cropped[],
+  signage?: EIASignageManifest,
   count = 1,
   stepSize = 10,
 ): Promise<Buffer[]> => {
@@ -17,27 +19,27 @@ export const compressEIAv1Base64 = async (
 
   for (let i = 0; i < count; i++) {
     const part = data.slice(i * partCount, (i + 1) * partCount);
-    const compressedPart = await compressEIAv1Base64Part(part);
+    const compressedPart = await compressEIAv1Base64Part(part, signage);
 
     if (compressedPart.length > FileSizeLimit) {
-      return compressEIAv1Base64(data, count + 1);
+      return compressEIAv1Base64(data, signage, count + 1);
     }
 
-    result.push(compressedPart);
+    result.push(Buffer.from(compressedPart, "utf-8"));
   }
 
   return result;
 };
 
-const compressEIAv1Base64Part = async (data: RawImageObjV1Cropped[]) => {
+const compressEIAv1Base64Part = async (data: RawImageObjV1Cropped[], signage?: EIASignageManifest) => {
   const usedFormats = new Set<string>();
   const files: EIAFileV1[] = [];
-  const buffer: Buffer[] = [];
+  const buffer: string[] = [];
   let bufferLength = 0;
 
   for (const image of data) {
     if (!image.cropped) {
-      const compressed = Buffer.from(Buffer.from(lz4.compress(image.buffer)).toString("base64"));
+      const compressed = Buffer.from(lz4.compress(image.buffer)).toString("base64");
       buffer.push(compressed);
       usedFormats.add(image.format);
       files.push({
@@ -73,7 +75,7 @@ const compressEIAv1Base64Part = async (data: RawImageObjV1Cropped[]) => {
     }
     
     const mergedBuffer = Buffer.concat(fileBuffer);
-    const compressed = Buffer.from(Buffer.from(lz4.compress(mergedBuffer)).toString("base64"));
+    const compressed = Buffer.from(lz4.compress(mergedBuffer)).toString("base64");
     buffer.push(compressed);
     
     files.push({
@@ -99,9 +101,10 @@ const compressEIAv1Base64Part = async (data: RawImageObjV1Cropped[]) => {
     f: Array.from(usedFormats).map((format) => `Format:${format}`),
     e: ["note"],
     i: files,
+    m: signage,
   };
 
-  const encodedBuffer = Buffer.concat([Buffer.from(`EIA^${JSON.stringify(manifest)}$`),...buffer,]);
+  const encodedBuffer = [`EIA^${JSON.stringify(manifest)}$`,...buffer,].join("");
   
   return encodedBuffer;
 };

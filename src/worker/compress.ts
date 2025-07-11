@@ -1,6 +1,5 @@
 import type { WorkerMessage, WorkerResponse } from "@/_types/worker";
 import { TargetFormats } from "@/const/convert";
-import { initPromise } from "@/lib/basis";
 
 const worker = self as unknown as Worker;
 console.log("compress worker start");
@@ -9,7 +8,6 @@ worker.addEventListener(
   async (event: MessageEvent<WorkerMessage>) => {
     console.log("compress start", event.data);
     if (event.data.type !== "compress") return;
-    await initPromise;
     const { files: _files, format, version, scale } = event.data.data;
     const files = _files.map((file) => {
       if (["DXT1"].includes(format)) {

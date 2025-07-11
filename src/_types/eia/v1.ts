@@ -17,7 +17,18 @@ export type EIAManifestV1 = {
   f: string[]; //features
   e: EIAExtension[]; //extensions
   i: EIAFileV1[]; //items
+  m?: EIASignageManifest;
 };
+
+export type EIASignageManifest = {
+  [deviceId: string]: EIASignageItem[];
+}
+
+export type EIASignageItem = {
+  f: string; // file name
+  t: string; // transition
+  d: number; // duration
+}
 
 export type EIAFileV1 = EIAFileV1Master | EIAFileV1Cropped;
 

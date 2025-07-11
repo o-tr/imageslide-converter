@@ -2,6 +2,7 @@ import type {
   EIAFileV1,
   EIAFileV1CroppedPart as EIAFileV1CroppedPart,
   EIAManifestV1 as EIAManifestV1,
+  EIASignageManifest,
 } from "@/_types/eia/v1";
 import type { RawImageObjV1Cropped } from "@/_types/text-zip/v1";
 import { FileSizeLimit } from "@/const/convert";
@@ -9,6 +10,7 @@ import lz4 from "lz4js";
 
 export const compressEIAv1 = async (
   data: RawImageObjV1Cropped[],
+  signage?: EIASignageManifest,
   count = 1,
   stepSize = 10,
 ): Promise<Buffer[]> => {
@@ -17,10 +19,10 @@ export const compressEIAv1 = async (
 
   for (let i = 0; i < count; i++) {
     const part = data.slice(i * partCount, (i + 1) * partCount);
-    const compressedPart = await compressEIAv1Part(part);
+    const compressedPart = await compressEIAv1Part(part, signage);
 
     if (compressedPart.length > FileSizeLimit) {
-      return compressEIAv1(data, count + 1);
+      return compressEIAv1(data, signage, count + 1);
     }
 
     result.push(compressedPart);
@@ -29,7 +31,7 @@ export const compressEIAv1 = async (
   return result;
 };
 
-const compressEIAv1Part = async (data: RawImageObjV1Cropped[]) => {
+const compressEIAv1Part = async (data: RawImageObjV1Cropped[], signage?: EIASignageManifest) => {
   const usedFormats = new Set<string>();
   const files: EIAFileV1[] = [];
   const buffer: Buffer[] = [];
@@ -99,6 +101,7 @@ const compressEIAv1Part = async (data: RawImageObjV1Cropped[]) => {
     f: Array.from(usedFormats).map((format) => `Format:${format}`),
     e: ["note"],
     i: files,
+    m: signage
   };
 
   const encodedBuffer = Buffer.concat([Buffer.from(`EIA^${JSON.stringify(manifest)}$`),...buffer,]);
