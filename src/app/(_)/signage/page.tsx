@@ -15,6 +15,8 @@ import {
 import SlideRow from "./SlideRow";
 import TransitionRow from "./TransitionRow";
 import { SignboardConfig, TransitionType } from "./types";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 const transitionTypes: { label: string; value: TransitionType }[] = [
   { label: "なし", value: "None" },
@@ -202,6 +204,31 @@ function SignboardEditorPage() {
     }));
   };
 
+  function SlideRowSortable({
+    id,
+    children,
+    disabled,
+  }: {
+    id: string;
+    children: React.ReactElement;
+    disabled?: boolean;
+  }) {
+    const { attributes, listeners, setNodeRef, transform, isDragging } = useSortable({
+      id,
+      disabled,
+    });
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      opacity: isDragging ? 0.5 : 1,
+      background: isDragging ? "#e0e7ef" : undefined,
+    };
+    return (
+      <tr ref={setNodeRef} style={style} {...attributes}>
+        {React.cloneElement(children, { dndHandle: <td {...listeners} style={{ cursor: disabled ? "default" : "grab", width: 24 }}><span title="ドラッグで並べ替え" style={{ userSelect: "none" }}>☰</span></td> })}
+      </tr>
+    );
+  }
+
   return (
     <div className="max-w-full mx-auto p-6 min-h-screen">
       <h1 className="text-2xl font-bold mb-4 dark:text-white">看板データ生成エディタ</h1>
@@ -218,15 +245,15 @@ function SignboardEditorPage() {
           <thead>
             <tr>
               <th style={{ width: 24 }}></th>
-              <th className="bg-gray-200 dark:bg-gray-700 px-4 py-2 text-left border-b dark:border-gray-600">#</th>
-              <th className="bg-gray-200 dark:bg-gray-700 px-4 py-2 text-left border-b dark:border-gray-600">表示秒数</th>
+              <th className="bg-gray-200 dark:bg-gray-700 px-4 py-2 text-left">#</th>
+              <th className="bg-gray-200 dark:bg-gray-700 px-4 py-2 text-left">表示秒数</th>
               {signboards.map((sb, sbIdx) => (
-                <th key={sbIdx} className="bg-gray-200 dark:bg-gray-700 px-4 py-2 text-left border-b dark:border-gray-600 min-w-[320px]">
+                <th key={sbIdx} className="bg-gray-200 dark:bg-gray-700 px-4 py-2 text-leftmin-w-[320px]">
                   <div className="flex items-center gap-2">
                     <input
                       value={sb.name}
                       onChange={e => renameSignboard(sbIdx, e.target.value)}
-                      className="bg-transparent w-32 text-lg font-bold outline-none border-b border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-blue-300"
+                      className="bg-transparent w-32 text-lg font-bold outline-nonedark:text-blue-300"
                     />
                     {signboards.length > 1 && (
                       <button
@@ -238,7 +265,7 @@ function SignboardEditorPage() {
                   </div>
                 </th>
               ))}
-              <th className="bg-gray-200 dark:bg-gray-700 px-4 py-2 text-left border-b dark:border-gray-600"> </th>
+              <th className="px-4 py-2 text-left"> </th>
             </tr>
           </thead>
           <DndContext
@@ -253,16 +280,18 @@ function SignboardEditorPage() {
               <tbody>
                 {signboards[0].slides.map((_, idx) => (
                   <React.Fragment key={`slide-row-${idx}`}>
-                    <SlideRow
-                      idx={idx}
-                      durations={durations}
-                      signboards={signboards}
-                      handleDurationChange={handleDurationChange}
-                      handleImageChange={handleImageChange}
-                      removeSlide={removeSlide}
-                      slideCount={slideCount}
-                      getImagePreview={getImagePreview}
-                    />
+                    <SlideRowSortable id={`slide-${idx}`} disabled={slideCount === 1}>
+                      <SlideRow
+                        idx={idx}
+                        durations={durations}
+                        signboards={signboards}
+                        handleDurationChange={handleDurationChange}
+                        handleImageChange={handleImageChange}
+                        removeSlide={removeSlide}
+                        slideCount={slideCount}
+                        getImagePreview={getImagePreview}
+                      />
+                    </SlideRowSortable>
                     {idx < slideCount - 1 && (
                       <TransitionRow
                         idx={idx}
