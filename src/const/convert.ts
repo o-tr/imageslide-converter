@@ -102,6 +102,7 @@ export const TargetFormats: FormatItemType[] = [
     container: "eia-v1",
     format: "RGB24-cropped",
     estimatedCompressionRatio: 0.2,
+    signageSupport: true,
     converter: selectedFiles2EIAv1RGB24Cropped,
   },
   {
@@ -111,7 +112,8 @@ export const TargetFormats: FormatItemType[] = [
     priority: 0,
     container: "eia-v1",
     format: "RGB24-cropped-base64",
-    estimatedCompressionRatio: 0.2,
+    estimatedCompressionRatio: 0.3,
+    signageSupport: true,
     converter: selectedFiles2EIAv1RGB24CroppedBase64,
   }
 ];
