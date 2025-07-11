@@ -1,5 +1,19 @@
 "use client";
 import React, { useState } from "react";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 export type TransitionType = "None" | "SlideUp" | "SlideDown" | "SlideLeft" | "SlideRight" | "FadeIn";
 
@@ -22,6 +36,34 @@ interface SignboardConfig {
   name: string;
   slides: SlideConfig[];
   transitions: TransitionType[]; // 画像間トランジション
+}
+
+function SlideRowSortable({
+  id,
+  children,
+  disabled,
+}: {
+  id: string;
+  children: React.ReactNode;
+  disabled?: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useSortable({
+    id,
+    disabled,
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    opacity: isDragging ? 0.5 : 1,
+    background: isDragging ? "#e0e7ef" : undefined,
+  };
+  return (
+    <tr ref={setNodeRef} style={style} {...attributes}>
+      <td {...listeners} style={{ cursor: disabled ? "default" : "grab", width: 24 }}>
+        <span title="ドラッグで並べ替え" style={{ userSelect: "none" }}>☰</span>
+      </td>
+      {children}
+    </tr>
+  );
 }
 
 function SignboardEditorPage() {
@@ -167,6 +209,40 @@ function SignboardEditorPage() {
     return URL.createObjectURL(file);
   };
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 5 },
+    })
+  );
+
+  // DnDハンドラ
+  const handleDragEnd = (event: any) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const ids = signboards[0].slides.map((_, idx) => `slide-${idx}`);
+    const from = ids.indexOf(active.id);
+    const to = ids.indexOf(over.id);
+    if (from === -1 || to === -1) return;
+    setSignboards((prev) => prev.map((sb) => {
+      const newSlides = arrayMove(sb.slides, from, to);
+      let newTransitions = [...(sb.transitions || [])];
+      // transitionsの並び替えも調整
+      if (from < to) {
+        if (from < newTransitions.length) {
+          const [movedTrans] = newTransitions.splice(from, 1);
+          newTransitions.splice(to, 0, movedTrans);
+        }
+      } else if (from > to) {
+        if (to < newTransitions.length) {
+          const [movedTrans] = newTransitions.splice(from - 1, 1);
+          newTransitions.splice(to, 0, movedTrans);
+        }
+      }
+      newTransitions = newTransitions.slice(0, newSlides.length);
+      return { ...sb, slides: newSlides, transitions: newTransitions };
+    }));
+  };
+
   return (
     <div className="max-w-full mx-auto p-6 min-h-screen">
       <h1 className="text-2xl font-bold mb-4 dark:text-white">看板データ生成エディタ</h1>
@@ -182,6 +258,7 @@ function SignboardEditorPage() {
         <table className="min-w-fit border-separate border-spacing-0">
           <thead>
             <tr>
+              <th style={{ width: 24 }}></th>
               <th className="bg-gray-200 dark:bg-gray-700 px-4 py-2 text-left border-b dark:border-gray-600">#</th>
               <th className="bg-gray-200 dark:bg-gray-700 px-4 py-2 text-left border-b dark:border-gray-600">表示秒数</th>
               {signboards.map((sb, sbIdx) => (
@@ -202,87 +279,91 @@ function SignboardEditorPage() {
                   </div>
                 </th>
               ))}
+              <th className="bg-gray-200 dark:bg-gray-700 px-4 py-2 text-left border-b dark:border-gray-600"> </th>
             </tr>
           </thead>
-          <tbody>
-            {Array.from({ length: slideCount }).map((_, idx) => (
-              <React.Fragment key={idx}>
-                <tr className="align-top">
-                  <td className="bg-gray-100 dark:bg-gray-800 px-2 py-2 border-b dark:border-gray-700 text-center font-bold">{idx + 1}</td>
-                  <td className="bg-gray-100 dark:bg-gray-800 px-2 py-2 border-b dark:border-gray-700">
-                    <input
-                      type="number"
-                      min={1}
-                      value={durations[idx]}
-                      onChange={(e) => handleDurationChange(idx, e.target.value)}
-                      className="border rounded px-2 py-1 w-16 dark:bg-gray-900 dark:text-white dark:border-gray-600"
-                    />
-                  </td>
-                  {signboards.map((sb, sbIdx) => (
-                    <td key={sbIdx} className="bg-white dark:bg-gray-900 px-2 py-2 border-b dark:border-gray-700">
-                      <div className="flex flex-col gap-2">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => handleImageChange(sbIdx, idx, e.target.files && e.target.files[0] ? e.target.files[0] : null)}
-                          className="dark:text-gray-200"
-                        />
-                        {sb.slides[idx]?.image && (
-                          <img
-                            src={getImagePreview(sb.slides[idx].image)}
-                            alt="preview"
-                            className="w-24 h-16 object-cover border dark:border-gray-600"
-                          />
-                        )}
-                        <div className="flex gap-1 mt-2">
-                          <button
-                            onClick={() => moveSlide(sbIdx, idx, idx - 1)}
-                            disabled={idx === 0}
-                            className="px-2 py-1 border rounded disabled:opacity-50 dark:bg-gray-700 dark:text-white dark:border-gray-600"
-                          >↑</button>
-                          <button
-                            onClick={() => moveSlide(sbIdx, idx, idx + 1)}
-                            disabled={idx === sb.slides.length - 1}
-                            className="px-2 py-1 border rounded disabled:opacity-50 dark:bg-gray-700 dark:text-white dark:border-gray-600"
-                          >↓</button>
-                        </div>
-                      </div>
-                    </td>
-                  ))}
-                  <td className="bg-gray-100 dark:bg-gray-800 px-2 py-2 border-b dark:border-gray-700 align-middle">
-                    <button
-                      onClick={() => removeSlide(idx)}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={signboards[0].slides.map((_, idx) => `slide-${idx}`)}
+              strategy={verticalListSortingStrategy}
+            >
+              <tbody>
+                {signboards[0].slides.map((_, idx) => (
+                  <React.Fragment key={`slide-row-${idx}`}>
+                    <SlideRowSortable
+                      id={`slide-${idx}`}
                       disabled={slideCount === 1}
-                      className="px-2 py-1 border rounded text-red-600 disabled:opacity-50 dark:bg-gray-700 dark:text-red-400 dark:border-gray-600"
-                    >一括削除</button>
-                  </td>
-                </tr>
-                {/* 画像間トランジション行 */}
-                <tr className="align-middle">
-                  <td colSpan={2} className="bg-yellow-50 dark:bg-yellow-900 px-2 py-2 border-b dark:border-gray-700 text-center text-xs font-semibold">
-                    <span className="text-yellow-700 dark:text-yellow-200">
-                      {idx < slideCount - 1
-                        ? `↓ ${idx + 1}枚目と${idx + 2}枚目の間のトランジション`
-                        : `↓ ${idx + 1}枚目の後のトランジション`}
-                    </span>
-                  </td>
-                  {signboards.map((sb, sbIdx) => (
-                    <td key={sbIdx} className="bg-yellow-50 dark:bg-yellow-900 px-2 py-2 border-b dark:border-gray-700 text-center">
-                      <select
-                        value={sb.transitions[idx] || "None"}
-                        onChange={(e) => handleTransitionChangeBetween(sbIdx, idx, e.target.value as TransitionType)}
-                        className="border rounded px-2 py-1 dark:bg-gray-900 dark:text-white dark:border-gray-600"
-                      >
-                        {transitionTypes.map((t) => (
-                          <option key={t.value} value={t.value}>{t.label}</option>
+                    >
+                      <td className="bg-gray-100 dark:bg-gray-800 px-2 py-2 border-b dark:border-gray-700 text-center font-bold">{idx + 1}</td>
+                      <td className="bg-gray-100 dark:bg-gray-800 px-2 py-2 border-b dark:border-gray-700">
+                        <input
+                          type="number"
+                          min={1}
+                          value={durations[idx]}
+                          onChange={(e) => handleDurationChange(idx, e.target.value)}
+                          className="border rounded px-2 py-1 w-16 dark:bg-gray-900 dark:text-white dark:border-gray-600"
+                        />
+                      </td>
+                      {signboards.map((sb, sbIdx) => (
+                        <td key={sbIdx} className="bg-white dark:bg-gray-900 px-2 py-2 border-b dark:border-gray-700">
+                          <div className="flex flex-col gap-2">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => handleImageChange(sbIdx, idx, e.target.files && e.target.files[0] ? e.target.files[0] : null)}
+                              className="dark:text-gray-200"
+                            />
+                            {sb.slides[idx]?.image && (
+                              <img
+                                src={getImagePreview(sb.slides[idx].image)}
+                                alt="preview"
+                                className="w-24 h-16 object-cover border dark:border-gray-600"
+                              />
+                            )}
+                          </div>
+                        </td>
+                      ))}
+                      <td className="bg-gray-100 dark:bg-gray-800 px-2 py-2 border-b dark:border-gray-700 align-middle">
+                        <button
+                          onClick={() => removeSlide(idx)}
+                          disabled={slideCount === 1}
+                          className="px-2 py-1 border rounded text-red-600 disabled:opacity-50 dark:bg-gray-700 dark:text-red-400 dark:border-gray-600"
+                        >一括削除</button>
+                      </td>
+                    </SlideRowSortable>
+                    {/* トランジション行を各スライド行の直後に表示 */}
+                    {idx < slideCount - 1 && (
+                      <tr className="align-middle" key={`transition-row-${idx}`}>
+                        <td colSpan={3} className="bg-yellow-50 dark:bg-yellow-900 px-2 py-2 border-b dark:border-gray-700 text-center text-xs font-semibold">
+                          <span className="text-yellow-700 dark:text-yellow-200">
+                            ↓ {idx + 1}枚目と{idx + 2}枚目の間のトランジション
+                          </span>
+                        </td>
+                        {signboards.map((sb, sbIdx) => (
+                          <td key={sbIdx} className="bg-yellow-50 dark:bg-yellow-900 px-2 py-2 border-b dark:border-gray-700 text-center">
+                            <select
+                              value={sb.transitions[idx] || "None"}
+                              onChange={(e) => handleTransitionChangeBetween(sbIdx, idx, e.target.value as TransitionType)}
+                              className="border rounded px-2 py-1 dark:bg-gray-900 dark:text-white dark:border-gray-600"
+                            >
+                              {transitionTypes.map((t) => (
+                                <option key={t.value} value={t.value}>{t.label}</option>
+                              ))}
+                            </select>
+                          </td>
                         ))}
-                      </select>
-                    </td>
-                  ))}
-                </tr>
-              </React.Fragment>
-            ))}
-          </tbody>
+                        <td></td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </SortableContext>
+          </DndContext>
         </table>
         <div className="mt-4">
           <button
