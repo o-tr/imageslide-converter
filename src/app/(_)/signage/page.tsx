@@ -1,4 +1,8 @@
 "use client";
+import type { EIASignageItem, EIASignageManifest } from "@/_types/eia/v1";
+import type { SelectedFile } from "@/_types/file-picker";
+import { SignageConvertAtom } from "@/atoms/signage-convert";
+import { img2selectedFiles } from "@/lib/file2selectedFiles/img2selectedFiles";
 import {
   DndContext,
   type DragEndEvent,
@@ -14,10 +18,12 @@ import {
 } from "@dnd-kit/sortable";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { useSetAtom } from "jotai";
+import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 import SlideRow from "./SlideRow";
 import TransitionRow from "./TransitionRow";
-import type { SignboardConfig, TransitionType } from "./types";
+import type { SignboardConfig, SlideConfig, TransitionType } from "./types";
 
 const transitionTypes: { label: string; value: TransitionType }[] = [
   { label: "なし", value: "None" },
@@ -28,35 +34,27 @@ const transitionTypes: { label: string; value: TransitionType }[] = [
   { label: "フェードイン", value: "FadeIn" },
 ];
 
+const createSignboardImage = (): SlideConfig => ({
+  id: crypto.randomUUID(),
+  file: null,
+  duration: 5,
+  transition: "None",
+});
+
 function SignboardEditorPage() {
   const [signboards, setSignboards] = useState<SignboardConfig[]>([
     {
       name: "看板1",
-      slides: [{ image: null, duration: 5, transition: "None" }],
-      transitions: [],
+      slides: [createSignboardImage()],
     },
   ]);
+  const setSignageConvert = useSetAtom(SignageConvertAtom);
+  const router = useRouter();
 
   const slideCount = signboards[0]?.slides.length || 1;
   const durations = signboards[0]?.slides.map((s) => s.duration) || [5];
 
-  // スライド数に合わせて各看板のtransitions配列を調整
-  React.useEffect(() => {
-    setSignboards((prev) =>
-      prev.map((sb) => {
-        let transitions = sb.transitions || [];
-        if (slideCount > transitions.length) {
-          transitions = [
-            ...transitions,
-            ...Array(slideCount - transitions.length).fill("None"),
-          ];
-        } else if (slideCount < transitions.length) {
-          transitions = transitions.slice(0, slideCount);
-        }
-        return { ...sb, transitions };
-      }),
-    );
-  }, [slideCount]);
+  // transitions配列の管理は不要になったため削除
 
   // 看板操作
   const addSignboard = () => {
@@ -64,14 +62,8 @@ function SignboardEditorPage() {
       ...signboards,
       {
         name: `看板${signboards.length + 1}`,
-        slides: Array.from({ length: slideCount }, (_, i) => ({
-          image: null,
-          duration: durations[i] ?? 5,
-          transition: "None",
-        })),
-        transitions: Array.from(
-          { length: Math.max(slideCount - 1, 0) },
-          () => "None",
+        slides: Array.from({ length: slideCount }, (_, i) =>
+          createSignboardImage(),
         ),
       },
     ]);
@@ -93,17 +85,10 @@ function SignboardEditorPage() {
       const insertIdx = atIdx !== undefined ? atIdx : prev[0].slides.length;
       return prev.map((sb) => {
         const newSlides = [...sb.slides];
-        newSlides.splice(insertIdx, 0, {
-          image: null,
-          duration: 5,
-          transition: "None",
-        });
-        const newTransitions = [...(sb.transitions || [])];
-        newTransitions.splice(insertIdx, 0, "None");
+        newSlides.splice(insertIdx, 0, createSignboardImage());
         return {
           ...sb,
           slides: newSlides,
-          transitions: newTransitions.slice(0, newSlides.length - 1),
         };
       });
     });
@@ -114,48 +99,26 @@ function SignboardEditorPage() {
     setSignboards((prev) =>
       prev.map((sb) => {
         const newSlides = sb.slides.filter((_, i) => i !== idx);
-        const newTransitions = (sb.transitions || []).filter(
-          (_, i) => i !== idx && i !== newSlides.length,
-        );
         return {
           ...sb,
           slides: newSlides,
-          transitions: newTransitions.slice(0, newSlides.length),
         };
       }),
     );
   };
   // 並び替え（看板ごとに独立）
+  // 並び替え（スライドのみ）
   const moveSlide = (signboardIdx: number, from: number, to: number) => {
     if (to < 0 || to >= signboards[signboardIdx].slides.length) return;
     setSignboards((prev) => {
       const newBoards = [...prev];
       const sb = newBoards[signboardIdx];
-      // スライド入れ替え
       const newSlides = [...sb.slides];
       const [movedSlide] = newSlides.splice(from, 1);
       newSlides.splice(to, 0, movedSlide);
-      // トランジションも前後を正しく入れ替え
-      let newTransitions = [...(sb.transitions || [])];
-      if (from < to) {
-        // 下に移動: fromの後ろのトランジションをfromの前に持ってくる
-        if (from < newTransitions.length) {
-          const [movedTrans] = newTransitions.splice(from, 1);
-          newTransitions.splice(to, 0, movedTrans);
-        }
-      } else if (from > to) {
-        // 上に移動: toの前のトランジションをtoの後ろに持ってくる
-        if (to < newTransitions.length) {
-          const [movedTrans] = newTransitions.splice(from - 1, 1);
-          newTransitions.splice(to, 0, movedTrans);
-        }
-      }
-      // transitions配列の長さを調整
-      newTransitions = newTransitions.slice(0, newSlides.length);
       newBoards[signboardIdx] = {
         ...sb,
         slides: newSlides,
-        transitions: newTransitions,
       };
       return newBoards;
     });
@@ -172,23 +135,26 @@ function SignboardEditorPage() {
     );
   };
   // 値の編集
-  const handleImageChange = (
+  const handleImageChange = async (
     signboardIdx: number,
     idx: number,
     file: File | null,
   ) => {
+    const selectedFiles = file
+      ? await img2selectedFiles(file).then((files) => files[0])
+      : null;
     setSignboards((prev) => {
       const newBoards = [...prev];
       newBoards[signboardIdx] = {
         ...newBoards[signboardIdx],
         slides: newBoards[signboardIdx].slides.map((s, i) =>
-          i === idx ? { ...s, image: file } : s,
+          i === idx ? { ...s, file: selectedFiles } : s,
         ),
       };
       return newBoards;
     });
   };
-  // トランジション個別編集
+  // トランジション個別編集（slides[idx].transitionを直接更新）
   const handleTransitionChangeBetween = (
     sbIdx: number,
     idx: number,
@@ -199,8 +165,8 @@ function SignboardEditorPage() {
         i === sbIdx
           ? {
               ...sb,
-              transitions: sb.transitions.map((t, j) =>
-                j === idx ? value : t,
+              slides: sb.slides.map((s, j) =>
+                j === idx ? { ...s, transition: value } : s,
               ),
             }
           : sb,
@@ -209,14 +175,7 @@ function SignboardEditorPage() {
   };
   // 設定データ取得用
   const getConfig = () => {
-    return signboards.map((sb) => ({
-      name: sb.name,
-      slides: sb.slides.map((s) => ({
-        image: s.image,
-        duration: s.duration,
-        transition: s.transition,
-      })),
-    }));
+    return signboards;
   };
   // 画像プレビュー用
   const getImagePreview = (file: File | null): string | undefined => {
@@ -241,21 +200,7 @@ function SignboardEditorPage() {
     setSignboards((prev) =>
       prev.map((sb) => {
         const newSlides = arrayMove(sb.slides, from, to);
-        let newTransitions = [...(sb.transitions || [])];
-        // transitionsの並び替えも調整
-        if (from < to) {
-          if (from < newTransitions.length) {
-            const [movedTrans] = newTransitions.splice(from, 1);
-            newTransitions.splice(to, 0, movedTrans);
-          }
-        } else if (from > to) {
-          if (to < newTransitions.length) {
-            const [movedTrans] = newTransitions.splice(from - 1, 1);
-            newTransitions.splice(to, 0, movedTrans);
-          }
-        }
-        newTransitions = newTransitions.slice(0, newSlides.length);
-        return { ...sb, slides: newSlides, transitions: newTransitions };
+        return { ...sb, slides: newSlides };
       }),
     );
   };
@@ -343,7 +288,7 @@ function SignboardEditorPage() {
                         className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 ml-2"
                         title="看板を削除"
                       >
-                        ×
+                        削除
                       </button>
                     )}
                   </div>
@@ -380,7 +325,7 @@ function SignboardEditorPage() {
                         getImagePreview={getImagePreview}
                       />
                     </SlideRowSortable>
-                    {idx < slideCount - 1 && (
+                    {slideCount > 1 && (
                       <TransitionRow
                         idx={idx}
                         signboards={signboards}
@@ -411,7 +356,21 @@ function SignboardEditorPage() {
           type="button"
           onClick={() => {
             const config = getConfig();
-            alert(JSON.stringify(config, null, 2));
+            const manfiest: EIASignageManifest = config.reduce((acc, sb) => {
+              acc[sb.name] = sb.slides.map<EIASignageItem>((slide, idx) => ({
+                f: `${idx}`,
+                t: slide.transition,
+                d: slide.duration,
+              }));
+              return acc;
+            }, {} as EIASignageManifest);
+            setSignageConvert({
+              signage: manfiest,
+              files: config
+                .flatMap((sb) => sb.slides.map((slide) => slide.file))
+                .filter((file): file is SelectedFile => file !== null),
+            });
+            router.push("/signage/convert");
           }}
           className="px-4 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600"
         >

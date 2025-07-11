@@ -9,7 +9,7 @@ const keyframeInterval = 10;
 
 export const selectedFiles2EIAv1RGB24Cropped = async (
   selectedFiles: SelectedFile[],
-  signage: EIASignageManifest,
+  signage?: EIASignageManifest,
 ): Promise<Buffer[]> => {
   const rawImages = selectedFiles.map<RawImageObjV1>((file, index) => ({
     index,

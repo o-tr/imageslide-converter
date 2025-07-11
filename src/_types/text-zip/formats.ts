@@ -40,7 +40,7 @@ export type FormatItemType = {
       signageSupport: true;
       converter: (
         selectedFiles: SelectedFile[],
-        signage: EIASignageManifest,
+        signage?: EIASignageManifest,
       ) => Promise<string[] | Buffer[]>;
     }
   | {

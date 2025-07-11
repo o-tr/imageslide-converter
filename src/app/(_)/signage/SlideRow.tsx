@@ -1,4 +1,5 @@
 import type React from "react";
+import { Preview } from "../convert/pick/_components/FileList/Preview";
 import type { SignboardConfig } from "./types";
 
 interface SlideRowProps {
@@ -51,20 +52,12 @@ const SlideRow: React.FC<SlideRowProps> = ({
               type="file"
               accept="image/*"
               onChange={(e) =>
-                handleImageChange(
-                  sbIdx,
-                  idx,
-                  e.target.files?.[0] ? e.target.files[0] : null,
-                )
+                handleImageChange(sbIdx, idx, e.target.files?.[0] || null)
               }
               className="dark:text-gray-200"
             />
-            {sb.slides[idx]?.image && (
-              <img
-                src={getImagePreview(sb.slides[idx].image)}
-                alt="preview"
-                className="w-24 h-16 object-cover"
-              />
+            {sb.slides[idx]?.file && (
+              <Preview canvas={sb.slides[idx].file.canvas} />
             )}
           </div>
         </td>
@@ -76,7 +69,7 @@ const SlideRow: React.FC<SlideRowProps> = ({
           disabled={slideCount === 1}
           className="px-2 py-1 rounded text-red-600 disabled:opacity-50 dark:bg-gray-700 dark:text-red-400"
         >
-          一括削除
+          削除
         </button>
       </td>
     </>

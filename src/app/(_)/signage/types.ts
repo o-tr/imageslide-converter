@@ -1,7 +1,16 @@
-export type TransitionType = "None" | "SlideUp" | "SlideDown" | "SlideLeft" | "SlideRight" | "FadeIn";
+import type { SelectedFile } from "@/_types/file-picker";
+
+export type TransitionType =
+  | "None"
+  | "SlideUp"
+  | "SlideDown"
+  | "SlideLeft"
+  | "SlideRight"
+  | "FadeIn";
 
 export interface SlideConfig {
-  image: File | null;
+  id: string;
+  file: SelectedFile | null;
   duration: number;
   transition: TransitionType;
 }
@@ -9,5 +18,4 @@ export interface SlideConfig {
 export interface SignboardConfig {
   name: string;
   slides: SlideConfig[];
-  transitions: TransitionType[];
 }

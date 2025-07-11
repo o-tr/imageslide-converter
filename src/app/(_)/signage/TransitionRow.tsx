@@ -26,7 +26,7 @@ const TransitionRow: React.FC<TransitionRowProps> = ({
         <td key={sbIdx} className="text-center">
           <div className="py-2">
             <select
-              value={sb.transitions[idx] || "None"}
+              value={sb.slides[idx]?.transition || "None"}
               onChange={(e) =>
                 handleTransitionChangeBetween(
                   sbIdx,
