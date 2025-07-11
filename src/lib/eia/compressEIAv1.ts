@@ -1,7 +1,7 @@
 import type {
   EIAFileV1,
-  EIAFileV1CroppedPart as EIAFileV1CroppedPart,
-  EIAManifestV1 as EIAManifestV1,
+  EIAFileV1CroppedPart,
+  EIAManifestV1,
   EIASignageManifest,
 } from "@/_types/eia/v1";
 import type { RawImageObjV1Cropped } from "@/_types/text-zip/v1";
@@ -31,7 +31,10 @@ export const compressEIAv1 = async (
   return result;
 };
 
-const compressEIAv1Part = async (data: RawImageObjV1Cropped[], signage?: EIASignageManifest) => {
+const compressEIAv1Part = async (
+  data: RawImageObjV1Cropped[],
+  signage?: EIASignageManifest,
+) => {
   const usedFormats = new Set<string>();
   const files: EIAFileV1[] = [];
   const buffer: Buffer[] = [];
@@ -73,11 +76,11 @@ const compressEIAv1Part = async (data: RawImageObjV1Cropped[], signage?: EIASign
       });
       fileBufferLength += rect.buffer.length;
     }
-    
+
     const mergedBuffer = Buffer.concat(fileBuffer);
     const compressed = Buffer.from(lz4.compress(mergedBuffer));
     buffer.push(compressed);
-    
+
     files.push({
       t: "c",
       b: `${image.cropped.baseIndex}`,
@@ -101,10 +104,13 @@ const compressEIAv1Part = async (data: RawImageObjV1Cropped[], signage?: EIASign
     f: Array.from(usedFormats).map((format) => `Format:${format}`),
     e: ["note"],
     i: files,
-    m: signage
+    m: signage,
   };
 
-  const encodedBuffer = Buffer.concat([Buffer.from(`EIA^${JSON.stringify(manifest)}$`),...buffer,]);
-  
+  const encodedBuffer = Buffer.concat([
+    Buffer.from(`EIA^${JSON.stringify(manifest)}$`),
+    ...buffer,
+  ]);
+
   return encodedBuffer;
 };

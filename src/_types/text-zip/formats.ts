@@ -1,5 +1,5 @@
 import type { SelectedFile } from "@/_types/file-picker";
-import { EIASignageManifest } from "../eia/v1";
+import type { EIASignageManifest } from "../eia/v1";
 
 export const ContainerFormat = ["text-zip-v0", "text-zip-v1", "eia-v1"];
 
@@ -35,10 +35,18 @@ export type FormatItemType = {
   container: TContainerFormat;
   format: TTextureFormat;
   estimatedCompressionRatio?: number;
-} & ({
-  signageSupport: true;
-  converter: (selectedFiles: SelectedFile[], signage: EIASignageManifest) => Promise<string[]|Buffer[]>;
-} | {
-  signageSupport?: false;
-  converter: (selectedFiles: SelectedFile[]) => Promise<string[]|Buffer[]>;
-});
+} & (
+  | {
+      signageSupport: true;
+      converter: (
+        selectedFiles: SelectedFile[],
+        signage: EIASignageManifest,
+      ) => Promise<string[] | Buffer[]>;
+    }
+  | {
+      signageSupport?: false;
+      converter: (
+        selectedFiles: SelectedFile[],
+      ) => Promise<string[] | Buffer[]>;
+    }
+);
