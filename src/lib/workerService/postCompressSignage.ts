@@ -5,7 +5,7 @@ import type { WorkerMessage, WorkerResponse } from "@/_types/worker";
 
 const worker = (
   typeof window !== "undefined"
-    ? new Worker(new URL("../../worker/compress.ts", import.meta.url))
+    ? new Worker(new URL("../../worker/compressSignage.ts", import.meta.url))
     : undefined
 ) as Worker;
 
@@ -16,7 +16,7 @@ export const postCompressSignage = (
   version: number,
   scale: number,
 ): Promise<string[] | Buffer[]> => {
-  console.log("postCompress");
+  console.log("postCompressSignage");
   const message: WorkerMessage = {
     type: "compress-signage",
     data: {
@@ -31,12 +31,13 @@ export const postCompressSignage = (
       })),
     },
   };
-  console.log("postCompress", message);
+  console.log("postCompressSignage", message);
   return new Promise<string[] | Buffer[]>((resolve) => {
     worker.addEventListener(
       "message",
       (event: MessageEvent<WorkerResponse>) => {
         if (event.data.type !== "compress-signage") return;
+        console.log("postCompressSignage response", event.data);
         resolve(event.data.data);
       },
     );

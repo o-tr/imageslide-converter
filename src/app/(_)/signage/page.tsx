@@ -1,6 +1,7 @@
 "use client";
 import type { EIASignageItem, EIASignageManifest } from "@/_types/eia/v1";
 import type { SelectedFile } from "@/_types/file-picker";
+import { SelectedFilesAtom } from "@/atoms/file-drop";
 import { SignageConvertAtom } from "@/atoms/signage-convert";
 import { img2selectedFiles } from "@/lib/file2selectedFiles/img2selectedFiles";
 import {
@@ -49,6 +50,7 @@ function SignboardEditorPage() {
     },
   ]);
   const setSignageConvert = useSetAtom(SignageConvertAtom);
+  const setSelectedFiles = useSetAtom(SelectedFilesAtom);
   const router = useRouter();
 
   const slideCount = signboards[0]?.slides.length || 1;
@@ -364,12 +366,14 @@ function SignboardEditorPage() {
               }));
               return acc;
             }, {} as EIASignageManifest);
+            const files = config
+              .flatMap((sb) => sb.slides.map((slide) => slide.file))
+              .filter((file): file is SelectedFile => file !== null);
             setSignageConvert({
               signage: manfiest,
-              files: config
-                .flatMap((sb) => sb.slides.map((slide) => slide.file))
-                .filter((file): file is SelectedFile => file !== null),
+              files: files,
             });
+            setSelectedFiles(files);
             router.push("/signage/convert");
           }}
           className="px-4 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600"
