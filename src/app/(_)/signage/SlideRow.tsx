@@ -1,3 +1,4 @@
+import { DndImageFilePicker } from "@/components/DndImageFilePicker";
 import type React from "react";
 import { Preview } from "../convert/pick/_components/FileList/Preview";
 import type { SignboardConfig } from "./types";
@@ -26,7 +27,6 @@ const SlideRow: React.FC<SlideRowProps> = ({
   handleImageChange,
   removeSlide,
   slideCount,
-  getImagePreview,
   dndHandle,
 }) => {
   return (
@@ -35,7 +35,7 @@ const SlideRow: React.FC<SlideRowProps> = ({
       <td className="bg-gray-100 dark:bg-gray-800 px-2 py-2 text-center font-bold">
         {idx + 1}
       </td>
-      <td className="bg-gray-100 dark:bg-gray-800 px-2 py-2 ">
+      <td className="bg-gray-100 dark:bg-gray-800 px-2 py-2">
         <input
           type="number"
           min={1}
@@ -46,20 +46,13 @@ const SlideRow: React.FC<SlideRowProps> = ({
       </td>
       {signboards.map((sb, sbIdx) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: <explanation>
-        <td key={sbIdx} className="bg-white dark:bg-gray-900 px-2 py-2">
-          <div className="flex flex-col gap-2">
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) =>
-                handleImageChange(sbIdx, idx, e.target.files?.[0] || null)
-              }
-              className="dark:text-gray-200"
-            />
-            {sb.slides[idx]?.file && (
-              <Preview canvas={sb.slides[idx].file.canvas} />
-            )}
-          </div>
+        <td key={sbIdx} className="bg-white dark:bg-gray-900">
+          <DndImageFilePicker
+            onSelect={(file) => handleImageChange(sbIdx, idx, file)}
+            accept="image/*"
+            showPreview
+            selectedFile={sb.slides[idx]?.file || undefined}
+          />
         </td>
       ))}
       <td className="bg-gray-100 dark:bg-gray-800 px-2 py-2 align-middle">

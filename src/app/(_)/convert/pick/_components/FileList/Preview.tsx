@@ -1,5 +1,5 @@
 import { Spin } from "antd";
-import { type FC, useEffect, useRef, useState } from "react";
+import { type FC, useEffect, useState } from "react";
 
 export const Preview: FC<{ canvas: OffscreenCanvas }> = ({ canvas }) => {
   const [url, setUrl] = useState<string>();
@@ -11,10 +11,10 @@ export const Preview: FC<{ canvas: OffscreenCanvas }> = ({ canvas }) => {
   }, [canvas]);
 
   return (
-    <div className={"w-128 text-center"}>
+    <div className={"w-[128px] h-[128px] text-center"}>
       {url ? (
         <img
-          className={"object-contain max-h-32 max-w-32"}
+          className={"object-contain w-full h-full"}
           src={url}
           alt={"preview"}
         />
