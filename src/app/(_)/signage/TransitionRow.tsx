@@ -1,3 +1,10 @@
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type React from "react";
 import type { SignboardConfig, TransitionType } from "./types";
 
@@ -21,29 +28,38 @@ const TransitionRow: React.FC<TransitionRowProps> = ({
   return (
     <tr className="align-middle" key={`transition-row-${idx}`}>
       <td colSpan={2} className="px-2 py-2 text-center text-xs font-semibold" />
-      {signboards.signboards.map((sb, sbIdx) => (
-        <td key={sb.id} className="text-center">
-          <div className="py-2">
-            <select
-              value={signboards.rows[idx]?.images[sbIdx]?.transition || "None"}
-              onChange={(e) =>
-                handleTransitionChangeBetween(
-                  sbIdx,
-                  idx,
-                  e.target.value as TransitionType,
-                )
-              }
-              className="border rounded px-2 py-1 dark:bg-gray-900 dark:text-white dark:border-gray-600"
-            >
-              {transitionTypes.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </td>
-      ))}
+      {signboards.signboards.map((sb, sbIdx) => {
+        const value = signboards.rows[idx]?.images[sbIdx]?.transition || "None";
+        const label =
+          transitionTypes.find((t) => t.value === value)?.label || "None";
+        return (
+          <td key={sb.id} className="text-center">
+            <div className="flex justify-center items-center py-2">
+              <Select
+                value={value}
+                onValueChange={(value) =>
+                  handleTransitionChangeBetween(
+                    sbIdx,
+                    idx,
+                    value as TransitionType,
+                  )
+                }
+              >
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder={label} />
+                </SelectTrigger>
+                <SelectContent>
+                  {transitionTypes.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>
+                      {t.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </td>
+        );
+      })}
       <td />
     </tr>
   );

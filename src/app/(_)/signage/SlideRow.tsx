@@ -34,7 +34,7 @@ const SlideRow: React.FC<SlideRowProps> = ({
         {idx + 1}
       </td>
       <td className="bg-gray-100 dark:bg-gray-800 px-2 py-2">
-        <input
+        <Input
           type="number"
           min={1}
           value={durations[idx]}
@@ -76,6 +76,7 @@ const SlideRow: React.FC<SlideRowProps> = ({
 // 画像セルDND用コンポーネント
 import type { SelectedFile } from "@/_types/file-picker";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Trash } from "lucide-react";
 import { useId } from "react";
 type DraggableImageCellProps = {

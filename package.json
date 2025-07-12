@@ -25,6 +25,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@formkit/tempo": "^0.1.2",
     "@prisma/client": "5.18.0",
+    "@radix-ui/react-select": "^2.2.5",
     "@radix-ui/react-slot": "^1.2.3",
     "@types/lz4js": "^0.2.1",
     "antd": "^5.21.6",

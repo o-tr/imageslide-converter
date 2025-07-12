@@ -4,6 +4,7 @@ import type { SelectedFile } from "@/_types/file-picker";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
 import { SignageConvertAtom } from "@/atoms/signage-convert";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { img2selectedFiles } from "@/lib/file2selectedFiles/img2selectedFiles";
 import {
   DndContext,
@@ -292,13 +293,12 @@ function SignboardEditorPage() {
               {config.signboards.map((sb, sbIdx) => (
                 <th
                   key={sb.id}
-                  className="bg-gray-200 dark:bg-gray-700 px-4 py-2 text-leftmin-w-[320px]"
+                  className="bg-gray-200 dark:bg-gray-700 text-leftmin-w-[320px]"
                 >
                   <div className="flex justify-between items-center">
-                    <input
+                    <Input
                       value={sb.name}
                       onChange={(e) => renameSignboard(sbIdx, e.target.value)}
-                      className="bg-transparent w-32 text-lg font-bold outline-nonedark:text-blue-300"
                     />
                     {config.signboards.length > 1 && (
                       <Button
