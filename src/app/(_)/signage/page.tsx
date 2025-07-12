@@ -12,13 +12,6 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import {
-  SortableContext,
-  arrayMove,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import { useSetAtom } from "jotai";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
@@ -43,98 +36,119 @@ const createSignboardImage = (): SlideConfig => ({
 });
 
 function SignboardEditorPage() {
-  const [signboards, setSignboards] = useState<SignboardConfig[]>([
-    {
-      name: "看板1",
-      slides: [createSignboardImage()],
-    },
-  ]);
+  const [config, setConfig] = useState<SignboardConfig>({
+    signboards: [{ name: "看板1" }],
+    rows: [
+      {
+        id: crypto.randomUUID(),
+        rowIndex: 0,
+        images: [createSignboardImage()],
+      },
+    ],
+  });
   const setSignageConvert = useSetAtom(SignageConvertAtom);
   const setSelectedFiles = useSetAtom(SelectedFilesAtom);
   const router = useRouter();
 
-  const slideCount = signboards[0]?.slides.length || 1;
-  const durations = signboards[0]?.slides.map((s) => s.duration) || [5];
+  const slideCount = config.rows.length;
+  const durations = config.rows.map((row) => row.images[0]?.duration || 5);
 
   // transitions配列の管理は不要になったため削除
 
   // 看板操作
   const addSignboard = () => {
-    setSignboards([
-      ...signboards,
-      {
-        name: `看板${signboards.length + 1}`,
-        slides: Array.from({ length: slideCount }, (_, i) =>
-          createSignboardImage(),
-        ),
-      },
-    ]);
+    setConfig((prev) => ({
+      ...prev,
+      signboards: [
+        ...prev.signboards,
+        { name: `看板${prev.signboards.length + 1}` },
+      ],
+      rows: prev.rows.map((row) => ({
+        ...row,
+        images: [...row.images, createSignboardImage()],
+      })),
+    }));
   };
   const removeSignboard = (idx: number) => {
-    if (signboards.length === 1) return;
-    setSignboards(signboards.filter((_, i) => i !== idx));
+    if (config.signboards.length === 1) return;
+    setConfig((prev) => ({
+      ...prev,
+      signboards: prev.signboards.filter((_, i) => i !== idx),
+      rows: prev.rows.map((row) => ({
+        ...row,
+        images: row.images.filter((_, i) => i !== idx),
+      })),
+    }));
   };
   const renameSignboard = (idx: number, name: string) => {
-    const newBoards = [...signboards];
-    newBoards[idx].name = name;
-    setSignboards(newBoards);
+    setConfig((prev) => ({
+      ...prev,
+      signboards: prev.signboards.map((sb, i) =>
+        i === idx ? { ...sb, name } : sb,
+      ),
+    }));
   };
 
   // スライド操作
   // 画像追加
   const addSlide = (atIdx?: number) => {
-    setSignboards((prev) => {
-      const insertIdx = atIdx !== undefined ? atIdx : prev[0].slides.length;
-      return prev.map((sb) => {
-        const newSlides = [...sb.slides];
-        newSlides.splice(insertIdx, 0, createSignboardImage());
-        return {
-          ...sb,
-          slides: newSlides,
-        };
-      });
+    setConfig((prev) => {
+      const insertIdx = atIdx !== undefined ? atIdx : prev.rows.length;
+      const newRow = {
+        id: crypto.randomUUID(),
+        rowIndex: insertIdx,
+        images: Array.from({ length: prev.signboards.length }, () =>
+          createSignboardImage(),
+        ),
+      };
+      const newRows = [...prev.rows];
+      newRows.splice(insertIdx, 0, newRow);
+      // rowIndexを再調整
+      return {
+        ...prev,
+        rows: newRows.map((row, i) => ({ ...row, rowIndex: i })),
+      };
     });
   };
   // 画像削除（全看板一括）
   const removeSlide = (idx: number) => {
     if (slideCount === 1) return;
-    setSignboards((prev) =>
-      prev.map((sb) => {
-        const newSlides = sb.slides.filter((_, i) => i !== idx);
-        return {
-          ...sb,
-          slides: newSlides,
-        };
-      }),
-    );
+    setConfig((prev) => ({
+      ...prev,
+      rows: prev.rows
+        .filter((_, i) => i !== idx)
+        .map((row, i) => ({ ...row, rowIndex: i })),
+    }));
   };
-  // 並び替え（看板ごとに独立）
   // 並び替え（スライドのみ）
   const moveSlide = (signboardIdx: number, from: number, to: number) => {
-    if (to < 0 || to >= signboards[signboardIdx].slides.length) return;
-    setSignboards((prev) => {
-      const newBoards = [...prev];
-      const sb = newBoards[signboardIdx];
-      const newSlides = [...sb.slides];
-      const [movedSlide] = newSlides.splice(from, 1);
-      newSlides.splice(to, 0, movedSlide);
-      newBoards[signboardIdx] = {
-        ...sb,
-        slides: newSlides,
+    if (to < 0 || to >= config.rows.length) return;
+    setConfig((prev) => {
+      const newRows = [...prev.rows];
+      const [movedRow] = newRows.splice(from, 1);
+      newRows.splice(to, 0, movedRow);
+      return {
+        ...prev,
+        rows: newRows.map((row, i) => ({ ...row, rowIndex: i })),
       };
-      return newBoards;
     });
   };
   // 秒数一括編集
   const handleDurationChange = (idx: number, value: string) => {
-    setSignboards((prev) =>
-      prev.map((sb) => ({
-        ...sb,
-        slides: sb.slides.map((s, i) =>
-          i === idx ? { ...s, duration: Number(value) } : s,
-        ),
-      })),
-    );
+    setConfig((prev) => ({
+      ...prev,
+      rows: prev.rows.map((row, i) =>
+        i === idx
+          ? {
+              ...row,
+              images: row.images.map((img) => ({
+                ...img,
+                duration: Number(value),
+              })),
+            }
+          : row,
+      ),
+    }));
   };
   // 値の編集
   const handleImageChange = async (
@@ -145,16 +159,19 @@ function SignboardEditorPage() {
     const selectedFiles = file
       ? await img2selectedFiles(file).then((files) => files[0])
       : null;
-    setSignboards((prev) => {
-      const newBoards = [...prev];
-      newBoards[signboardIdx] = {
-        ...newBoards[signboardIdx],
-        slides: newBoards[signboardIdx].slides.map((s, i) =>
-          i === idx ? { ...s, file: selectedFiles } : s,
-        ),
-      };
-      return newBoards;
-    });
+    setConfig((prev) => ({
+      ...prev,
+      rows: prev.rows.map((row, i) =>
+        i === idx
+          ? {
+              ...row,
+              images: row.images.map((img, j) =>
+                j === signboardIdx ? { ...img, file: selectedFiles } : img,
+              ),
+            }
+          : row,
+      ),
+    }));
   };
   // トランジション個別編集（slides[idx].transitionを直接更新）
   const handleTransitionChangeBetween = (
@@ -162,22 +179,62 @@ function SignboardEditorPage() {
     idx: number,
     value: TransitionType,
   ) => {
-    setSignboards((prev) =>
-      prev.map((sb, i) =>
-        i === sbIdx
+    setConfig((prev) => ({
+      ...prev,
+      rows: prev.rows.map((row, i) =>
+        i === idx
           ? {
-              ...sb,
-              slides: sb.slides.map((s, j) =>
-                j === idx ? { ...s, transition: value } : s,
+              ...row,
+              images: row.images.map((img, j) =>
+                j === sbIdx ? { ...img, transition: value } : img,
               ),
             }
-          : sb,
+          : row,
       ),
-    );
+    }));
+  };
+  // 画像単位DND
+  const swapImages = (fromId: string, toRow: number, toCol: number) => {
+    console.log("swapImages_rot", fromId, toRow, toCol);
+    setConfig((prev) => {
+      const newRows = [...prev.rows];
+      const { fromFile, fromCol, fromRow } = (() => {
+        for (let row = 0; row < newRows.length; row++) {
+          const col = newRows[row].images.findIndex((img) => img.id === fromId);
+          if (col !== -1) {
+            return {
+              fromFile: newRows[row].images[col],
+              fromCol: col,
+              fromRow: row,
+            };
+          }
+        }
+        return { fromFile: null, fromCol: -1, fromRow: -1 };
+      })();
+      console.log(
+        `from: ${fromId} at (${fromRow}, ${fromCol}), to: (${toRow}, ${toCol})`,
+      );
+      if (!fromFile) {
+        console.error("File not found for id:", fromId, prev);
+        return prev;
+      }
+      if (fromCol === toCol && fromRow === toRow) {
+        console.log("No swap needed, same position", prev);
+        return prev;
+      }
+      const toFile = newRows[toRow].images[toCol];
+      newRows[fromRow].images[fromCol] = toFile;
+      newRows[toRow].images[toCol] = fromFile;
+      console.log("swapImages", fromRow, fromCol, toRow, toCol);
+      console.log("fromFile", fromFile);
+      console.log("toFile", toFile);
+      console.log("newRows", newRows);
+      return { ...prev, rows: newRows };
+    });
   };
   // 設定データ取得用
   const getConfig = () => {
-    return signboards;
+    return config;
   };
   // 画像プレビュー用
   const getImagePreview = (file: File | null): string | undefined => {
@@ -191,58 +248,27 @@ function SignboardEditorPage() {
     }),
   );
 
-  // DnDハンドラ
+  // 画像セル単位DND: セルidからrow,colを特定しswapImages
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const ids = signboards[0].slides.map((_, idx) => `slide-${idx}`);
-    const from = ids.indexOf(active.id.toString());
-    const to = ids.indexOf(over.id.toString());
-    if (from === -1 || to === -1) return;
-    setSignboards((prev) =>
-      prev.map((sb) => {
-        const newSlides = arrayMove(sb.slides, from, to);
-        return { ...sb, slides: newSlides };
-      }),
-    );
-  };
-
-  function SlideRowSortable({
-    id,
-    children,
-    disabled,
-  }: {
-    id: string;
-    children: React.ReactElement;
-    disabled?: boolean;
-  }) {
-    const { attributes, listeners, setNodeRef, transform, isDragging } =
-      useSortable({
-        id,
-        disabled,
-      });
-    const style = {
-      transform: CSS.Transform.toString(transform),
-      opacity: isDragging ? 0.5 : 1,
-      background: isDragging ? "#e0e7ef" : undefined,
+    // id: cell-row-col
+    const parseId = (id: string) => {
+      const m = id.match(/^cell-(\d+)-(\d+)$/);
+      if (!m) return null;
+      return { row: Number(m[1]), col: Number(m[2]) };
     };
-    return (
-      <tr ref={setNodeRef} style={style} {...attributes}>
-        {React.cloneElement(children, {
-          dndHandle: (
-            <td
-              {...listeners}
-              style={{ cursor: disabled ? "default" : "grab", width: 24 }}
-            >
-              <span title="ドラッグで並べ替え" style={{ userSelect: "none" }}>
-                ☰
-              </span>
-            </td>
-          ),
-        })}
-      </tr>
-    );
-  }
+    const fromElem = document.getElementById(String(active.id));
+    const overElem = document.getElementById(String(over.id));
+    if (!fromElem || !overElem) return;
+    const fromId = fromElem.getAttribute("data-item-id");
+    const overRow = overElem.getAttribute("data-item-row");
+    const overCol = overElem.getAttribute("data-item-col");
+    if (!fromId || !overRow || !overCol) {
+      return;
+    }
+    swapImages(fromId, Number.parseInt(overRow), Number.parseInt(overCol));
+  };
 
   return (
     <div className="max-w-full mx-auto p-6 min-h-screen">
@@ -264,14 +290,13 @@ function SignboardEditorPage() {
         <table className="min-w-fit border-separate border-spacing-0">
           <thead>
             <tr>
-              <th style={{ width: 24 }} />
               <th className="bg-gray-200 dark:bg-gray-700 px-4 py-2 text-left">
                 #
               </th>
               <th className="bg-gray-200 dark:bg-gray-700 px-4 py-2 text-left">
                 表示秒数
               </th>
-              {signboards.map((sb, sbIdx) => (
+              {config.signboards.map((sb, sbIdx) => (
                 <th
                   // biome-ignore lint/suspicious/noArrayIndexKey: <explanation>
                   key={sbIdx}
@@ -283,7 +308,7 @@ function SignboardEditorPage() {
                       onChange={(e) => renameSignboard(sbIdx, e.target.value)}
                       className="bg-transparent w-32 text-lg font-bold outline-nonedark:text-blue-300"
                     />
-                    {signboards.length > 1 && (
+                    {config.signboards.length > 1 && (
                       <button
                         type="button"
                         onClick={() => removeSignboard(sbIdx)}
@@ -304,43 +329,32 @@ function SignboardEditorPage() {
             collisionDetection={closestCenter}
             onDragEnd={handleDragEnd}
           >
-            <SortableContext
-              items={signboards[0].slides.map((_, idx) => `slide-${idx}`)}
-              strategy={verticalListSortingStrategy}
-            >
-              <tbody>
-                {signboards[0].slides.map((_, idx) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: <explanation>
-                  <React.Fragment key={`slide-row-${idx}`}>
-                    <SlideRowSortable
-                      id={`slide-${idx}`}
-                      disabled={slideCount === 1}
-                    >
-                      <SlideRow
-                        idx={idx}
-                        durations={durations}
-                        signboards={signboards}
-                        handleDurationChange={handleDurationChange}
-                        handleImageChange={handleImageChange}
-                        removeSlide={removeSlide}
-                        slideCount={slideCount}
-                        getImagePreview={getImagePreview}
-                      />
-                    </SlideRowSortable>
-                    {slideCount > 1 && (
-                      <TransitionRow
-                        idx={idx}
-                        signboards={signboards}
-                        handleTransitionChangeBetween={
-                          handleTransitionChangeBetween
-                        }
-                        transitionTypes={transitionTypes}
-                      />
-                    )}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </SortableContext>
+            <tbody>
+              {config.rows.map((row, rowIdx) => (
+                <React.Fragment key={row.id}>
+                  <SlideRow
+                    idx={rowIdx}
+                    durations={durations}
+                    signboards={config}
+                    handleDurationChange={handleDurationChange}
+                    handleImageChange={handleImageChange}
+                    removeSlide={removeSlide}
+                    slideCount={slideCount}
+                    getImagePreview={getImagePreview}
+                  />
+                  {slideCount > 1 && (
+                    <TransitionRow
+                      idx={rowIdx}
+                      signboards={config}
+                      handleTransitionChangeBetween={
+                        handleTransitionChangeBetween
+                      }
+                      transitionTypes={transitionTypes}
+                    />
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
           </DndContext>
         </table>
         <div className="mt-4">
@@ -357,20 +371,25 @@ function SignboardEditorPage() {
         <button
           type="button"
           onClick={() => {
-            const config = getConfig();
-            const manfiest: EIASignageManifest = config.reduce((acc, sb) => {
-              acc[sb.name] = sb.slides.map<EIASignageItem>((slide, idx) => ({
-                f: `${idx}`,
-                t: slide.transition,
-                d: slide.duration,
-              }));
-              return acc;
-            }, {} as EIASignageManifest);
-            const files = config
-              .flatMap((sb) => sb.slides.map((slide) => slide.file))
+            const configData = getConfig();
+            const manifest: EIASignageManifest = configData.signboards.reduce(
+              (acc, sb, sbIdx) => {
+                acc[sb.name] = configData.rows.map<EIASignageItem>(
+                  (row, idx) => ({
+                    f: `${idx}`,
+                    t: row.images[sbIdx]?.transition || "None",
+                    d: row.images[sbIdx]?.duration || 5,
+                  }),
+                );
+                return acc;
+              },
+              {} as EIASignageManifest,
+            );
+            const files = configData.rows
+              .flatMap((row) => row.images.map((img) => img.file))
               .filter((file): file is SelectedFile => file !== null);
             setSignageConvert({
-              signage: manfiest,
+              signage: manifest,
               files: files,
             });
             setSelectedFiles(files);

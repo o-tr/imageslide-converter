@@ -16,6 +16,12 @@ export interface SlideConfig {
 }
 
 export interface SignboardConfig {
-  name: string;
-  slides: SlideConfig[];
+  signboards: {
+    name: string;
+  }[];
+  rows: {
+    id: string;
+    rowIndex: number;
+    images: SlideConfig[];
+  }[];
 }

@@ -3,7 +3,7 @@ import type { SignboardConfig, TransitionType } from "./types";
 
 interface TransitionRowProps {
   idx: number;
-  signboards: SignboardConfig[];
+  signboards: SignboardConfig;
   handleTransitionChangeBetween: (
     sbIdx: number,
     idx: number,
@@ -20,13 +20,13 @@ const TransitionRow: React.FC<TransitionRowProps> = ({
 }) => {
   return (
     <tr className="align-middle" key={`transition-row-${idx}`}>
-      <td colSpan={3} className="px-2 py-2 text-center text-xs font-semibold" />
-      {signboards.map((sb, sbIdx) => (
+      <td colSpan={2} className="px-2 py-2 text-center text-xs font-semibold" />
+      {signboards.signboards.map((sb, sbIdx) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: <explanation>
         <td key={sbIdx} className="text-center">
           <div className="py-2">
             <select
-              value={sb.slides[idx]?.transition || "None"}
+              value={signboards.rows[idx]?.images[sbIdx]?.transition || "None"}
               onChange={(e) =>
                 handleTransitionChangeBetween(
                   sbIdx,
