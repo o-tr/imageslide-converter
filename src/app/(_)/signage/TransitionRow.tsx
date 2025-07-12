@@ -22,8 +22,7 @@ const TransitionRow: React.FC<TransitionRowProps> = ({
     <tr className="align-middle" key={`transition-row-${idx}`}>
       <td colSpan={2} className="px-2 py-2 text-center text-xs font-semibold" />
       {signboards.signboards.map((sb, sbIdx) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: <explanation>
-        <td key={sbIdx} className="text-center">
+        <td key={sb.id} className="text-center">
           <div className="py-2">
             <select
               value={signboards.rows[idx]?.images[sbIdx]?.transition || "None"}

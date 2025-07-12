@@ -37,7 +37,7 @@ const createSignboardImage = (): SlideConfig => ({
 
 function SignboardEditorPage() {
   const [config, setConfig] = useState<SignboardConfig>({
-    signboards: [{ name: "看板1" }],
+    signboards: [{ name: "看板1", id: crypto.randomUUID() }],
     rows: [
       {
         id: crypto.randomUUID(),
@@ -61,7 +61,7 @@ function SignboardEditorPage() {
       ...prev,
       signboards: [
         ...prev.signboards,
-        { name: `看板${prev.signboards.length + 1}` },
+        { id: crypto.randomUUID(), name: `看板${prev.signboards.length + 1}` },
       ],
       rows: prev.rows.map((row) => ({
         ...row,
@@ -252,12 +252,6 @@ function SignboardEditorPage() {
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    // id: cell-row-col
-    const parseId = (id: string) => {
-      const m = id.match(/^cell-(\d+)-(\d+)$/);
-      if (!m) return null;
-      return { row: Number(m[1]), col: Number(m[2]) };
-    };
     const fromElem = document.getElementById(String(active.id));
     const overElem = document.getElementById(String(over.id));
     if (!fromElem || !overElem) return;
@@ -298,8 +292,7 @@ function SignboardEditorPage() {
               </th>
               {config.signboards.map((sb, sbIdx) => (
                 <th
-                  // biome-ignore lint/suspicious/noArrayIndexKey: <explanation>
-                  key={sbIdx}
+                  key={sb.id}
                   className="bg-gray-200 dark:bg-gray-700 px-4 py-2 text-leftmin-w-[320px]"
                 >
                   <div className="flex items-center gap-2">
