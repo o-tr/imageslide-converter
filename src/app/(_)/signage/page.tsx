@@ -15,7 +15,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { useSetAtom } from "jotai";
-import { Trash } from "lucide-react";
+import { PlusCircle, Trash } from "lucide-react";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 import SlideRow from "./SlideRow";
@@ -266,35 +266,21 @@ function SignboardEditorPage() {
 
   return (
     <div className="max-w-full mx-auto p-6 min-h-screen">
-      <h1 className="text-2xl font-bold mb-4 dark:text-white">
-        看板データ生成エディタ
-      </h1>
-      {/* 看板追加ボタン */}
+      <h1 className="text-2xl font-bold mb-4">看板データ生成エディタ</h1>
       <div className="mb-6 flex gap-2">
-        <button
-          type="button"
-          onClick={addSignboard}
-          className="px-3 py-2 bg-blue-600 text-white rounded shadow hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
-        >
-          ＋看板追加
-        </button>
+        <Button onClick={addSignboard} variant={"outline"}>
+          <PlusCircle /> 看板追加
+        </Button>
       </div>
       {/* テーブル型グリッド */}
       <div className="overflow-x-auto">
         <table className="min-w-fit border-separate border-spacing-0">
           <thead>
             <tr>
-              <th className="bg-gray-200 dark:bg-gray-700 px-4 py-2 text-left">
-                #
-              </th>
-              <th className="bg-gray-200 dark:bg-gray-700 px-4 py-2 text-left">
-                表示秒数
-              </th>
+              <th className="px-4 py-2 text-left">#</th>
+              <th className="px-4 py-2 text-left">表示秒数</th>
               {config.signboards.map((sb, sbIdx) => (
-                <th
-                  key={sb.id}
-                  className="bg-gray-200 dark:bg-gray-700 text-leftmin-w-[320px]"
-                >
+                <th key={sb.id} className="text-left min-w-[320px]">
                   <div className="flex justify-between items-center">
                     <Input
                       value={sb.name}
@@ -313,7 +299,7 @@ function SignboardEditorPage() {
                   </div>
                 </th>
               ))}
-              <th className="px-4 py-2 text-left"> </th>
+              <th className="px-4 py-2 text-left" />
             </tr>
           </thead>
           <DndContext
@@ -350,18 +336,14 @@ function SignboardEditorPage() {
           </DndContext>
         </table>
         <div className="mt-4">
-          <button
-            type="button"
-            onClick={() => addSlide()}
-            className="px-4 py-2 bg-blue-600 text-white rounded shadow hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
-          >
+          <Button onClick={() => addSlide()} variant={"outline"}>
+            <PlusCircle />
             画像を追加
-          </button>
+          </Button>
         </div>
       </div>
       <div className="mt-8">
-        <button
-          type="button"
+        <Button
           onClick={() => {
             const configData = getConfig();
             const manifest: EIASignageManifest = configData.signboards.reduce(
@@ -387,10 +369,9 @@ function SignboardEditorPage() {
             setSelectedFiles(files);
             router.push("/signage/convert");
           }}
-          className="px-4 py-2 bg-green-600 text-white rounded shadow hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600"
         >
           設定データを取得
-        </button>
+        </Button>
       </div>
     </div>
   );

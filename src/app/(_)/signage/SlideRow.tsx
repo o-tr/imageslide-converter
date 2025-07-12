@@ -30,16 +30,14 @@ const SlideRow: React.FC<SlideRowProps> = ({
 }) => {
   return (
     <>
-      <td className="bg-gray-100 dark:bg-gray-800 px-2 py-2 text-center font-bold">
-        {idx + 1}
-      </td>
-      <td className="bg-gray-100 dark:bg-gray-800 px-2 py-2">
+      <td className="px-2 py-2 text-center font-bold">{idx + 1}</td>
+      <td className="px-2 py-2">
         <Input
           type="number"
           min={1}
           value={durations[idx]}
           onChange={(e) => handleDurationChange(idx, e.target.value)}
-          className="rounded px-2 py-1 w-16 dark:bg-gray-900 dark:text-white"
+          className="rounded px-2 py-1 w-16"
         />
       </td>
 
@@ -58,7 +56,7 @@ const SlideRow: React.FC<SlideRowProps> = ({
           />
         );
       })}
-      <td className="bg-gray-100 dark:bg-gray-800 px-2 py-2 align-middle">
+      <td className="px-2 py-2 align-middle">
         <Button
           type="button"
           onClick={() => removeSlide(idx)}
@@ -116,7 +114,6 @@ const DraggableImageCell: React.FC<DraggableImageCellProps> = ({
   };
   return (
     <td
-      className="bg-white dark:bg-gray-900"
       id={id}
       ref={setRefs}
       style={style}
