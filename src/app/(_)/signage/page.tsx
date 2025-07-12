@@ -3,6 +3,7 @@ import type { EIASignageItem, EIASignageManifest } from "@/_types/eia/v1";
 import type { SelectedFile } from "@/_types/file-picker";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
 import { SignageConvertAtom } from "@/atoms/signage-convert";
+import { Button } from "@/components/ui/button";
 import { img2selectedFiles } from "@/lib/file2selectedFiles/img2selectedFiles";
 import {
   DndContext,
@@ -13,6 +14,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { useSetAtom } from "jotai";
+import { Trash } from "lucide-react";
 import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 import SlideRow from "./SlideRow";
@@ -225,10 +227,6 @@ function SignboardEditorPage() {
       const toFile = newRows[toRow].images[toCol];
       newRows[fromRow].images[fromCol] = toFile;
       newRows[toRow].images[toCol] = fromFile;
-      console.log("swapImages", fromRow, fromCol, toRow, toCol);
-      console.log("fromFile", fromFile);
-      console.log("toFile", toFile);
-      console.log("newRows", newRows);
       return { ...prev, rows: newRows };
     });
   };
@@ -295,21 +293,21 @@ function SignboardEditorPage() {
                   key={sb.id}
                   className="bg-gray-200 dark:bg-gray-700 px-4 py-2 text-leftmin-w-[320px]"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex justify-between items-center">
                     <input
                       value={sb.name}
                       onChange={(e) => renameSignboard(sbIdx, e.target.value)}
                       className="bg-transparent w-32 text-lg font-bold outline-nonedark:text-blue-300"
                     />
                     {config.signboards.length > 1 && (
-                      <button
+                      <Button
                         type="button"
                         onClick={() => removeSignboard(sbIdx)}
-                        className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 ml-2"
-                        title="看板を削除"
+                        variant={"destructive"}
+                        size={"sm"}
                       >
-                        削除
-                      </button>
+                        <Trash />
+                      </Button>
                     )}
                   </div>
                 </th>
