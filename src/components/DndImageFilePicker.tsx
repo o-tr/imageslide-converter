@@ -24,16 +24,18 @@ export const DndImageFilePicker: FC<Props> = ({
       htmlFor={id}
       className={`block outline-none ${isDraggingOver ? "ring-2 ring-blue-500" : "ring-1 ring-gray-300"} rounded grid items-center justify-items-center cursor-pointer h-[150px]`}
       onDragOver={(e) => {
+        e.preventDefault();
         setIsDraggingOver(true);
       }}
       onDragLeave={() => setIsDraggingOver(false)}
       onDrop={(e) => {
+        e.preventDefault();
         setIsDraggingOver(false);
         const file = e.dataTransfer.files[0];
+        console.log(e, file?.type);
         if (!file?.type.startsWith("image/")) {
           return;
         }
-        e.preventDefault();
         onSelect(file);
       }}
     >
