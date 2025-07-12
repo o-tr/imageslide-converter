@@ -33,7 +33,6 @@ const transitionTypes: { label: string; value: TransitionType }[] = [
 const createSignboardImage = (): SlideConfig => ({
   id: crypto.randomUUID(),
   file: null,
-  duration: 5,
   transition: "None",
 });
 
@@ -44,6 +43,7 @@ function SignboardEditorPage() {
       {
         id: crypto.randomUUID(),
         rowIndex: 0,
+        duration: 10,
         images: [createSignboardImage()],
       },
     ],
@@ -53,7 +53,7 @@ function SignboardEditorPage() {
   const router = useRouter();
 
   const slideCount = config.rows.length;
-  const durations = config.rows.map((row) => row.images[0]?.duration || 5);
+  const durations = config.rows.map((row) => row.duration);
 
   // transitions配列の管理は不要になったため削除
 
@@ -99,6 +99,7 @@ function SignboardEditorPage() {
       const newRow = {
         id: crypto.randomUUID(),
         rowIndex: insertIdx,
+        duration: 10,
         images: Array.from({ length: prev.signboards.length }, () =>
           createSignboardImage(),
         ),
@@ -369,7 +370,7 @@ function SignboardEditorPage() {
                   (row, idx) => ({
                     f: `${idx}`,
                     t: row.images[sbIdx]?.transition || "None",
-                    d: row.images[sbIdx]?.duration || 5,
+                    d: row.duration,
                   }),
                 );
                 return acc;

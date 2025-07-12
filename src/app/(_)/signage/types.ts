@@ -11,7 +11,6 @@ export type TransitionType =
 export interface SlideConfig {
   id: string;
   file: SelectedFile | null;
-  duration: number;
   transition: TransitionType;
 }
 
@@ -23,6 +22,7 @@ export interface SignboardConfig {
   rows: {
     id: string;
     rowIndex: number;
+    duration: number;
     images: SlideConfig[];
   }[];
 }
