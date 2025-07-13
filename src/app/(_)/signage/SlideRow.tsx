@@ -17,7 +17,6 @@ interface SlideRowProps {
   ) => void;
   removeSlide: (idx: number) => void;
   slideCount: number;
-  getImagePreview: (file: File | null) => string | undefined;
 }
 
 const SlideRow: React.FC<SlideRowProps> = ({

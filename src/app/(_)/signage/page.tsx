@@ -124,19 +124,6 @@ function SignboardEditorPage() {
         .map((row, i) => ({ ...row, rowIndex: i })),
     }));
   };
-  // 並び替え（スライドのみ）
-  const _moveSlide = (_signboardIdx: number, from: number, to: number) => {
-    if (to < 0 || to >= config.rows.length) return;
-    setConfig((prev) => {
-      const newRows = [...prev.rows];
-      const [movedRow] = newRows.splice(from, 1);
-      newRows.splice(to, 0, movedRow);
-      return {
-        ...prev,
-        rows: newRows.map((row, i) => ({ ...row, rowIndex: i })),
-      };
-    });
-  };
   // 秒数一括編集
   const handleDurationChange = (idx: number, value: number) => {
     setConfig((prev) => ({
@@ -217,11 +204,6 @@ function SignboardEditorPage() {
       newRows[toRow].images[toCol] = fromFile;
       return { ...prev, rows: newRows };
     });
-  };
-  // 画像プレビュー用
-  const getImagePreview = (file: File | null): string | undefined => {
-    if (!file) return undefined;
-    return URL.createObjectURL(file);
   };
 
   const sensors = useSensors(
@@ -305,7 +287,6 @@ function SignboardEditorPage() {
                     handleImageChange={handleImageChange}
                     removeSlide={removeSlide}
                     slideCount={slideCount}
-                    getImagePreview={getImagePreview}
                   />
                   {slideCount > 1 && (
                     <TransitionRow
