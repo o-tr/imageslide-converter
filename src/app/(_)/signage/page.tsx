@@ -139,13 +139,12 @@ function SignboardEditorPage() {
   };
   // 秒数一括編集
   const handleDurationChange = (idx: number, value: number) => {
-    setConfig((prev) => {
-      const targetRow = prev.rows[idx];
-      targetRow.duration = value;
-      return {
-        ...prev,
-      };
-    });
+    setConfig((prev) => ({
+      ...prev,
+      rows: prev.rows.map((row, i) =>
+        i === idx ? { ...row, duration: value } : row,
+      ),
+    }));
   };
   // 値の編集
   const handleImageChange = async (
@@ -218,10 +217,6 @@ function SignboardEditorPage() {
       newRows[toRow].images[toCol] = fromFile;
       return { ...prev, rows: newRows };
     });
-  };
-  // 設定データ取得用
-  const getConfig = () => {
-    return config;
   };
   // 画像プレビュー用
   const getImagePreview = (file: File | null): string | undefined => {
@@ -337,21 +332,18 @@ function SignboardEditorPage() {
       <div className="mt-8">
         <Button
           onClick={() => {
-            const configData = getConfig();
-            const manifest: EIASignageManifest = configData.signboards.reduce(
+            const manifest: EIASignageManifest = config.signboards.reduce(
               (acc, sb, sbIdx) => {
-                acc[sb.name] = configData.rows.map<EIASignageItem>(
-                  (row, idx) => ({
-                    f: `${idx}`,
-                    t: row.images[sbIdx]?.transition || "None",
-                    d: row.duration,
-                  }),
-                );
+                acc[sb.name] = config.rows.map<EIASignageItem>((row, idx) => ({
+                  f: `${idx}`,
+                  t: row.images[sbIdx]?.transition || "None",
+                  d: row.duration,
+                }));
                 return acc;
               },
               {} as EIASignageManifest,
             );
-            const files = configData.rows
+            const files = config.rows
               .flatMap((row) => row.images.map((img) => img.file))
               .filter((file): file is SelectedFile => file !== null);
             setSignageConvert({

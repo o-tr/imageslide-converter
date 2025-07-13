@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Input } from "./ui/input";
 
 export const NumericInput: React.FC<{
@@ -10,6 +10,10 @@ export const NumericInput: React.FC<{
   type: "integer" | "float";
 }> = ({ value, onChange, min = 1, max = 100, step = 1, type }) => {
   const [inputValue, setInputValue] = useState(value.toString());
+
+  useEffect(() => {
+    setInputValue(value.toString());
+  }, [value]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;

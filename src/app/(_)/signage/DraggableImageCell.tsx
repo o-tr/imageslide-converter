@@ -30,7 +30,11 @@ export const DraggableImageCell: React.FC<DraggableImageCellProps> = ({
   const style: React.CSSProperties = {
     cursor: "grab",
     opacity: isDragging ? 0.5 : 1,
-    background: isOver ? "#facc15" : isDragging ? "#e0e7ef" : undefined,
+    background: isOver
+      ? "hsl(var(--chart-4))"
+      : isDragging
+        ? "hsl(var(--muted))"
+        : undefined,
     transform: transform
       ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
       : undefined,
