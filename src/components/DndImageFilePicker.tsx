@@ -32,7 +32,6 @@ export const DndImageFilePicker: FC<Props> = ({
         e.preventDefault();
         setIsDraggingOver(false);
         const file = e.dataTransfer.files[0];
-        console.log(e, file?.type);
         if (!file?.type.startsWith("image/")) {
           return;
         }

@@ -192,7 +192,6 @@ function SignboardEditorPage() {
   };
   // 画像単位DND
   const swapImages = (fromId: string, toRow: number, toCol: number) => {
-    console.log("swapImages_rot", fromId, toRow, toCol);
     setConfig((prev) => {
       const newRows = [...prev.rows];
       const { fromFile, fromCol, fromRow } = (() => {
@@ -208,15 +207,10 @@ function SignboardEditorPage() {
         }
         return { fromFile: null, fromCol: -1, fromRow: -1 };
       })();
-      console.log(
-        `from: ${fromId} at (${fromRow}, ${fromCol}), to: (${toRow}, ${toCol})`,
-      );
       if (!fromFile) {
-        console.error("File not found for id:", fromId, prev);
         return prev;
       }
       if (fromCol === toCol && fromRow === toRow) {
-        console.log("No swap needed, same position", prev);
         return prev;
       }
       const toFile = newRows[toRow].images[toCol];
