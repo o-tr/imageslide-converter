@@ -7,11 +7,7 @@ import { type FC, type ReactNode, useEffect } from "react";
 
 export const ThemeProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const isDarkMode = useAtomValue(ThemeIsDarkAtom);
-  const { setTheme } = useTheme();
   const { defaultAlgorithm, darkAlgorithm } = theme;
-  useEffect(() => {
-    setTheme(isDarkMode ? "dark" : "light");
-  }, [isDarkMode, setTheme]);
   return (
     <ConfigProvider
       theme={{
@@ -25,7 +21,17 @@ export const ThemeProvider: FC<{ children: ReactNode }> = ({ children }) => {
         disableTransitionOnChange
       >
         {children}
+        <ThemeSync />
       </NextThemesProvider>
     </ConfigProvider>
   );
+};
+
+const ThemeSync = () => {
+  const { setTheme } = useTheme();
+  const isDarkMode = useAtomValue(ThemeIsDarkAtom);
+  useEffect(() => {
+    setTheme(isDarkMode ? "dark" : "light");
+  }, [isDarkMode, setTheme]);
+  return null;
 };
