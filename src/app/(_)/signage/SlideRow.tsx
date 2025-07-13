@@ -8,7 +8,7 @@ interface SlideRowProps {
   idx: number;
   durations: number[];
   signboards: SignboardConfig;
-  handleDurationChange: (idx: number, value: string) => void;
+  handleDurationChange: (idx: number, value: number) => void;
   handleImageChange: (
     signboardIdx: number,
     idx: number,
@@ -32,12 +32,11 @@ const SlideRow: React.FC<SlideRowProps> = ({
     <>
       <td className="px-2 py-2 text-center font-bold">{idx + 1}</td>
       <td className="px-2 py-2">
-        <Input
-          type="number"
+        <NumericInput
+          type="integer"
           min={1}
           value={durations[idx]}
-          onChange={(e) => handleDurationChange(idx, e.target.value)}
-          className="rounded px-2 py-1 w-16"
+          onChange={(e) => handleDurationChange(idx, e)}
         />
       </td>
 
@@ -73,6 +72,7 @@ const SlideRow: React.FC<SlideRowProps> = ({
 
 // 画像セルDND用コンポーネント
 import type { SelectedFile } from "@/_types/file-picker";
+import { NumericInput } from "@/components/NumericInput";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Trash } from "lucide-react";

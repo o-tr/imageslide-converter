@@ -138,21 +138,14 @@ function SignboardEditorPage() {
     });
   };
   // 秒数一括編集
-  const handleDurationChange = (idx: number, value: string) => {
-    setConfig((prev) => ({
-      ...prev,
-      rows: prev.rows.map((row, i) =>
-        i === idx
-          ? {
-              ...row,
-              images: row.images.map((img) => ({
-                ...img,
-                duration: Number(value),
-              })),
-            }
-          : row,
-      ),
-    }));
+  const handleDurationChange = (idx: number, value: number) => {
+    setConfig((prev) => {
+      const targetRow = prev.rows[idx];
+      targetRow.duration = value;
+      return {
+        ...prev,
+      };
+    });
   };
   // 値の編集
   const handleImageChange = async (
