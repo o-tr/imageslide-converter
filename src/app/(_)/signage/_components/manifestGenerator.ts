@@ -13,40 +13,36 @@ export class ManifestGenerator {
     // 画像の重複排除: ファイルのSHA-256で一意化
     const fileMap = new Map<string, SelectedFile>();
 
-    // hash計算を先に全て行い、imgごとにhashを保持
-    const imgHashes: string[][] = [];
-    for (const row of config.rows) {
-      const rowHashes: string[] = [];
-      for (const img of row.images) {
-        if (img.file) {
-          const hash = await this.hashCache.calcFileHash(img.file);
-          rowHashes.push(hash);
-          if (!fileMap.has(hash)) {
-            fileMap.set(hash, img.file);
-          }
-        } else {
-          rowHashes.push("");
-        }
-      }
-      imgHashes.push(rowHashes);
-    }
+    // hash計算を全row・全画像で並列化し、imgごとにhashを保持
+    const imgHashes: string[][] = await Promise.all(
+      config.rows.map(async (row) => {
+        // row内の画像ごとにhash計算を並列化
+        const hashes = await Promise.all(
+          row.images.map(async (img) => {
+            if (img.file) {
+              const hash = await this.hashCache.calcFileHash(img.file);
+              if (!fileMap.has(hash)) {
+                fileMap.set(hash, img.file);
+              }
+              return hash;
+            }
+            return "";
+          }),
+        );
+        return hashes;
+      }),
+    );
 
     // files: 重複を除いたSelectedFile配列
     const files = Array.from(fileMap.values());
 
-    // hash→indexマップ
+    // hash→indexマップを同期的に構築
     const hashToIndex = new Map<string, number>();
-    files.forEach((file, idx) => {
-      this.hashCache.calcFileHash(file).then((hash) => {
-        hashToIndex.set(hash, idx);
-      });
-    });
-
-    await Promise.all(files.map((file) => this.hashCache.calcFileHash(file)));
-
-    files.forEach((file, idx) => {
-      const hash = [...fileMap.entries()].find(([, v]) => v === file)?.[0];
-      if (hash) hashToIndex.set(hash, idx);
+    const fileHashes = await Promise.all(
+      files.map((file) => this.hashCache.calcFileHash(file)),
+    );
+    fileHashes.forEach((hash, idx) => {
+      hashToIndex.set(hash, idx);
     });
 
     // manifest生成: imgHashesからfilesのindexを参照
