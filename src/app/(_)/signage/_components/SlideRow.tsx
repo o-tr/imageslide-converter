@@ -29,7 +29,7 @@ const SlideRow: React.FC<SlideRowProps> = ({
   slideCount,
 }) => {
   return (
-    <>
+    <tr>
       <td className="px-2 py-2 text-center font-bold">{idx + 1}</td>
       <td className="px-2 py-2">
         <NumericInput
@@ -66,7 +66,7 @@ const SlideRow: React.FC<SlideRowProps> = ({
           <Trash />
         </Button>
       </td>
-    </>
+    </tr>
   );
 };
 
