@@ -1,6 +1,6 @@
 import { img2selectedFiles } from "@/lib/file2selectedFiles/img2selectedFiles";
 import { useState } from "react";
-import { DEFAULT_SLIDE_DURATION } from "../constants";
+import { DEFAULT_SLIDE_DURATION } from "./constants";
 import type { SignboardConfig, TransitionType } from "./types";
 import { createSignboardImage, createUniqueId } from "./utils";
 
