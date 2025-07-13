@@ -44,8 +44,15 @@ export const DndImageFilePicker: FC<Props> = ({
         accept={accept}
         onChange={(e) => onSelect(e.target.files?.[0] || null)}
         id={id}
-        className={selectedFile ? "hidden" : ""}
+        className={"hidden"}
       />
+      {!selectedFile && (
+        <span className="text-gray-500 break-keep text-center p-2">
+          クリックして画像を選択するか、
+          <wbr />
+          ドラッグ＆ドロップしてください
+        </span>
+      )}
       {showPreview && selectedFile?.canvas && (
         <Preview canvas={selectedFile.canvas} />
       )}

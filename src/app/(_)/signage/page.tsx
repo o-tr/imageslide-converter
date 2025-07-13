@@ -271,9 +271,14 @@ function SignboardEditorPage() {
           <thead>
             <tr>
               <th className="px-4 py-2 text-left">#</th>
-              <th className="px-4 py-2 text-left">表示秒数</th>
+              <th className="px-4 py-2 text-left min-w-[100px] w-[100px] max-w-[100px]">
+                表示秒数
+              </th>
               {config.signboards.map((sb, sbIdx) => (
-                <th key={sb.id} className="text-left min-w-[320px]">
+                <th
+                  key={sb.id}
+                  className="text-left max-w-[320px] min-w-[320px] w-[320px]"
+                >
                   <div className="flex justify-between items-center">
                     <Input
                       value={sb.name}
