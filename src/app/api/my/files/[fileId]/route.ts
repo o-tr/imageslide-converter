@@ -8,7 +8,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 export const DELETE = async (
-  request: Request,
+  _request: Request,
   { params: { fileId } }: { params: { fileId: string } },
 ) => {
   const user = await getAuthorizedUser();

@@ -1,9 +1,5 @@
 import { DndImageFilePicker } from "@/components/DndImageFilePicker";
-// 画像セルDND用コンポーネント
-import { NumericInput } from "@/components/NumericInput";
-import { Button } from "@/components/ui/button";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
-import { Trash } from "lucide-react";
 import { useId } from "react";
 import type { SlideConfig } from "./types";
 type DraggableImageCellProps = {

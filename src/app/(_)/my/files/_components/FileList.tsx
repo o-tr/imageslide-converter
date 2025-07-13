@@ -49,7 +49,7 @@ export const FileList: FC = () => {
   );
 
   useEffect(() => {
-    void loadFiles().catch((e) => {
+    void loadFiles().catch((_e) => {
       void signIn("discord", { callbackUrl: "/my/files" });
     });
   }, [loadFiles]);

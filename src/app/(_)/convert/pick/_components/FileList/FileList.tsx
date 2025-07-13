@@ -23,7 +23,6 @@ import {
   type HTMLAttributes,
   createContext,
   useContext,
-  useEffect,
   useMemo,
 } from "react";
 import { MdDeleteOutline } from "react-icons/md";

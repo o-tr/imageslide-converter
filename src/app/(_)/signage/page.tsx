@@ -125,7 +125,7 @@ function SignboardEditorPage() {
     }));
   };
   // 並び替え（スライドのみ）
-  const moveSlide = (signboardIdx: number, from: number, to: number) => {
+  const _moveSlide = (_signboardIdx: number, from: number, to: number) => {
     if (to < 0 || to >= config.rows.length) return;
     setConfig((prev) => {
       const newRows = [...prev.rows];

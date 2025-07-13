@@ -41,7 +41,7 @@ const SlideRow: React.FC<SlideRowProps> = ({
         />
       </td>
 
-      {signboards.signboards.map((sb, sbIdx) => {
+      {signboards.signboards.map((_sb, sbIdx) => {
         const image = signboards.rows[idx]?.images[sbIdx];
         if (!image) {
           return null;

@@ -8,7 +8,7 @@ import { type Progress, Upload } from "@aws-sdk/lib-storage";
 import { NextResponse } from "next/server";
 
 export const POST = async (
-  request: Request,
+  _request: Request,
   { params: { fileId } }: { params: { fileId: string } },
 ) => {
   const user = await getAuthorizedUser();

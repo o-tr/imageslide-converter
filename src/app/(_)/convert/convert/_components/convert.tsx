@@ -1,5 +1,4 @@
 "use client";
-import type { TTextureConverterFormat } from "@/_types/text-zip/formats";
 import {
   ConvertFormatAtom,
   ResultAtom,
@@ -42,21 +41,19 @@ export const Convert: FC = () => {
     }
     if (initRef.current) return;
     initRef.current = true;
-    const { id, label, scale } = (() => {
-      if (_format === "auto")
-        return { id: bestFormat.id, label: bestFormat.label, scale: 1 };
+    const { id, scale } = (() => {
+      if (_format === "auto") return { id: bestFormat.id, scale: 1 };
       if (_format === "auto-one-file") {
         const scale =
           Math.floor(
             Math.min((FileSizeLimit - 1024 * 1024) / bestFormat.fileSize, 1) *
               100,
           ) / 100;
-        return { id: bestFormat.id, label: bestFormat.label, scale };
+        return { id: bestFormat.id, scale };
       }
       const format = availableFormats.find((v) => v.id === _format);
-      if (!format)
-        return { id: bestFormat.id, label: bestFormat.label, scale: 1 };
-      return { id: format.id, label: format?.label, scale: 1 };
+      if (!format) return { id: bestFormat.id, scale: 1 };
+      return { id: format.id, scale: 1 };
     })();
     postCompress(_files, id, version, scale).then((result) => {
       setResults({
