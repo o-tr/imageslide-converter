@@ -3,7 +3,7 @@ import { addDay, format } from "@formkit/tempo";
 import { NextResponse } from "next/server";
 
 export const GET = async (
-  request: Request,
+  _request: Request,
   { params: { fileId } }: { params: { fileId: string } },
 ) => {
   if (!fileId) {

@@ -1,25 +1,28 @@
+import type { EIASignageManifest } from "@/_types/eia/v1";
 import type { SelectedFile } from "@/_types/file-picker";
 import type { TTextureConverterFormat } from "@/_types/text-zip/formats";
 import type { WorkerMessage, WorkerResponse } from "@/_types/worker";
 
 const worker = (
   typeof window !== "undefined"
-    ? new Worker(new URL("../../worker/compress.ts", import.meta.url))
+    ? new Worker(new URL("../../worker/compressSignage.ts", import.meta.url))
     : undefined
 ) as Worker;
 
-export const postCompress = (
+export const postCompressSignage = (
   files: SelectedFile[],
+  signage: EIASignageManifest,
   format: TTextureConverterFormat,
   version: number,
   scale: number,
 ): Promise<string[] | Buffer[]> => {
-  console.log("postCompress");
+  console.log("postCompressSignage");
   const message: WorkerMessage = {
-    type: "compress",
+    type: "compress-signage",
     data: {
       format,
       version,
+      signage,
       scale,
       files: files.map((file) => ({
         ...file,
@@ -28,12 +31,13 @@ export const postCompress = (
       })),
     },
   };
-  console.log("postCompress", message);
+  console.log("postCompressSignage", message);
   return new Promise<string[] | Buffer[]>((resolve) => {
     worker.addEventListener(
       "message",
       (event: MessageEvent<WorkerResponse>) => {
-        if (event.data.type !== "compress") return;
+        if (event.data.type !== "compress-signage") return;
+        console.log("postCompressSignage response", event.data);
         resolve(event.data.data);
       },
     );

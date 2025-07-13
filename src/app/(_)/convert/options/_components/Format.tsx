@@ -1,7 +1,4 @@
-import {
-  type FormatItemType,
-  TContainerFormat,
-} from "@/_types/text-zip/formats";
+import type { FormatItemType } from "@/_types/text-zip/formats";
 import { ConvertFormatAtom, UsingVersionAtom } from "@/atoms/convert";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
 import { FileSizeLimit } from "@/const/convert";

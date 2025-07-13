@@ -24,7 +24,7 @@ export const URLDisplay: FC<{ fileId: string }> = ({ fileId }) => {
         }
         setFile(file);
         setUrls(result);
-      } catch (e) {
+      } catch (_e) {
         setNotFound(true);
       }
     })();
@@ -49,7 +49,7 @@ export const URLDisplay: FC<{ fileId: string }> = ({ fileId }) => {
     <>
       <h2 className={"text-xl"}>{file?.name}</h2>
       <Flex vertical>
-        {urls?.map((url, i) => (
+        {urls?.map((url, _i) => (
           <URLDisplayItem key={url} url={url} />
         ))}
         {!urls && (

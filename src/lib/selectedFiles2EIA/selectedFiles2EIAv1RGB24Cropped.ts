@@ -1,15 +1,15 @@
+import type { EIASignageManifest } from "@/_types/eia/v1";
 import type { SelectedFile } from "@/_types/file-picker";
 import type { RawImageObjV1 } from "@/_types/text-zip/v1";
 import { canvas2rgb24 } from "@/lib/canvas2rawImage/canvas2rgb24";
 import { compressEIAv1 } from "@/lib/eia/compressEIAv1";
 import { cropImages } from "../crop/cropImages";
-import { EIASignageManifest } from "@/_types/eia/v1";
 
 const keyframeInterval = 10;
 
 export const selectedFiles2EIAv1RGB24Cropped = async (
   selectedFiles: SelectedFile[],
-  signage: EIASignageManifest
+  signage?: EIASignageManifest,
 ): Promise<Buffer[]> => {
   const rawImages = selectedFiles.map<RawImageObjV1>((file, index) => ({
     index,
@@ -30,5 +30,5 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
     `after compress size: ${croppedImages.reduce((acc, cur) => acc + (cur.cropped ? cur.cropped.rects.reduce((acc, cur) => acc + cur.buffer.length, 0) : cur.buffer.length), 0)}`,
   );
 
-  return await compressEIAv1(croppedImages,signage, 1, keyframeInterval);
+  return await compressEIAv1(croppedImages, signage, 1, keyframeInterval);
 };

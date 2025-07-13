@@ -1,13 +1,7 @@
 import type { SelectedFile } from "@/_types/file-picker";
-import type { RawImageObjV1, RawImageObjV1Cropped } from "@/_types/text-zip/v1";
+import type { RawImageObjV1 } from "@/_types/text-zip/v1";
 import { canvas2rgb24 } from "@/lib/canvas2rawImage/canvas2rgb24";
-import { applyDiff } from "@/lib/crop/applyDiff";
 import { cropImages } from "@/lib/crop/cropImages";
-import { diff2boundingBox } from "@/lib/crop/diff2boundingBox";
-import { mergeOverlapBoundingBox } from "@/lib/crop/mergeOverlapBoundingBox";
-import { optimizeBoundingBox } from "@/lib/crop/optimizeBoundingBox";
-import { shrinkOverlapBoundingBox } from "@/lib/crop/shrinkOverlapBoundingBox";
-import { rgb242diff } from "@/lib/rawImage2Diff/rgb242diff";
 import { compressFileV1 } from "@/lib/text-zip/v1/compress";
 
 export const selectedFiles2v1RGB24Cropped = async (

@@ -8,7 +8,7 @@ worker.addEventListener(
   async (event: MessageEvent<WorkerMessage>) => {
     console.log("compress start", event.data);
     if (event.data.type !== "compress") return;
-    const { files: _files, format, version, scale } = event.data.data;
+    const { files: _files, format, scale } = event.data.data;
     const files = _files.map((file) => {
       if (["DXT1"].includes(format)) {
         // そのままだとノイズが目立つので2倍に拡大してから圧縮
