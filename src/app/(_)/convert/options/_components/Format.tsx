@@ -1,5 +1,9 @@
 import type { FormatItemType } from "@/_types/text-zip/formats";
-import { ConvertFormatAtom, UsingVersionAtom } from "@/atoms/convert";
+import {
+  ConvertFormatAtom,
+  TargetResolutionAtom,
+  UsingVersionAtom,
+} from "@/atoms/convert";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
 import { FileSizeLimit } from "@/const/convert";
 import { getAvailableFormats } from "@/utils/getAvailableFormats";
@@ -11,10 +15,11 @@ export const Format: FC = () => {
   const [format, setFormat] = useAtom(ConvertFormatAtom);
   const imageSlideVersion = useAtomValue(UsingVersionAtom);
   const files = useAtomValue(SelectedFilesAtom);
+  const resolution = useAtomValue(TargetResolutionAtom);
 
   const availableFormats: (FormatItemType & { fileSize: number })[] = useMemo(
-    () => getAvailableFormats(imageSlideVersion, files),
-    [files, imageSlideVersion],
+    () => getAvailableFormats(imageSlideVersion, files, resolution),
+    [files, imageSlideVersion, resolution],
   );
 
   const bestFormat = useMemo(() => {

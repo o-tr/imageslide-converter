@@ -13,6 +13,7 @@ export const postCompress = (
   format: TTextureConverterFormat,
   version: number,
   scale: number,
+  resolution: "4K" | "FHD" | "HD" | "SD",
 ): Promise<string[] | Buffer[]> => {
   console.log("postCompress");
   const message: WorkerMessage = {
@@ -21,6 +22,7 @@ export const postCompress = (
       format,
       version,
       scale,
+      resolution,
       files: files.map((file) => ({
         ...file,
         bitmap: file.canvas.transferToImageBitmap(),

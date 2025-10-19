@@ -10,6 +10,7 @@ export type WorkerMessage =
         format: TTextureConverterFormat;
         version: number;
         scale: number;
+        resolution: "4K" | "FHD" | "HD" | "SD";
       };
     }
   | {
@@ -19,6 +20,7 @@ export type WorkerMessage =
         format: TTextureConverterFormat;
         version: number;
         scale: number;
+        resolution: "4K" | "FHD" | "HD" | "SD";
         signage: EIASignageManifest;
       };
     };

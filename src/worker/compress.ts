@@ -8,7 +8,28 @@ worker.addEventListener(
   async (event: MessageEvent<WorkerMessage>) => {
     console.log("compress start", event.data);
     if (event.data.type !== "compress") return;
-    const { files: _files, format, scale } = event.data.data;
+    const { files: _files, format, scale, resolution } = event.data.data;
+
+    // 解像度に応じたスケール係数を計算
+    const getResolutionScale = (
+      resolution: "4K" | "FHD" | "HD" | "SD",
+    ): number => {
+      switch (resolution) {
+        case "4K":
+          return 1; // そのまま
+        case "FHD":
+          return Math.min(1920 / 3840, 1080 / 2160); // 1920x1080基準
+        case "HD":
+          return Math.min(1280 / 3840, 720 / 2160); // 1280x720基準
+        case "SD":
+          return Math.min(640 / 3840, 480 / 2160); // 640x480基準
+        default:
+          return 1;
+      }
+    };
+
+    const resolutionScale = getResolutionScale(resolution);
+
     const files = _files.map((file) => {
       if (["DXT1"].includes(format)) {
         // そのままだとノイズが目立つので2倍に拡大してから圧縮
@@ -28,7 +49,11 @@ worker.addEventListener(
           ?.drawImage(file.bitmap, 0, 0, canvas.width, canvas.height);
         return { ...file, canvas };
       }
-      if (scale === 1) {
+
+      // 解像度とscaleの両方を考慮した最終スケール
+      const finalScale = scale * resolutionScale;
+
+      if (finalScale === 1) {
         const canvas = new OffscreenCanvas(
           file.bitmap.width,
           file.bitmap.height,
@@ -37,8 +62,8 @@ worker.addEventListener(
         return { ...file, canvas };
       }
       const canvas = new OffscreenCanvas(
-        file.bitmap.width * scale,
-        file.bitmap.height * scale,
+        file.bitmap.width * finalScale,
+        file.bitmap.height * finalScale,
       );
       canvas
         .getContext("2d")
