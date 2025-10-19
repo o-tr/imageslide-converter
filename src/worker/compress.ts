@@ -11,9 +11,14 @@ worker.addEventListener(
     if (event.data.type !== "compress") return;
     const { files: _files, format, scale, resolution } = event.data.data;
 
-    const resolutionScale = getResolutionScale(resolution);
-
     const files = _files.map((file) => {
+      // ファイルごとにアスペクト比を維持したスケールを計算
+      const resolutionScale = getResolutionScale(
+        resolution,
+        file.bitmap.width,
+        file.bitmap.height,
+      );
+
       if (["DXT1"].includes(format)) {
         // そのままだとノイズが目立つので2倍に拡大してから圧縮
         const _width = Math.ceil((file.bitmap.width * scale * 2) / 4) * 4;
@@ -45,8 +50,8 @@ worker.addEventListener(
         return { ...file, canvas };
       }
       const canvas = new OffscreenCanvas(
-        file.bitmap.width * finalScale,
-        file.bitmap.height * finalScale,
+        Math.round(file.bitmap.width * finalScale),
+        Math.round(file.bitmap.height * finalScale),
       );
       canvas
         .getContext("2d")

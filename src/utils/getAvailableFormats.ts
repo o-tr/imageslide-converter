@@ -7,8 +7,6 @@ export const getAvailableFormats = (
   files: SelectedFile[],
   resolution: "4K" | "FHD" | "HD" | "SD" = "FHD",
 ) => {
-  const resolutionScale = getResolutionScale(resolution);
-
   // 解像度を考慮したファイルサイズ計算
   const calculateFileSize = (
     files: SelectedFile[],
@@ -16,8 +14,14 @@ export const getAvailableFormats = (
     compressionRatio = 1,
   ) => {
     const pixelCount = files.reduce((pv, val) => {
-      const scaledWidth = Math.round(val.canvas.width * resolutionScale);
-      const scaledHeight = Math.round(val.canvas.height * resolutionScale);
+      // ファイルごとにアスペクト比を維持したスケールを計算
+      const scale = getResolutionScale(
+        resolution,
+        val.canvas.width,
+        val.canvas.height,
+      );
+      const scaledWidth = Math.round(val.canvas.width * scale);
+      const scaledHeight = Math.round(val.canvas.height * scale);
       return pv + scaledWidth * scaledHeight;
     }, 0);
     return ((pixelCount * bytePerPixel * 4) / 3) * compressionRatio; // base64でエンコードするときに4/3倍になる

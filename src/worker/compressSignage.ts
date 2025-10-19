@@ -17,10 +17,15 @@ worker.addEventListener(
       resolution,
     } = event.data.data;
 
-    const resolutionScale = getResolutionScale(resolution);
-    const finalScale = scale * resolutionScale;
-
     const files = _files.map((file) => {
+      // ファイルごとにアスペクト比を維持したスケールを計算
+      const resolutionScale = getResolutionScale(
+        resolution,
+        file.bitmap.width,
+        file.bitmap.height,
+      );
+      const finalScale = scale * resolutionScale;
+
       if (finalScale === 1) {
         const canvas = new OffscreenCanvas(
           file.bitmap.width,
@@ -30,8 +35,8 @@ worker.addEventListener(
         return { ...file, canvas };
       }
       const canvas = new OffscreenCanvas(
-        file.bitmap.width * finalScale,
-        file.bitmap.height * finalScale,
+        Math.round(file.bitmap.width * finalScale),
+        Math.round(file.bitmap.height * finalScale),
       );
       canvas
         .getContext("2d")
