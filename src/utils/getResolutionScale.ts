@@ -1,12 +1,4 @@
-/**
- * 解像度ごとの目標サイズ
- */
-const RESOLUTION_DIMENSIONS = {
-  "4K": { width: 3840, height: 2160 },
-  FHD: { width: 1920, height: 1080 },
-  HD: { width: 1280, height: 720 },
-  SD: { width: 640, height: 480 },
-} as const;
+import { RESOLUTION_DIMENSIONS, type Resolution } from "@/const/resolutions";
 
 /**
  * 解像度に応じたスケール係数を計算します（アスペクト比維持）
@@ -16,7 +8,7 @@ const RESOLUTION_DIMENSIONS = {
  * @returns スケール係数（アスペクト比を維持したまま目標解像度にフィットする最大スケール）
  */
 export const getResolutionScale = (
-  resolution: "4K" | "FHD" | "HD" | "SD",
+  resolution: Resolution,
   sourceWidth: number,
   sourceHeight: number,
 ): number => {

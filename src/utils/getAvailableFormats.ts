@@ -1,11 +1,12 @@
 import type { SelectedFile } from "@/_types/file-picker";
 import { TargetFormats, TargetVersions } from "@/const/convert";
+import type { Resolution } from "@/const/resolutions";
 import { getResolutionScale } from "@/utils/getResolutionScale";
 
 export const getAvailableFormats = (
   version: string,
   files: SelectedFile[],
-  resolution: "4K" | "FHD" | "HD" | "SD" = "FHD",
+  resolution: Resolution = "FHD",
 ) => {
   // 解像度を考慮したファイルサイズ計算
   const calculateFileSize = (
