@@ -1,6 +1,5 @@
 import { TargetResolutionAtom } from "@/atoms/convert";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
-import { estimateFileSize } from "@/utils/estimateFileSize";
 import { Flex, Radio, Tooltip } from "antd";
 import { useAtom, useAtomValue } from "jotai";
 import { type FC, useMemo } from "react";
@@ -67,18 +66,16 @@ export const Resolution: FC = () => {
           ? 1
           : Math.min(option.width / 3840, option.height / 2160);
 
-      // 各ファイルのサイズを計算
-      const scaledFiles = files.map((file) => ({
-        ...file,
-        canvas: {
-          ...file.canvas,
-          width: Math.round(file.canvas.width * scaleFactor),
-          height: Math.round(file.canvas.height * scaleFactor),
-        },
-      }));
+      // 解像度を考慮した総ピクセル数を計算
+      const pixelCount = files.reduce((acc, file) => {
+        const scaledWidth = Math.round(file.canvas.width * scaleFactor);
+        const scaledHeight = Math.round(file.canvas.height * scaleFactor);
+        return acc + scaledWidth * scaledHeight;
+      }, 0);
 
-      // RGB24フォーマットでの推定サイズ（3 bytes per pixel）
-      sizes[option.value] = estimateFileSize(scaledFiles, 3);
+      // RGB24フォーマット（3 bytes per pixel）でのファイルサイズ推定
+      // base64エンコード時に4/3倍になることを考慮
+      sizes[option.value] = (pixelCount * 3 * 4) / 3;
     }
 
     return sizes;
