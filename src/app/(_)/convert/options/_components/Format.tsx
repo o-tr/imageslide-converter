@@ -1,7 +1,12 @@
 import type { FormatItemType } from "@/_types/text-zip/formats";
-import { ConvertFormatAtom, UsingVersionAtom } from "@/atoms/convert";
+import {
+  ConvertFormatAtom,
+  TargetResolutionAtom,
+  UsingVersionAtom,
+} from "@/atoms/convert";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
 import { FileSizeLimit } from "@/const/convert";
+import { formatFileSize } from "@/utils/formatFileSize";
 import { getAvailableFormats } from "@/utils/getAvailableFormats";
 import { Flex, Radio, Tooltip } from "antd";
 import { useAtom, useAtomValue } from "jotai";
@@ -11,10 +16,11 @@ export const Format: FC = () => {
   const [format, setFormat] = useAtom(ConvertFormatAtom);
   const imageSlideVersion = useAtomValue(UsingVersionAtom);
   const files = useAtomValue(SelectedFilesAtom);
+  const resolution = useAtomValue(TargetResolutionAtom);
 
   const availableFormats: (FormatItemType & { fileSize: number })[] = useMemo(
-    () => getAvailableFormats(imageSlideVersion, files),
-    [files, imageSlideVersion],
+    () => getAvailableFormats(imageSlideVersion, files, resolution),
+    [files, imageSlideVersion, resolution],
   );
 
   const bestFormat = useMemo(() => {
@@ -93,13 +99,9 @@ export const FormatItem: FC<{
   );
 };
 
-const unit = ["B", "KB", "MB", "GB", "TB"] as const;
 const toLabel = (input: FormatItemType & { fileSize: number }) => {
-  let size = input.fileSize;
-  let i = 0;
-  while (size >= 1000) {
-    size /= 1000;
-    i++;
-  }
-  return `${input.estimatedCompressionRatio !== undefined ? "~" : ""}${size.toFixed(2)}${unit[i]} / ${Math.ceil(input.fileSize / FileSizeLimit)}file(s)`;
+  const sizeStr = formatFileSize(input.fileSize);
+  const prefix = input.estimatedCompressionRatio !== undefined ? "~" : "";
+  const fileCount = Math.ceil(input.fileSize / FileSizeLimit);
+  return `${prefix}${sizeStr} / ${fileCount}file(s)`;
 };

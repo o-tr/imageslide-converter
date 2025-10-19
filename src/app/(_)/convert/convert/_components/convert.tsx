@@ -2,6 +2,7 @@
 import {
   ConvertFormatAtom,
   ResultAtom,
+  TargetResolutionAtom,
   UsingVersionAtom,
 } from "@/atoms/convert";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
@@ -16,6 +17,7 @@ export const Convert: FC = () => {
   const imageSlideVersion = useAtomValue(UsingVersionAtom);
   const _format = useAtomValue(ConvertFormatAtom);
   const _files = useAtomValue(SelectedFilesAtom);
+  const _resolution = useAtomValue(TargetResolutionAtom);
   const setResults = useSetAtom(ResultAtom);
   const version = useMemo(() => {
     return (
@@ -23,8 +25,8 @@ export const Convert: FC = () => {
     );
   }, [imageSlideVersion]);
   const availableFormats = useMemo(
-    () => getAvailableFormats(imageSlideVersion, _files),
-    [imageSlideVersion, _files],
+    () => getAvailableFormats(imageSlideVersion, _files, _resolution),
+    [imageSlideVersion, _files, _resolution],
   );
   const router = useRouter();
 
@@ -55,7 +57,7 @@ export const Convert: FC = () => {
       if (!format) return { id: bestFormat.id, scale: 1 };
       return { id: format.id, scale: 1 };
     })();
-    postCompress(_files, id, version, scale).then((result) => {
+    postCompress(_files, id, version, scale, _resolution).then((result) => {
       setResults({
         data: result,
         format: id,
@@ -67,6 +69,7 @@ export const Convert: FC = () => {
     version,
     _format,
     _files,
+    _resolution,
     bestFormat,
     router,
     setResults,

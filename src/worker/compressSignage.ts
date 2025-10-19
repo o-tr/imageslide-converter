@@ -1,5 +1,6 @@
 import type { WorkerMessage, WorkerResponse } from "@/_types/worker";
 import { TargetFormats } from "@/const/convert";
+import { getResolutionScale } from "@/utils/getResolutionScale";
 
 const worker = self as unknown as Worker;
 console.log("compress worker start");
@@ -8,9 +9,24 @@ worker.addEventListener(
   async (event: MessageEvent<WorkerMessage>) => {
     console.log("compress start", event.data);
     if (event.data.type !== "compress-signage") return;
-    const { files: _files, format, signage, scale } = event.data.data;
+    const {
+      files: _files,
+      format,
+      signage,
+      scale,
+      resolution,
+    } = event.data.data;
+
     const files = _files.map((file) => {
-      if (scale === 1) {
+      // ファイルごとにアスペクト比を維持したスケールを計算
+      const resolutionScale = getResolutionScale(
+        resolution,
+        file.bitmap.width,
+        file.bitmap.height,
+      );
+      const finalScale = scale * resolutionScale;
+
+      if (finalScale === 1) {
         const canvas = new OffscreenCanvas(
           file.bitmap.width,
           file.bitmap.height,
@@ -19,8 +35,8 @@ worker.addEventListener(
         return { ...file, canvas };
       }
       const canvas = new OffscreenCanvas(
-        file.bitmap.width * scale,
-        file.bitmap.height * scale,
+        Math.round(file.bitmap.width * finalScale),
+        Math.round(file.bitmap.height * finalScale),
       );
       canvas
         .getContext("2d")

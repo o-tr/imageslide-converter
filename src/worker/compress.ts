@@ -1,5 +1,6 @@
 import type { WorkerMessage, WorkerResponse } from "@/_types/worker";
 import { TargetFormats } from "@/const/convert";
+import { getResolutionScale } from "@/utils/getResolutionScale";
 
 const worker = self as unknown as Worker;
 console.log("compress worker start");
@@ -8,8 +9,16 @@ worker.addEventListener(
   async (event: MessageEvent<WorkerMessage>) => {
     console.log("compress start", event.data);
     if (event.data.type !== "compress") return;
-    const { files: _files, format, scale } = event.data.data;
+    const { files: _files, format, scale, resolution } = event.data.data;
+
     const files = _files.map((file) => {
+      // ファイルごとにアスペクト比を維持したスケールを計算
+      const resolutionScale = getResolutionScale(
+        resolution,
+        file.bitmap.width,
+        file.bitmap.height,
+      );
+
       if (["DXT1"].includes(format)) {
         // そのままだとノイズが目立つので2倍に拡大してから圧縮
         const _width = Math.ceil((file.bitmap.width * scale * 2) / 4) * 4;
@@ -28,7 +37,11 @@ worker.addEventListener(
           ?.drawImage(file.bitmap, 0, 0, canvas.width, canvas.height);
         return { ...file, canvas };
       }
-      if (scale === 1) {
+
+      // 解像度とscaleの両方を考慮した最終スケール
+      const finalScale = scale * resolutionScale;
+
+      if (finalScale === 1) {
         const canvas = new OffscreenCanvas(
           file.bitmap.width,
           file.bitmap.height,
@@ -37,8 +50,8 @@ worker.addEventListener(
         return { ...file, canvas };
       }
       const canvas = new OffscreenCanvas(
-        file.bitmap.width * scale,
-        file.bitmap.height * scale,
+        Math.round(file.bitmap.width * finalScale),
+        Math.round(file.bitmap.height * finalScale),
       );
       canvas
         .getContext("2d")

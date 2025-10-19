@@ -1,6 +1,7 @@
 "use client";
 import { UploadSteps } from "@/app/(_)/convert/_components/UploadSteps";
 import { Format } from "@/app/(_)/convert/options/_components/Format";
+import { Resolution } from "@/app/(_)/convert/options/_components/Resolution";
 import { UsingVersionAtom } from "@/atoms/convert";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
 import { Button, Flex } from "antd";
@@ -38,6 +39,7 @@ export default function Page() {
         )}
       </Flex>
       <Version />
+      {!!version && <Resolution />}
       {!!version && <Format />}
     </>
   );

@@ -1,6 +1,7 @@
 import type { SelectedFile } from "@/_types/file-picker";
 import type { TTextureConverterFormat } from "@/_types/text-zip/formats";
 import type { WorkerMessage, WorkerResponse } from "@/_types/worker";
+import type { Resolution } from "@/const/resolutions";
 
 const worker = (
   typeof window !== "undefined"
@@ -13,6 +14,7 @@ export const postCompress = (
   format: TTextureConverterFormat,
   version: number,
   scale: number,
+  resolution: Resolution,
 ): Promise<string[] | Buffer[]> => {
   console.log("postCompress");
   const message: WorkerMessage = {
@@ -21,6 +23,7 @@ export const postCompress = (
       format,
       version,
       scale,
+      resolution,
       files: files.map((file) => ({
         ...file,
         bitmap: file.canvas.transferToImageBitmap(),

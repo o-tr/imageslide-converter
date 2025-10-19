@@ -1,5 +1,5 @@
 "use client";
-import { ResultAtom } from "@/atoms/convert";
+import { ResultAtom, TargetResolutionAtom } from "@/atoms/convert";
 import { SignageConvertAtom } from "@/atoms/signage-convert";
 import { postCompressSignage } from "@/lib/workerService/postCompressSignage";
 import { useAtomValue, useSetAtom } from "jotai";
@@ -10,6 +10,7 @@ export const Convert: FC = () => {
   const data = useAtomValue(SignageConvertAtom);
   if (!data) return <></>;
   const { signage, files: _files } = data;
+  const resolution = useAtomValue(TargetResolutionAtom);
   const setResults = useSetAtom(ResultAtom);
   const router = useRouter();
 
@@ -23,16 +24,21 @@ export const Convert: FC = () => {
     if (initRef.current) return;
     initRef.current = true;
 
-    postCompressSignage(_files, signage, "eia-v1-RGB24-cropped", 1, 1).then(
-      (result) => {
-        setResults({
-          data: result,
-          format: "eia-v1-RGB24-cropped",
-          version: 1,
-        });
-        router.push("/convert/upload");
-      },
-    );
-  }, [_files, signage, router, setResults]);
+    postCompressSignage(
+      _files,
+      signage,
+      "eia-v1-RGB24-cropped",
+      1,
+      1,
+      resolution,
+    ).then((result) => {
+      setResults({
+        data: result,
+        format: "eia-v1-RGB24-cropped",
+        version: 1,
+      });
+      router.push("/convert/upload");
+    });
+  }, [_files, signage, router, setResults, resolution]);
   return <></>;
 };

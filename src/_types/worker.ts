@@ -1,5 +1,6 @@
 import type { SelectedFile } from "@/_types/file-picker";
 import type { TTextureConverterFormat } from "@/_types/text-zip/formats";
+import type { Resolution } from "@/const/resolutions";
 import type { EIASignageManifest } from "./eia/v1";
 
 export type WorkerMessage =
@@ -10,6 +11,7 @@ export type WorkerMessage =
         format: TTextureConverterFormat;
         version: number;
         scale: number;
+        resolution: Resolution;
       };
     }
   | {
@@ -19,6 +21,7 @@ export type WorkerMessage =
         format: TTextureConverterFormat;
         version: number;
         scale: number;
+        resolution: Resolution;
         signage: EIASignageManifest;
       };
     };
