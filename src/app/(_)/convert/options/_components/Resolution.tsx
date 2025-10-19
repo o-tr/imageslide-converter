@@ -1,5 +1,6 @@
 import { TargetResolutionAtom } from "@/atoms/convert";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
+import { formatFileSize } from "@/utils/formatFileSize";
 import { Flex, Radio, Tooltip } from "antd";
 import { useAtom, useAtomValue } from "jotai";
 import { type FC, useMemo } from "react";
@@ -80,13 +81,6 @@ export const Resolution: FC = () => {
 
     return sizes;
   }, [files]);
-
-  const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024 * 1024) {
-      return `${Math.round(bytes / 1024)}KB`;
-    }
-    return `${Math.round(bytes / (1024 * 1024))}MB`;
-  };
 
   return (
     <Flex vertical gap={"middle"}>
