@@ -1,29 +1,12 @@
 import type { SelectedFile } from "@/_types/file-picker";
 import { TargetFormats, TargetVersions } from "@/const/convert";
+import { getResolutionScale } from "@/utils/getResolutionScale";
 
 export const getAvailableFormats = (
   version: string,
   files: SelectedFile[],
   resolution: "4K" | "FHD" | "HD" | "SD" = "FHD",
 ) => {
-  // 解像度に応じたスケール係数を計算
-  const getResolutionScale = (
-    resolution: "4K" | "FHD" | "HD" | "SD",
-  ): number => {
-    switch (resolution) {
-      case "4K":
-        return 1; // そのまま
-      case "FHD":
-        return Math.min(1920 / 3840, 1080 / 2160); // 1920x1080基準
-      case "HD":
-        return Math.min(1280 / 3840, 720 / 2160); // 1280x720基準
-      case "SD":
-        return Math.min(640 / 3840, 480 / 2160); // 640x480基準
-      default:
-        return 1;
-    }
-  };
-
   const resolutionScale = getResolutionScale(resolution);
 
   // 解像度を考慮したファイルサイズ計算
