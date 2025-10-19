@@ -17,7 +17,7 @@ const resolutionOptions: {
   {
     value: "4K",
     label: "4K",
-    description: "3840×2160 (高解像度のまま)",
+    description: "3840×2160",
     width: 3840,
     height: 2160,
   },
