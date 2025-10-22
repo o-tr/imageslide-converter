@@ -9,7 +9,7 @@ import { type FC, useEffect, useRef } from "react";
 export const Convert: FC = () => {
   const data = useAtomValue(SignageConvertAtom);
   if (!data) return <></>;
-  const { signage, files: _files } = data;
+  const { signage, files: _files, format } = data;
   const resolution = useAtomValue(TargetResolutionAtom);
   const setResults = useSetAtom(ResultAtom);
   const router = useRouter();
@@ -24,21 +24,16 @@ export const Convert: FC = () => {
     if (initRef.current) return;
     initRef.current = true;
 
-    postCompressSignage(
-      _files,
-      signage,
-      "eia-v1-RGB24-cropped",
-      1,
-      1,
-      resolution,
-    ).then((result) => {
-      setResults({
-        data: result,
-        format: "eia-v1-RGB24-cropped",
-        version: 1,
-      });
-      router.push("/convert/upload");
-    });
-  }, [_files, signage, router, setResults, resolution]);
+    postCompressSignage(_files, signage, format, 1, 1, resolution).then(
+      (result) => {
+        setResults({
+          data: result,
+          format: format,
+          version: 1,
+        });
+        router.push("/convert/upload");
+      },
+    );
+  }, [_files, signage, format, router, setResults, resolution]);
   return <></>;
 };
