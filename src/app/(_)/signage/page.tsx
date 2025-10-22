@@ -3,10 +3,11 @@ import { SelectedFilesAtom } from "@/atoms/file-drop";
 import { SignageConvertAtom } from "@/atoms/signage-convert";
 import { Button } from "@/components/ui/button";
 import { DndContext } from "@dnd-kit/core";
+import { Radio } from "antd";
 import { useSetAtom } from "jotai";
 import { PlusCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
-import React from "react";
+import React, { useState } from "react";
 import { SignboardTableHeader } from "./_components/SignboardTableHeader";
 import SlideRow from "./_components/SlideRow";
 import TransitionRow from "./_components/TransitionRow";
@@ -19,6 +20,9 @@ function SignboardEditorPage() {
   const setSignageConvert = useSetAtom(SignageConvertAtom);
   const setSelectedFiles = useSetAtom(SelectedFilesAtom);
   const router = useRouter();
+  const [selectedFormat, setSelectedFormat] = useState<
+    "eia-v1-RGB24-cropped" | "eia-v1-RGB24-cropped-base64"
+  >("eia-v1-RGB24-cropped");
 
   const {
     config,
@@ -46,6 +50,7 @@ function SignboardEditorPage() {
     setSignageConvert({
       signage: manifest,
       files: files,
+      format: selectedFormat,
     });
     setSelectedFiles(files);
     router.push("/signage/convert");
@@ -107,6 +112,22 @@ function SignboardEditorPage() {
         </div>
       </div>
       <div className="mt-8">
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold mb-2">
+            フォーマットを選択してください
+          </h3>
+          <Radio.Group
+            value={selectedFormat}
+            onChange={(e) => setSelectedFormat(e.target.value)}
+          >
+            <Radio.Button value="eia-v1-RGB24-cropped">
+              EIA v1 RGB24 (cropped)
+            </Radio.Button>
+            <Radio.Button value="eia-v1-RGB24-cropped-base64">
+              EIA v1 RGB24 (cropped, base64)
+            </Radio.Button>
+          </Radio.Group>
+        </div>
         <Button onClick={handleGenerateData}>設定データを取得</Button>
       </div>
     </div>
