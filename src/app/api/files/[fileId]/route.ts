@@ -4,8 +4,9 @@ import { NextResponse } from "next/server";
 
 export const GET = async (
   _request: Request,
-  { params: { fileId } }: { params: { fileId: string } },
+  { params }: { params: Promise<{ fileId: string }> },
 ) => {
+  const { fileId } = await params;
   if (!fileId) {
     return NextResponse.json(
       {

@@ -49,7 +49,7 @@ export type TypedWorkerClientMethodConvertDXT1 = {
 export type TypedWorkerWorkerResponseConvertDXT1 = {
   type: "convert-dxt1";
   requestId: string;
-  buffer: ArrayBuffer;
+  buffer: ArrayBufferLike;
   width: number;
   height: number;
   transfer?: Transferable[];

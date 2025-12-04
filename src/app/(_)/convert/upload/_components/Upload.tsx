@@ -29,9 +29,20 @@ export const Upload: FC = () => {
     void (async () => {
       const data = result.data.map<{ fileSize: number; file: File }>(
         (input) => {
-          const file = new File([input], typeof input === "string" ? "file.txt" : "file.bin", {
-            type: typeof input === "string" ? "text/plain" : "application/octet-stream",
-          });
+          const file = new File(
+            [
+              typeof input === "string"
+                ? new TextEncoder().encode(input)
+                : new Uint8Array(input),
+            ],
+            typeof input === "string" ? "file.txt" : "file.bin",
+            {
+              type:
+                typeof input === "string"
+                  ? "text/plain"
+                  : "application/octet-stream",
+            },
+          );
           return { fileSize: input.length, file };
         },
       );

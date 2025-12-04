@@ -3,7 +3,7 @@ import * as pdfjs from "pdfjs-dist";
 import { pdfPage2canvas } from "./pdfPage2canvas";
 
 export const pdf2canvases = async (
-  file: File | Buffer | ArrayBuffer,
+  file: File | Buffer | ArrayBuffer | Uint8Array,
 ): Promise<OffscreenCanvas[]> => {
   const fileData = await (async () => {
     if (file instanceof File) {

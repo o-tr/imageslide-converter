@@ -139,7 +139,7 @@ const slide2canvas = async (slideId: string): Promise<SelectedFile[]> => {
     fetchSlideMetadata(slideId),
   ]);
 
-  const file = new File([buffer], metadata.title, {
+  const file = new File([new Uint8Array(buffer)], metadata.title, {
     type: "application/pdf",
   });
 

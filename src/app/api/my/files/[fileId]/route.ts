@@ -9,8 +9,9 @@ import { z } from "zod";
 
 export const DELETE = async (
   _request: Request,
-  { params: { fileId } }: { params: { fileId: string } },
+  { params }: { params: Promise<{ fileId: string }> },
 ) => {
+  const { fileId } = await params;
   const user = await getAuthorizedUser();
   if (!user)
     return NextResponse.json(
@@ -53,8 +54,9 @@ export type PatchRequest = z.infer<typeof PatchRequestSchema>;
 
 export const PATCH = async (
   request: Request,
-  { params: { fileId } }: { params: { fileId: string } },
+  { params }: { params: Promise<{ fileId: string }> },
 ) => {
+  const { fileId } = await params;
   const user = await getAuthorizedUser();
   if (!user)
     return NextResponse.json(

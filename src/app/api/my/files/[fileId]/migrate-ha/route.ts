@@ -9,8 +9,9 @@ import { NextResponse } from "next/server";
 
 export const POST = async (
   _request: Request,
-  { params: { fileId } }: { params: { fileId: string } },
+  { params }: { params: Promise<{ fileId: string }> },
 ) => {
+  const { fileId } = await params;
   const user = await getAuthorizedUser();
   if (!user)
     return NextResponse.json(

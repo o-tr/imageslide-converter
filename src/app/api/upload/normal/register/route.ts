@@ -30,7 +30,7 @@ export const POST = async (request: Request) => {
         { status: 400 },
       );
     }
-    const session = await getSession(cookies());
+    const session = await getSession(await cookies());
     if (!session.fileId?.includes(data.fileId)) {
       return NextResponse.json(
         {

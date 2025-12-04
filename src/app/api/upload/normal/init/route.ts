@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 
 export const POST = async () => {
   try {
-    const session = await getSession(cookies());
+    const session = await getSession(await cookies());
     session.fileId ??= [];
     const id = crypto.randomUUID();
     session.fileId = [...session.fileId, id];

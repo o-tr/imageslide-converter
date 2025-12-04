@@ -5,7 +5,7 @@ import { executeTask } from "@/lib/worker/taskRunner";
 import { initPromise } from "../basis";
 
 export const selectedFiles2v1DXT1 = async (
-  files: SelectedFile[]
+  files: SelectedFile[],
 ): Promise<string[]> => {
   await initPromise;
   const buffers = await Promise.all(
@@ -21,15 +21,15 @@ export const selectedFiles2v1DXT1 = async (
         note: file.note,
         buffer: Buffer.from(buffer),
       };
-    })
+    }),
   );
   return await compressFileV1(buffers);
 };
 
 const convertInThread = async (
-  canvas: OffscreenCanvas
+  canvas: OffscreenCanvas,
 ): Promise<{
-  buffer: ArrayBuffer;
+  buffer: ArrayBufferLike;
   width: number;
   height: number;
 }> => {
@@ -40,6 +40,6 @@ const convertInThread = async (
       bitmap,
       requestId: crypto.randomUUID(),
     },
-    [bitmap]
+    [bitmap],
   );
 };
