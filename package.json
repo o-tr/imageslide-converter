@@ -1,6 +1,6 @@
 {
   "name": "image-slide-converter",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -73,6 +73,8 @@
     "overrides": {
       "cookie@<0.7.0": ">=0.7.0"
     },
-    "ignoredBuiltDependencies": ["sharp"]
+    "ignoredBuiltDependencies": [
+      "sharp"
+    ]
   }
 }
