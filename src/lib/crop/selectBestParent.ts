@@ -49,8 +49,10 @@ export const selectBestParent = (
   for (const { candidate } of scored) {
     if (evaluated >= topK) break;
 
+    // Invariant: every candidate passed here has a corresponding entry in
+    // parentBuffers, kept in sync by evictOldEntries in cropImages.ts.
     const buffer = parentBuffers.get(candidate.index);
-    if (!buffer) continue;
+    if (!buffer) continue; // should never happen
 
     // Create a lightweight proxy for rgb242diff
     const parentProxy: RawImageObjV1Cropped = {

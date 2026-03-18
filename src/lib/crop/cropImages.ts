@@ -25,9 +25,9 @@ export const cropImages = (
 
   const keyframeInterval = options?.keyframeInterval ?? 0;
   const parentSearchWindow = options?.parentSearchWindow ?? 10;
-  const parentSearchTopK = options?.parentSearchTopK ?? 3;
+  const parentSearchTopK = Math.max(1, options?.parentSearchTopK ?? 3);
   const thumbnailGridSize = options?.thumbnailGridSize ?? 32;
-  const maxNestingDepth = options?.maxNestingDepth ?? 3;
+  const maxNestingDepth = Math.max(1, options?.maxNestingDepth ?? 3);
 
   // Track thumbnails for coarse similarity comparison (all slides, cheap to retain)
   const candidates: ParentCandidate[] = [];
@@ -64,10 +64,11 @@ export const cropImages = (
   // Must run after every iteration to enforce the memory bound on all paths.
   const evictOldEntries = (i: number) => {
     const threshold = i - parentSearchWindow;
-    const toEvict = Array.from(parentBuffers.keys()).filter(
-      (idx) =>
-        (loopPositions.get(idx) ?? 0) < threshold && !keyframeIndices.has(idx),
-    );
+    const toEvict = Array.from(parentBuffers.keys()).filter((idx) => {
+      const loopPos = loopPositions.get(idx);
+      if (loopPos === undefined) return false; // invariant: should never be absent
+      return loopPos < threshold && !keyframeIndices.has(idx);
+    });
     for (const idx of toEvict) {
       parentBuffers.delete(idx);
       depths.delete(idx);
