@@ -56,8 +56,27 @@ export const FileList: FC = () => {
 
   const columns: TableColumnsType<FileItem> = useMemo(
     () => [
-      { title: "File Name", dataIndex: "name", key: "name" },
-      { title: "URLs", dataIndex: "count", key: "count", width: 25 },
+      {
+        title: "File Name",
+        dataIndex: "name",
+        key: "name",
+        sorter: {
+          compare: (a, b) => a.name.localeCompare(b.name),
+          multiple: 3,
+        },
+        sortDirections: ["ascend", "descend"],
+      },
+      {
+        title: "URLs",
+        dataIndex: "count",
+        key: "count",
+        width: 25,
+        sorter: {
+          compare: (a, b) => a.count - b.count,
+          multiple: 4,
+        },
+        sortDirections: ["ascend", "descend"],
+      },
       {
         title: "Server",
         key: "server",
@@ -80,19 +99,49 @@ export const FileList: FC = () => {
           </Flex>
         ),
       },
-      { title: "Format", dataIndex: "format", key: "format", width: 100 },
-      { title: "Version", dataIndex: "version", key: "version", width: 100 },
+      {
+        title: "Format",
+        dataIndex: "format",
+        key: "format",
+        width: 100,
+        sorter: {
+          compare: (a, b) => a.format.localeCompare(b.format),
+          multiple: 5,
+        },
+        sortDirections: ["ascend", "descend"],
+      },
+      {
+        title: "Version",
+        dataIndex: "version",
+        key: "version",
+        width: 100,
+        sorter: {
+          compare: (a, b) => a.version - b.version,
+          multiple: 6,
+        },
+        sortDirections: ["ascend", "descend"],
+      },
       {
         title: "Created At",
         dataIndex: "createdAt",
         key: "createdAt",
         width: 200,
+        sorter: {
+          compare: (a, b) => a.createdAt.localeCompare(b.createdAt),
+          multiple: 1,
+        },
+        sortDirections: ["ascend", "descend"],
       },
       {
         title: "Expire At",
         dataIndex: "expireAt",
         key: "expireAt",
         width: 200,
+        sorter: {
+          compare: (a, b) => a.expireAt.localeCompare(b.expireAt),
+          multiple: 2,
+        },
+        sortDirections: ["ascend", "descend"],
       },
       {
         title: "Actions",
