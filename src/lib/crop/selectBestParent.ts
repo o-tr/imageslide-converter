@@ -11,7 +11,7 @@ export type ParentCandidate = {
 };
 
 export type BestParentResult = {
-  parentIndex: number;
+  parent: ParentCandidate;
   diff: Uint8Array;
 };
 
@@ -66,7 +66,7 @@ export const selectBestParent = (
 
     if (diffCount < bestDiffCount) {
       bestDiffCount = diffCount;
-      bestResult = { parentIndex: candidate.index, diff };
+      bestResult = { parent: candidate, diff };
     }
   }
 
