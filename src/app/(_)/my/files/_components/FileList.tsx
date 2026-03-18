@@ -101,8 +101,15 @@ export const FileList: FC = () => {
         else if (key === "createdAt")
           cmp =
             new Date(a.createdAt).valueOf() - new Date(b.createdAt).valueOf();
-        else if (key === "expireAt")
-          cmp = new Date(a.expireAt).valueOf() - new Date(b.expireAt).valueOf();
+        else if (key === "expireAt") {
+          const aVal = a.expireAt
+            ? new Date(a.expireAt).valueOf()
+            : Number.POSITIVE_INFINITY;
+          const bVal = b.expireAt
+            ? new Date(b.expireAt).valueOf()
+            : Number.POSITIVE_INFINITY;
+          cmp = aVal - bVal;
+        }
         if (cmp !== 0) return order === "ascend" ? cmp : -cmp;
       }
       return 0;
@@ -114,13 +121,21 @@ export const FileList: FC = () => {
     [sortStates],
   );
 
+  const getSortMultiple = useCallback(
+    (key: string) => {
+      const idx = sortStates.findIndex((s) => s.key === key);
+      return idx === -1 ? sortStates.length + 1 : idx + 1;
+    },
+    [sortStates],
+  );
+
   const columns: TableColumnsType<FileItem> = useMemo(
     () => [
       {
         title: "File Name",
         dataIndex: "name",
         key: "name",
-        sorter: { multiple: 1 },
+        sorter: { multiple: getSortMultiple("name") },
         sortOrder: getSortOrder("name"),
         sortDirections: ["ascend", "descend"],
       },
@@ -129,7 +144,7 @@ export const FileList: FC = () => {
         dataIndex: "count",
         key: "count",
         width: 25,
-        sorter: { multiple: 1 },
+        sorter: { multiple: getSortMultiple("count") },
         sortOrder: getSortOrder("count"),
         sortDirections: ["ascend", "descend"],
       },
@@ -160,7 +175,7 @@ export const FileList: FC = () => {
         dataIndex: "format",
         key: "format",
         width: 100,
-        sorter: { multiple: 1 },
+        sorter: { multiple: getSortMultiple("format") },
         sortOrder: getSortOrder("format"),
         sortDirections: ["ascend", "descend"],
       },
@@ -169,7 +184,7 @@ export const FileList: FC = () => {
         dataIndex: "version",
         key: "version",
         width: 100,
-        sorter: { multiple: 1 },
+        sorter: { multiple: getSortMultiple("version") },
         sortOrder: getSortOrder("version"),
         sortDirections: ["ascend", "descend"],
       },
@@ -178,7 +193,7 @@ export const FileList: FC = () => {
         dataIndex: "createdAt",
         key: "createdAt",
         width: 200,
-        sorter: { multiple: 1 },
+        sorter: { multiple: getSortMultiple("createdAt") },
         sortOrder: getSortOrder("createdAt"),
         sortDirections: ["ascend", "descend"],
       },
@@ -187,7 +202,7 @@ export const FileList: FC = () => {
         dataIndex: "expireAt",
         key: "expireAt",
         width: 200,
-        sorter: { multiple: 1 },
+        sorter: { multiple: getSortMultiple("expireAt") },
         sortOrder: getSortOrder("expireAt"),
         sortDirections: ["ascend", "descend"],
       },
@@ -204,7 +219,7 @@ export const FileList: FC = () => {
         ),
       },
     ],
-    [deleteFile, updateFile, loadFiles, getSortOrder],
+    [deleteFile, updateFile, loadFiles, getSortOrder, getSortMultiple],
   );
 
   return (
