@@ -33,11 +33,14 @@ export const computeThumbnail = (
       }
 
       const thumbIdx = (gy * gridSize + gx) * 3;
-      if (count > 0) {
-        thumbnail[thumbIdx] = (sumR / count) | 0;
-        thumbnail[thumbIdx + 1] = (sumG / count) | 0;
-        thumbnail[thumbIdx + 2] = (sumB / count) | 0;
+      if (count === 0) {
+        // Grid cell maps to a sub-pixel region; only possible when
+        // width < gridSize or height < gridSize. Leave the cell as 0.
+        continue;
       }
+      thumbnail[thumbIdx] = (sumR / count) | 0;
+      thumbnail[thumbIdx + 1] = (sumG / count) | 0;
+      thumbnail[thumbIdx + 2] = (sumB / count) | 0;
     }
   }
 

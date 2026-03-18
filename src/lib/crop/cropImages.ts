@@ -55,6 +55,28 @@ export const cropImages = (
     croppedImages.push(image);
   };
 
+  // Evict parentBuffers and candidates entries outside the search window.
+  // Uses loop index i (not image.index) so the window is position-stable
+  // regardless of the actual .index values on each slide.
+  // Must run after every iteration to enforce the memory bound on all paths.
+  const evictOldEntries = (i: number) => {
+    const threshold = i - parentSearchWindow;
+    const toEvict = Array.from(parentBuffers.keys()).filter(
+      (idx) => idx < threshold && !keyframeIndices.has(idx),
+    );
+    for (const idx of toEvict) {
+      parentBuffers.delete(idx);
+    }
+    for (let j = candidates.length - 1; j >= 0; j--) {
+      if (
+        candidates[j].index < threshold &&
+        !keyframeIndices.has(candidates[j].index)
+      ) {
+        candidates.splice(j, 1);
+      }
+    }
+  };
+
   const firstImage = rawImages[0];
   addAsMaster(
     firstImage,
@@ -80,6 +102,7 @@ export const cropImages = (
     // Keyframe: store as master file
     if (keyframeInterval > 0 && i % keyframeInterval === 0) {
       addAsMaster(currentImage, currentThumbnail, true);
+      evictOldEntries(i);
       continue;
     }
 
@@ -100,6 +123,7 @@ export const cropImages = (
     // If no suitable parent found or depth limit leaves no candidates, store as master
     if (!bestParent) {
       addAsMaster(currentImage, currentThumbnail);
+      evictOldEntries(i);
       continue;
     }
 
@@ -123,6 +147,7 @@ export const cropImages = (
         currentImage.rect.width * currentImage.rect.height
     ) {
       addAsMaster(currentImage, currentThumbnail);
+      evictOldEntries(i);
       continue;
     }
 
@@ -172,24 +197,7 @@ export const cropImages = (
     });
     parentBuffers.set(currentImage.index, merged);
 
-    // Evict old non-keyframe entries outside the search window (using loop index i,
-    // not currentImage.index, to stay correct regardless of .index values)
-    const toEvict = Array.from(parentBuffers.keys()).filter(
-      (idx) => idx < i - parentSearchWindow && !keyframeIndices.has(idx),
-    );
-    for (const idx of toEvict) {
-      parentBuffers.delete(idx);
-    }
-    // Prune candidates to the same window (keyframes are permanent).
-    // Iterate backward to avoid index-shift bugs from splice.
-    for (let j = candidates.length - 1; j >= 0; j--) {
-      if (
-        candidates[j].index < i - parentSearchWindow &&
-        !keyframeIndices.has(candidates[j].index)
-      ) {
-        candidates.splice(j, 1);
-      }
-    }
+    evictOldEntries(i);
   }
 
   return croppedImages;
