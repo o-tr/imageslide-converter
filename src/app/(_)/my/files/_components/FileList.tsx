@@ -99,8 +99,10 @@ export const FileList: FC = () => {
         else if (key === "format") cmp = a.format.localeCompare(b.format);
         else if (key === "version") cmp = a.version - b.version;
         else if (key === "createdAt")
-          cmp = a.createdAt.localeCompare(b.createdAt);
-        else if (key === "expireAt") cmp = a.expireAt.localeCompare(b.expireAt);
+          cmp =
+            new Date(a.createdAt).valueOf() - new Date(b.createdAt).valueOf();
+        else if (key === "expireAt")
+          cmp = new Date(a.expireAt).valueOf() - new Date(b.expireAt).valueOf();
         if (cmp !== 0) return order === "ascend" ? cmp : -cmp;
       }
       return 0;
