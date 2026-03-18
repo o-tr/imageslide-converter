@@ -70,8 +70,13 @@
     "overrides": {
       "cookie@<0.7.0": ">=0.7.0"
     },
-    "ignoredBuiltDependencies": [
-      "sharp"
+    "ignoredBuiltDependencies": ["sharp"],
+    "onlyBuiltDependencies": [
+      "@biomejs/biome",
+      "@prisma/client",
+      "@prisma/engines",
+      "lefthook",
+      "prisma"
     ]
   }
 }

@@ -13,15 +13,19 @@ import {
   Table,
   type TableColumnsType,
 } from "antd";
+import type { SorterResult } from "antd/es/table/interface";
 import { signIn } from "next-auth/react";
 import { type FC, useCallback, useEffect, useMemo, useState } from "react";
 import { Actions } from "./Actions";
 import { MigrateHAButton } from "./MigrateHAButton";
 
+type SortState = { key: string; order: "ascend" | "descend" };
+
 export const FileList: FC = () => {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState<boolean | SpinProps>(true);
   const [migrateProgress, setMigrateProgress] = useState<number>(-1);
+  const [sortStates, setSortStates] = useState<SortState[]>([]);
 
   const loadFiles = useCallback(async () => {
     const files = await getMyFiles();
@@ -54,16 +58,68 @@ export const FileList: FC = () => {
     });
   }, [loadFiles]);
 
+  const handleTableChange = useCallback(
+    (
+      _: unknown,
+      __: unknown,
+      sorter: SorterResult<FileItem> | SorterResult<FileItem>[],
+    ) => {
+      const sorters = (Array.isArray(sorter) ? sorter : [sorter]).filter(
+        (s) => s.order != null,
+      );
+      setSortStates((prev) => {
+        const activeKeys = new Set(sorters.map((s) => s.columnKey as string));
+        const kept = prev
+          .filter((p) => activeKeys.has(p.key))
+          .map((p) => ({
+            key: p.key,
+            order: sorters.find((s) => s.columnKey === p.key)
+              ?.order as SortState["order"],
+          }));
+        const prevKeys = new Set(prev.map((p) => p.key));
+        const added = sorters
+          .filter((s) => !prevKeys.has(s.columnKey as string))
+          .map((s) => ({
+            key: s.columnKey as string,
+            order: s.order as SortState["order"],
+          }));
+        return [...kept, ...added];
+      });
+    },
+    [],
+  );
+
+  const sortedFiles = useMemo(() => {
+    if (sortStates.length === 0) return files;
+    return [...files].sort((a, b) => {
+      for (const { key, order } of sortStates) {
+        let cmp = 0;
+        if (key === "name") cmp = a.name.localeCompare(b.name);
+        else if (key === "count") cmp = a.count - b.count;
+        else if (key === "format") cmp = a.format.localeCompare(b.format);
+        else if (key === "version") cmp = a.version - b.version;
+        else if (key === "createdAt")
+          cmp = a.createdAt.localeCompare(b.createdAt);
+        else if (key === "expireAt") cmp = a.expireAt.localeCompare(b.expireAt);
+        if (cmp !== 0) return order === "ascend" ? cmp : -cmp;
+      }
+      return 0;
+    });
+  }, [files, sortStates]);
+
+  const getSortOrder = useCallback(
+    (key: string) => sortStates.find((s) => s.key === key)?.order ?? null,
+    [sortStates],
+  );
+
   const columns: TableColumnsType<FileItem> = useMemo(
     () => [
       {
         title: "File Name",
         dataIndex: "name",
         key: "name",
-        sorter: {
-          compare: (a, b) => a.name.localeCompare(b.name),
-          multiple: 3,
-        },
+        sorter: { multiple: 1 },
+        sortOrder: getSortOrder("name"),
         sortDirections: ["ascend", "descend"],
       },
       {
@@ -71,10 +127,8 @@ export const FileList: FC = () => {
         dataIndex: "count",
         key: "count",
         width: 25,
-        sorter: {
-          compare: (a, b) => a.count - b.count,
-          multiple: 4,
-        },
+        sorter: { multiple: 1 },
+        sortOrder: getSortOrder("count"),
         sortDirections: ["ascend", "descend"],
       },
       {
@@ -104,10 +158,8 @@ export const FileList: FC = () => {
         dataIndex: "format",
         key: "format",
         width: 100,
-        sorter: {
-          compare: (a, b) => a.format.localeCompare(b.format),
-          multiple: 5,
-        },
+        sorter: { multiple: 1 },
+        sortOrder: getSortOrder("format"),
         sortDirections: ["ascend", "descend"],
       },
       {
@@ -115,10 +167,8 @@ export const FileList: FC = () => {
         dataIndex: "version",
         key: "version",
         width: 100,
-        sorter: {
-          compare: (a, b) => a.version - b.version,
-          multiple: 6,
-        },
+        sorter: { multiple: 1 },
+        sortOrder: getSortOrder("version"),
         sortDirections: ["ascend", "descend"],
       },
       {
@@ -126,10 +176,8 @@ export const FileList: FC = () => {
         dataIndex: "createdAt",
         key: "createdAt",
         width: 200,
-        sorter: {
-          compare: (a, b) => a.createdAt.localeCompare(b.createdAt),
-          multiple: 1,
-        },
+        sorter: { multiple: 1 },
+        sortOrder: getSortOrder("createdAt"),
         sortDirections: ["ascend", "descend"],
       },
       {
@@ -137,10 +185,8 @@ export const FileList: FC = () => {
         dataIndex: "expireAt",
         key: "expireAt",
         width: 200,
-        sorter: {
-          compare: (a, b) => a.expireAt.localeCompare(b.expireAt),
-          multiple: 2,
-        },
+        sorter: { multiple: 1 },
+        sortOrder: getSortOrder("expireAt"),
         sortDirections: ["ascend", "descend"],
       },
       {
@@ -156,17 +202,18 @@ export const FileList: FC = () => {
         ),
       },
     ],
-    [deleteFile, updateFile, loadFiles],
+    [deleteFile, updateFile, loadFiles, getSortOrder],
   );
 
   return (
     <div>
       <Table
         loading={loading}
-        dataSource={files}
+        dataSource={sortedFiles}
         rowKey="fileId"
         columns={columns}
         pagination={false}
+        onChange={handleTableChange}
       />
       <Modal
         open={loading === true && migrateProgress >= 0}
