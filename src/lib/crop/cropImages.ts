@@ -24,9 +24,7 @@ export const cropImages = (
   }
 
   const keyframeInterval = options?.keyframeInterval ?? 0;
-  const parentSearchWindow =
-    options?.parentSearchWindow ??
-    (keyframeInterval > 0 ? keyframeInterval : 10);
+  const parentSearchWindow = options?.parentSearchWindow ?? 10;
   const parentSearchTopK = options?.parentSearchTopK ?? 3;
   const thumbnailGridSize = options?.thumbnailGridSize ?? 32;
   const maxNestingDepth = options?.maxNestingDepth ?? 3;
@@ -66,6 +64,7 @@ export const cropImages = (
     );
     for (const idx of toEvict) {
       parentBuffers.delete(idx);
+      depths.delete(idx);
     }
     for (let j = candidates.length - 1; j >= 0; j--) {
       if (
