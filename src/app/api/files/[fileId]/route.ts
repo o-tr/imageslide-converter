@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { addDay, format } from "@formkit/tempo";
+import { formatDateJST } from "@/utils/formatDateJST";
+import { addDay } from "@formkit/tempo";
 import { NextResponse } from "next/server";
 
 export const GET = async (
@@ -56,12 +57,8 @@ export const GET = async (
         server: file.ha ? "HA" : "Normal",
         format: file.format,
         version: file.version,
-        createdAt: format(
-          new Date(file.createdAt),
-          "YYYY/MM/DD HH:mm:ss",
-          "en",
-        ),
-        expireAt: format(expireAt, "YYYY/MM/DD HH:mm:ss", "en"),
+        createdAt: formatDateJST(new Date(file.createdAt)),
+        expireAt: formatDateJST(expireAt),
       },
     },
   });
