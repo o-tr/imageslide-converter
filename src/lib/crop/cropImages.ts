@@ -37,6 +37,10 @@ export const cropImages = (
   const keyframeIndices = new Set<number>();
   // Track parent chain depth per slide (master=0, child of master=1, etc.)
   const depths = new Map<number, number>();
+  // Map image.index -> loop position i so eviction threshold is always
+  // compared against loop positions, not image.index values (which may
+  // be non-sequential or non-zero-based).
+  const loopPositions = new Map<number, number>();
 
   const croppedImages: RawImageObjV1Cropped[] = [];
 
@@ -44,8 +48,10 @@ export const cropImages = (
   const addAsMaster = (
     image: RawImageObjV1,
     thumbnail: Uint8Array,
+    loopPos: number,
     isKeyframe = false,
   ) => {
+    loopPositions.set(image.index, loopPos);
     candidates.push({ index: image.index, thumbnail, rect: image.rect });
     parentBuffers.set(image.index, image.buffer);
     depths.set(image.index, 0);
@@ -53,22 +59,23 @@ export const cropImages = (
     croppedImages.push(image);
   };
 
-  // Evict parentBuffers and candidates entries outside the search window.
-  // Uses loop index i (not image.index) so the window is position-stable
-  // regardless of the actual .index values on each slide.
+  // Evict entries outside the search window. Eviction threshold is compared
+  // against loop positions (not image.index) via loopPositions.
   // Must run after every iteration to enforce the memory bound on all paths.
   const evictOldEntries = (i: number) => {
     const threshold = i - parentSearchWindow;
     const toEvict = Array.from(parentBuffers.keys()).filter(
-      (idx) => idx < threshold && !keyframeIndices.has(idx),
+      (idx) =>
+        (loopPositions.get(idx) ?? 0) < threshold && !keyframeIndices.has(idx),
     );
     for (const idx of toEvict) {
       parentBuffers.delete(idx);
       depths.delete(idx);
+      loopPositions.delete(idx);
     }
     for (let j = candidates.length - 1; j >= 0; j--) {
       if (
-        candidates[j].index < threshold &&
+        (loopPositions.get(candidates[j].index) ?? 0) < threshold &&
         !keyframeIndices.has(candidates[j].index)
       ) {
         candidates.splice(j, 1);
@@ -85,6 +92,7 @@ export const cropImages = (
       firstImage.rect.height,
       thumbnailGridSize,
     ),
+    0,
     true,
   );
 
@@ -100,7 +108,7 @@ export const cropImages = (
 
     // Keyframe: store as master file
     if (keyframeInterval > 0 && i % keyframeInterval === 0) {
-      addAsMaster(currentImage, currentThumbnail, true);
+      addAsMaster(currentImage, currentThumbnail, i, true);
       evictOldEntries(i);
       continue;
     }
@@ -121,7 +129,7 @@ export const cropImages = (
 
     // If no suitable parent found or depth limit leaves no candidates, store as master
     if (!bestParent) {
-      addAsMaster(currentImage, currentThumbnail);
+      addAsMaster(currentImage, currentThumbnail, i);
       evictOldEntries(i);
       continue;
     }
@@ -145,7 +153,7 @@ export const cropImages = (
       mergedBoundingBoxes[0].area ===
         currentImage.rect.width * currentImage.rect.height
     ) {
-      addAsMaster(currentImage, currentThumbnail);
+      addAsMaster(currentImage, currentThumbnail, i);
       evictOldEntries(i);
       continue;
     }
@@ -188,6 +196,7 @@ export const cropImages = (
 
     // Register this slide as a candidate for future slides
     const parentDepth = depths.get(bestParent.parent.index) ?? 0;
+    loopPositions.set(currentImage.index, i);
     depths.set(currentImage.index, parentDepth + 1);
     candidates.push({
       index: currentImage.index,
