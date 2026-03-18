@@ -1,5 +1,6 @@
+import { formatDateJST } from "@/utils/formatDateJST";
 import { getAuthorizedUser } from "@/utils/getAuthorizedUser";
-import { addDay, format } from "@formkit/tempo";
+import { addDay } from "@formkit/tempo";
 import { NextResponse } from "next/server";
 
 export const GET = async () => {
@@ -16,12 +17,8 @@ export const GET = async () => {
     server: file.ha ? "HA" : "Normal",
     format: file.format,
     version: file.version,
-    createdAt: format(new Date(file.createdAt), "YYYY/MM/DD HH:mm:ss", "en"),
-    expireAt: format(
-      addDay(new Date(file.createdAt), file.ha ? 7 : 30),
-      "YYYY/MM/DD HH:mm:ss",
-      "en",
-    ),
+    createdAt: formatDateJST(new Date(file.createdAt)),
+    expireAt: formatDateJST(addDay(new Date(file.createdAt), file.ha ? 7 : 30)),
   }));
 
   return NextResponse.json({
