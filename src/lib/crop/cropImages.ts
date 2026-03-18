@@ -172,14 +172,23 @@ export const cropImages = (
     });
     parentBuffers.set(currentImage.index, merged);
 
-    // Evict old non-keyframe buffers outside the search window
+    // Evict old non-keyframe entries outside the search window (using loop index i,
+    // not currentImage.index, to stay correct regardless of .index values)
     const toEvict = Array.from(parentBuffers.keys()).filter(
-      (idx) =>
-        idx < currentImage.index - parentSearchWindow &&
-        !keyframeIndices.has(idx),
+      (idx) => idx < i - parentSearchWindow && !keyframeIndices.has(idx),
     );
     for (const idx of toEvict) {
       parentBuffers.delete(idx);
+    }
+    // Prune candidates to the same window (keyframes are permanent).
+    // Iterate backward to avoid index-shift bugs from splice.
+    for (let j = candidates.length - 1; j >= 0; j--) {
+      if (
+        candidates[j].index < i - parentSearchWindow &&
+        !keyframeIndices.has(candidates[j].index)
+      ) {
+        candidates.splice(j, 1);
+      }
     }
   }
 
