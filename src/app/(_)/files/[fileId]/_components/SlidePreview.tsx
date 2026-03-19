@@ -9,15 +9,14 @@ const THUMBNAIL_HEIGHT = 128;
 
 // On the client we want to size/draw the canvas before paint to reduce
 // layout shift. On the server, useLayoutEffect would warn, so we fall back.
-const useIsomorphicLayoutEffect =
-  typeof window !== "undefined" ? useLayoutEffect : useEffect;
+const useIsomorphicLayoutEffect = useLayoutEffect;
 
 const SlideThumbnail: FC<{
   frame: SlideFrameMeta;
-  imageDataMap: { current: Map<number, ImageData> };
+  bitmapMap: { current: Map<number, ImageBitmap> };
   isSelected?: boolean;
   onClick?: () => void;
-}> = ({ frame, imageDataMap, isSelected = false, onClick }) => {
+}> = ({ frame, bitmapMap, isSelected = false, onClick }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const aspectRatio = frame.width / frame.height;
   const thumbWidth = Math.round(THUMBNAIL_HEIGHT * aspectRatio);
@@ -27,28 +26,13 @@ const SlideThumbnail: FC<{
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const imageData = imageDataMap.current.get(frame.index);
-    if (!imageData) return;
+    const bitmap = bitmapMap.current.get(frame.index);
+    if (!bitmap) return;
     const dpr = window.devicePixelRatio ?? 1;
     canvas.width = Math.round(thumbWidth * dpr);
     canvas.height = Math.round(THUMBNAIL_HEIGHT * dpr);
-    let cancelled = false;
-    createImageBitmap(imageData)
-      .then((bitmap) => {
-        try {
-          if (!cancelled)
-            ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-        } finally {
-          bitmap.close();
-        }
-      })
-      .catch((e) => {
-        console.error("Error occurred while creating image bitmap:", e);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [frame, thumbWidth, imageDataMap]);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  }, [frame.index, thumbWidth, bitmapMap]);
 
   const borderClass = isSelected ? "border-blue-500" : "border-gray-200";
 
@@ -73,10 +57,10 @@ const SlideThumbnail: FC<{
 const MainSlideDisplay: FC<{
   frame: SlideFrameMeta;
   totalFrames: number;
-  imageDataMap: { current: Map<number, ImageData> };
+  bitmapMap: { current: Map<number, ImageBitmap> };
   onPrevious: () => void;
   onNext: () => void;
-}> = ({ frame, totalFrames, imageDataMap, onPrevious, onNext }) => {
+}> = ({ frame, totalFrames, bitmapMap, onPrevious, onNext }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useIsomorphicLayoutEffect(() => {
@@ -85,33 +69,16 @@ const MainSlideDisplay: FC<{
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const imageData = imageDataMap.current.get(frame.index);
-    if (!imageData) return;
+    const bitmap = bitmapMap.current.get(frame.index);
+    if (!bitmap) return;
 
     const dpr = window.devicePixelRatio ?? 1;
-    canvas.width = imageData.width * dpr;
-    canvas.height = imageData.height * dpr;
+    canvas.width = bitmap.width * dpr;
+    canvas.height = bitmap.height * dpr;
 
-    let cancelled = false;
-    createImageBitmap(imageData)
-      .then((bitmap) => {
-        try {
-          if (!cancelled) {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-          }
-        } finally {
-          bitmap.close();
-        }
-      })
-      .catch((e) => {
-        console.error("Error occurred while creating image bitmap:", e);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [frame.index, imageDataMap]);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  }, [frame.index, bitmapMap]);
 
   return (
     <div className="relative flex items-center justify-center flex-1 rounded overflow-hidden aspect-video">
@@ -149,10 +116,10 @@ const MainSlideDisplay: FC<{
 
 const SlideList: FC<{
   frames: SlideFrameMeta[];
-  imageDataMap: { current: Map<number, ImageData> };
+  bitmapMap: { current: Map<number, ImageBitmap> };
   selectedIndex: number;
   onSelectFrame: (index: number) => void;
-}> = ({ frames, imageDataMap, selectedIndex, onSelectFrame }) => {
+}> = ({ frames, bitmapMap, selectedIndex, onSelectFrame }) => {
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -171,7 +138,7 @@ const SlideList: FC<{
           <SlideThumbnail
             key={frame.index}
             frame={frame}
-            imageDataMap={imageDataMap}
+            bitmapMap={bitmapMap}
             isSelected={selectedIndex === frame.index}
             onClick={() => onSelectFrame(frame.index)}
           />
@@ -183,11 +150,11 @@ const SlideList: FC<{
 
 const MainView: FC<{
   frames: SlideFrameMeta[];
-  imageDataMap: { current: Map<number, ImageData> };
+  bitmapMap: { current: Map<number, ImageBitmap> };
   selectedIndex: number;
   onPrevious: () => void;
   onNext: () => void;
-}> = ({ frames, imageDataMap, selectedIndex, onPrevious, onNext }) => {
+}> = ({ frames, bitmapMap, selectedIndex, onPrevious, onNext }) => {
   const selectedFrame = frames[selectedIndex];
 
   return (
@@ -195,7 +162,7 @@ const MainView: FC<{
       <MainSlideDisplay
         frame={selectedFrame}
         totalFrames={frames.length}
-        imageDataMap={imageDataMap}
+        bitmapMap={bitmapMap}
         onPrevious={onPrevious}
         onNext={onNext}
       />
@@ -225,14 +192,14 @@ const MainView: FC<{
 
 const SlidePreviewContainer: FC<{
   frames: SlideFrameMeta[];
-  imageDataMap: { current: Map<number, ImageData> };
+  bitmapMap: { current: Map<number, ImageBitmap> };
   selectedIndex: number;
   onSelectFrame: (index: number) => void;
   onPrevious: () => void;
   onNext: () => void;
 }> = ({
   frames,
-  imageDataMap,
+  bitmapMap,
   selectedIndex,
   onSelectFrame,
   onPrevious,
@@ -242,13 +209,13 @@ const SlidePreviewContainer: FC<{
     <div className="flex flex-col-reverse md:flex-row gap-2 h-auto aspect-video rounded bg-secondary p-2">
       <SlideList
         frames={frames}
-        imageDataMap={imageDataMap}
+        bitmapMap={bitmapMap}
         selectedIndex={selectedIndex}
         onSelectFrame={onSelectFrame}
       />
       <MainView
         frames={frames}
-        imageDataMap={imageDataMap}
+        bitmapMap={bitmapMap}
         selectedIndex={selectedIndex}
         onPrevious={onPrevious}
         onNext={onNext}
@@ -261,38 +228,81 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
   const [frames, setFrames] = useState<SlideFrameMeta[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const imageDataMap = useRef<Map<number, ImageData>>(new Map());
+  const bitmapMap = useRef<Map<number, ImageBitmap>>(new Map());
 
   useEffect(() => {
     setFrames(null);
     setError(null);
     setSelectedIndex(0);
-    imageDataMap.current.clear();
+    for (const bitmap of bitmapMap.current.values()) bitmap.close();
+    bitmapMap.current.clear();
     const controller = new AbortController();
     const load = async () => {
+      let nextMap: Map<number, ImageBitmap> | null = null;
       try {
         const result = await decodeSlides(urls, controller.signal);
         if (!controller.signal.aborted) {
-          const map = new Map<number, ImageData>();
+          // Convert ImageData -> ImageBitmap once, then render synchronously.
+          const map = new Map<number, ImageBitmap>();
           const meta: SlideFrameMeta[] = [];
+          nextMap = map;
+
           for (const f of result) {
-            map.set(f.index, f.imageData);
+            if (controller.signal.aborted) break;
+
+            const bitmap = await (async () => {
+              // Prefer direct conversion if available.
+              try {
+                return await createImageBitmap(f.imageData);
+              } catch {
+                // Fallback: draw ImageData into a canvas and convert.
+                const canvas = document.createElement("canvas");
+                canvas.width = f.imageData.width;
+                canvas.height = f.imageData.height;
+                const ctx = canvas.getContext("2d");
+                if (!ctx) {
+                  throw new Error(
+                    "OffscreenCanvas/Canvas 2d context not available",
+                  );
+                }
+                ctx.putImageData(f.imageData, 0, 0);
+                const transfer = (
+                  canvas as unknown as {
+                    transferToImageBitmap?: () => ImageBitmap;
+                  }
+                ).transferToImageBitmap;
+                if (transfer) return transfer.call(canvas);
+                return await createImageBitmap(canvas);
+              }
+            })();
+
+            map.set(f.index, bitmap);
             meta.push({ index: f.index, width: f.width, height: f.height });
           }
-          imageDataMap.current = map;
-          setFrames(meta);
+
+          if (!controller.signal.aborted) {
+            bitmapMap.current = map;
+            nextMap = null; // ownership transferred to bitmapMap.current
+            setFrames(meta);
+          }
         }
       } catch (e: unknown) {
         if (!controller.signal.aborted) {
           console.error("Slide preview decode error:", e);
           setError("プレビューの読み込みに失敗しました");
         }
+      } finally {
+        // If we aborted or failed before transferring ownership, close created bitmaps.
+        if (nextMap) {
+          for (const bitmap of nextMap.values()) bitmap.close();
+        }
       }
     };
     load();
     return () => {
       controller.abort();
-      imageDataMap.current.clear();
+      for (const bitmap of bitmapMap.current.values()) bitmap.close();
+      bitmapMap.current.clear();
     };
   }, [urls]);
 
@@ -327,7 +337,7 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
   return (
     <SlidePreviewContainer
       frames={frames}
-      imageDataMap={imageDataMap}
+      bitmapMap={bitmapMap}
       selectedIndex={selectedIndex}
       onSelectFrame={setSelectedIndex}
       onPrevious={handlePrevious}
