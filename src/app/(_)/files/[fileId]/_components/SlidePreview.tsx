@@ -73,9 +73,8 @@ const MainSlideDisplay: FC<{
     const bitmap = bitmapMap.current.get(frame.index);
     if (!bitmap) return;
 
-    const dpr = window.devicePixelRatio ?? 1;
-    canvas.width = bitmap.width * dpr;
-    canvas.height = bitmap.height * dpr;
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
@@ -128,7 +127,11 @@ const SlideList: FC<{
       `[data-index="${selectedIndex}"]`,
     );
     if (selectedElement) {
-      selectedElement.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      selectedElement.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "nearest",
+      });
     }
   }, [selectedIndex]);
 
@@ -248,7 +251,9 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
           const meta: SlideFrameMeta[] = [];
           nextMap = map;
 
-          for (const f of result) {
+          while (result.length > 0) {
+            const f = result.shift();
+            if (!f) break;
             if (controller.signal.aborted) break;
             const sourceImageData = f.imageData;
 
@@ -271,9 +276,6 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
                 return await createImageBitmap(canvas);
               }
             })();
-            // Drop CPU-side pixel buffer as soon as it is converted to ImageBitmap.
-            (f as unknown as { imageData: null }).imageData = null;
-
             map.set(f.index, bitmap);
             meta.push({ index: f.index, width: f.width, height: f.height });
           }
