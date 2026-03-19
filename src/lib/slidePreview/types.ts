@@ -1,6 +1,1 @@
-export type SlideFrame = {
-  index: number;
-  width: number;
-  height: number;
-  imageData: ImageData;
-};
+export type { SlideFrame } from "@/_types/slide-preview";

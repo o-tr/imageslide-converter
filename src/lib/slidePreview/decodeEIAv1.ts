@@ -1,7 +1,7 @@
 import type { EIAFileV1Cropped, EIAManifestV1 } from "@/_types/eia/v1";
+import type { SlideFrame } from "@/_types/slide-preview";
 import lz4 from "lz4js";
 import { rgb24ToImageData, rgba32ToImageData } from "./rawImage2ImageData";
-import type { SlideFrame } from "./types";
 
 const base64ToUint8Array = (b64: string): Uint8Array => {
   const binary = atob(b64);
@@ -27,14 +27,15 @@ const applyRects = (
   decompressed: Uint8Array,
   item: EIAFileV1Cropped,
 ): Uint8Array => {
+  const bpp = item.f === "RGBA32" ? 4 : 3;
   const result = new Uint8Array(baseBuffer);
   for (const rect of item.r) {
     const rectData = decompressed.subarray(rect.s, rect.s + rect.l);
     for (let j = 0; j < rect.h; j++) {
-      const srcOffset = j * rect.w * 3;
-      const dstOffset = ((rect.y + j) * item.w + rect.x) * 3;
+      const srcOffset = j * rect.w * bpp;
+      const dstOffset = ((rect.y + j) * item.w + rect.x) * bpp;
       result.set(
-        rectData.subarray(srcOffset, srcOffset + rect.w * 3),
+        rectData.subarray(srcOffset, srcOffset + rect.w * bpp),
         dstOffset,
       );
     }
@@ -49,6 +50,9 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
   // Find '$' (byte 36) that ends the manifest header
   let dollarPos = 4; // skip "EIA^"
   while (dollarPos < uint8.length && uint8[dollarPos] !== 36) dollarPos++;
+  if (dollarPos >= uint8.length) {
+    throw new Error("EIA file is malformed: manifest delimiter '$' not found");
+  }
 
   const manifest: EIAManifestV1 = JSON.parse(
     textDecoder.decode(uint8.subarray(4, dollarPos)),
@@ -65,8 +69,8 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
       ? textDecoder.decode(uint8.subarray(dataOffset))
       : null;
 
-  // Map from item name → full reconstructed raw pixel buffer
   const frameBuffers = new Map<string, Uint8Array>();
+  const frames: SlideFrame[] = [];
 
   for (const item of manifest.i) {
     let decompressed: Uint8Array;
@@ -96,20 +100,18 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
     }
 
     frameBuffers.set(item.n, rawBuffer);
-  }
 
-  const frames: SlideFrame[] = manifest.i.flatMap((item) => {
-    const raw = frameBuffers.get(item.n);
-    if (!raw) return [];
-    return [
-      {
-        index: Number(item.n),
-        width: item.w,
-        height: item.h,
-        imageData: rawToImageData(raw, item.w, item.h, item.f),
-      },
-    ];
-  });
+    const index = Number(item.n);
+    if (!Number.isFinite(index))
+      throw new Error(`Non-numeric frame name: "${item.n}"`);
+
+    frames.push({
+      index,
+      width: item.w,
+      height: item.h,
+      imageData: rawToImageData(rawBuffer, item.w, item.h, item.f),
+    });
+  }
 
   return frames.sort((a, b) => a.index - b.index);
 };

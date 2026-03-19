@@ -1,13 +1,9 @@
+import type { SlideFrame } from "@/_types/slide-preview";
 import type { ManifestV0 } from "@/_types/text-zip/v0";
-import JSZip from "jszip";
+import type JSZip from "jszip";
 import { rgba32ToImageData } from "./rawImage2ImageData";
-import type { SlideFrame } from "./types";
 
-export const decodeTextZipV0 = async (
-  base64: string,
-): Promise<SlideFrame[]> => {
-  const zip = await JSZip.loadAsync(base64, { base64: true });
-
+export const decodeTextZipV0 = async (zip: JSZip): Promise<SlideFrame[]> => {
   const metadataFile = zip.file("metadata.json");
   if (!metadataFile) throw new Error("metadata.json not found in zip");
   const manifest: ManifestV0 = JSON.parse(await metadataFile.async("string"));

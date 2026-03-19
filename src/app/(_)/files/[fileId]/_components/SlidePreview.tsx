@@ -1,6 +1,6 @@
 "use client";
+import type { SlideFrame } from "@/_types/slide-preview";
 import { decodeSlides } from "@/lib/slidePreview/decodeSlides";
-import type { SlideFrame } from "@/lib/slidePreview/types";
 import { Spin } from "antd";
 import { type FC, useEffect, useRef, useState } from "react";
 
@@ -16,15 +16,23 @@ const SlideThumbnail: FC<{ frame: SlideFrame }> = ({ frame }) => {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.putImageData(frame.imageData, 0, 0);
-  }, [frame]);
+    const dpr = window.devicePixelRatio ?? 1;
+    canvas.width = Math.round(thumbWidth * dpr);
+    canvas.height = Math.round(THUMBNAIL_HEIGHT * dpr);
+    let cancelled = false;
+    createImageBitmap(frame.imageData).then((bitmap) => {
+      if (!cancelled) ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [frame, thumbWidth]);
 
   return (
     <div className="flex flex-col items-center gap-1 flex-shrink-0">
       <canvas
         ref={canvasRef}
-        width={frame.width}
-        height={frame.height}
         style={{ width: thumbWidth, height: THUMBNAIL_HEIGHT }}
         className="border border-gray-200 rounded"
       />
@@ -33,28 +41,32 @@ const SlideThumbnail: FC<{ frame: SlideFrame }> = ({ frame }) => {
   );
 };
 
-export const SlidePreview: FC<{ firstUrl: string }> = ({ firstUrl }) => {
+export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
   const [frames, setFrames] = useState<SlideFrame[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    decodeSlides(firstUrl)
-      .then((result) => {
-        if (!cancelled) setFrames(result);
-      })
-      .catch((e: unknown) => {
-        if (!cancelled)
+    setFrames(null);
+    setError(null);
+    const controller = new AbortController();
+    const load = async () => {
+      try {
+        const result = await decodeSlides(urls, controller.signal);
+        if (!controller.signal.aborted) setFrames(result);
+      } catch (e: unknown) {
+        if (!controller.signal.aborted)
           setError(
             e instanceof Error
               ? e.message
               : "プレビューの読み込みに失敗しました",
           );
-      });
-    return () => {
-      cancelled = true;
+      }
     };
-  }, [firstUrl]);
+    load();
+    return () => {
+      controller.abort();
+    };
+  }, [urls]);
 
   if (error) {
     return (

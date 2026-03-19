@@ -61,7 +61,7 @@ export const URLDisplay: FC<{ fileId: string }> = ({ fileId }) => {
         )}
       </Flex>
       {urls && urls.length > 0 && file?.format !== "DXT1" && (
-        <SlidePreview firstUrl={urls[0]} />
+        <SlidePreview urls={urls} />
       )}
       <Flex vertical align={"start"} gap={"middle"}>
         {file?.format === "DXT1" && (
