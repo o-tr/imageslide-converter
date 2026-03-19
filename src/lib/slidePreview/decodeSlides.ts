@@ -49,8 +49,9 @@ export const decodeSlides = async (
   const allFrames: SlideFrame[] = [];
   for (const partFrames of partResults) {
     const offset = allFrames.length;
-    for (const frame of partFrames) {
-      allFrames.push({ ...frame, index: frame.index + offset });
+    const sorted = [...partFrames].sort((a, b) => a.index - b.index);
+    for (let i = 0; i < sorted.length; i++) {
+      allFrames.push({ ...sorted[i], index: offset + i });
     }
   }
   return allFrames;

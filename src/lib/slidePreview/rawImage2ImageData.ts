@@ -6,6 +6,11 @@ export const rgb24ToImageData = (
   width: number,
   height: number,
 ): ImageData => {
+  const needed = width * height * 3;
+  if (data.length < needed)
+    throw new Error(
+      `rgb24ToImageData: buffer too small (got ${data.length}, need ${needed})`,
+    );
   const imageData = new ImageData(width, height);
   for (let row = 0; row < height; row++) {
     const srcRow = height - 1 - row;
@@ -26,6 +31,11 @@ export const rgba32ToImageData = (
   width: number,
   height: number,
 ): ImageData => {
+  const needed = width * height * 4;
+  if (data.length < needed)
+    throw new Error(
+      `rgba32ToImageData: buffer too small (got ${data.length}, need ${needed})`,
+    );
   const imageData = new ImageData(width, height);
   for (let row = 0; row < height; row++) {
     const srcRow = height - 1 - row;

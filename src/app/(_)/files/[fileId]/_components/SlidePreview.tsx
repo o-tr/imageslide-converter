@@ -22,9 +22,12 @@ const SlideThumbnail: FC<{ frame: SlideFrame }> = ({ frame }) => {
     let cancelled = false;
     createImageBitmap(frame.imageData)
       .then((bitmap) => {
-        if (!cancelled)
-          ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-        bitmap.close();
+        try {
+          if (!cancelled)
+            ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        } finally {
+          bitmap.close();
+        }
       })
       .catch(() => {
         // rendering failed; leave the canvas blank

@@ -28,7 +28,14 @@ const applyRects = (
   decompressed: Uint8Array,
   item: EIAFileV1Cropped,
 ): Uint8Array => {
-  const bpp = item.f === "RGBA32" ? 4 : 3;
+  const bpp =
+    item.f === "RGBA32"
+      ? 4
+      : item.f === "RGB24"
+        ? 3
+        : (() => {
+            throw new Error(`Unsupported format in applyRects: "${item.f}"`);
+          })();
   const result = new Uint8Array(baseBuffer);
   for (const rect of item.r) {
     const rectData = decompressed.subarray(rect.s, rect.s + rect.l);

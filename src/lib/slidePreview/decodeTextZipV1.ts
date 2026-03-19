@@ -21,7 +21,14 @@ const applyRects = (
   width: number,
   format: string,
 ): Uint8Array => {
-  const bpp = format === "RGBA32" ? 4 : 3;
+  const bpp =
+    format === "RGBA32"
+      ? 4
+      : format === "RGB24"
+        ? 3
+        : (() => {
+            throw new Error(`Unsupported format in applyRects: "${format}"`);
+          })();
   const result = new Uint8Array(baseBuffer);
   for (const rect of rects) {
     const rectData = fileBuffers.get(rect.path);
@@ -45,12 +52,14 @@ export const decodeTextZipV1 = async (
   // Load all files from the zip in parallel
   const fileBuffers = new Map<string, Uint8Array>();
   await Promise.all(
-    Object.keys(zip.files).map(async (name) => {
-      const zipEntry = zip.files[name];
-      if (!zipEntry.dir) {
-        fileBuffers.set(name, await zipEntry.async("uint8array"));
-      }
-    }),
+    Object.keys(zip.files)
+      .filter((name) => name !== "metadata.json")
+      .map(async (name) => {
+        const zipEntry = zip.files[name];
+        if (!zipEntry.dir) {
+          fileBuffers.set(name, await zipEntry.async("uint8array"));
+        }
+      }),
   );
 
   // Map from path → full reconstructed raw pixel buffer (for base-frame lookup)
