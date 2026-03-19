@@ -9,7 +9,8 @@ const THUMBNAIL_HEIGHT = 128;
 
 // On the client we want to size/draw the canvas before paint to reduce
 // layout shift. On the server, useLayoutEffect would warn, so we fall back.
-const useIsomorphicLayoutEffect = useLayoutEffect;
+const useIsomorphicLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 const SlideThumbnail: FC<{
   frame: SlideFrameMeta;
@@ -266,12 +267,6 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
                   );
                 }
                 ctx.putImageData(f.imageData, 0, 0);
-                const transfer = (
-                  canvas as unknown as {
-                    transferToImageBitmap?: () => ImageBitmap;
-                  }
-                ).transferToImageBitmap;
-                if (transfer) return transfer.call(canvas);
                 return await createImageBitmap(canvas);
               }
             })();
