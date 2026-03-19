@@ -12,6 +12,8 @@ const base64ToUint8Array = (b64: string): Uint8Array => {
   return bytes;
 };
 
+const isRgb24 = (format: string): boolean => format.startsWith("RGB24");
+
 const rawToImageData = (
   data: Uint8Array,
   width: number,
@@ -19,7 +21,7 @@ const rawToImageData = (
   format: string,
 ): ImageData => {
   if (format === "RGBA32") return rgba32ToImageData(data, width, height);
-  if (format === "RGB24") return rgb24ToImageData(data, width, height);
+  if (isRgb24(format)) return rgb24ToImageData(data, width, height);
   throw new Error(`Unsupported image format: "${format}"`);
 };
 
@@ -27,11 +29,12 @@ const applyRects = (
   baseBuffer: Uint8Array,
   decompressed: Uint8Array,
   item: EIAFileV1Cropped,
+  baseWidth: number,
 ): Uint8Array => {
   const bpp =
     item.f === "RGBA32"
       ? 4
-      : item.f === "RGB24"
+      : isRgb24(item.f)
         ? 3
         : (() => {
             throw new Error(`Unsupported format in applyRects: "${item.f}"`);
@@ -41,7 +44,7 @@ const applyRects = (
     const rectData = decompressed.subarray(rect.s, rect.s + rect.l);
     for (let j = 0; j < rect.h; j++) {
       const srcOffset = j * rect.w * bpp;
-      const dstOffset = ((rect.y + j) * item.w + rect.x) * bpp;
+      const dstOffset = ((rect.y + j) * baseWidth + rect.x) * bpp;
       result.set(
         rectData.subarray(srcOffset, srcOffset + rect.w * bpp),
         dstOffset,
@@ -106,7 +109,15 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
     } else {
       const baseBuffer = frameBuffers.get(item.b);
       if (!baseBuffer) throw new Error(`Base frame "${item.b}" not found`);
-      rawBuffer = applyRects(baseBuffer, decompressed, item);
+      const baseItem = manifest.i.find((f) => f.n === item.b);
+      if (!baseItem)
+        throw new Error(`Base frame "${item.b}" not found in manifest`);
+      if (baseItem.w !== item.w || baseItem.h !== item.h)
+        throw new Error(
+          `Cropped frame "${item.n}" dimensions (${item.w}×${item.h}) ` +
+            `differ from base "${item.b}" (${baseItem.w}×${baseItem.h})`,
+        );
+      rawBuffer = applyRects(baseBuffer, decompressed, item, baseItem.w);
     }
 
     frameBuffers.set(item.n, rawBuffer);

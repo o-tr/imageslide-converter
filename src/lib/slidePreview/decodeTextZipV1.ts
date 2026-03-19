@@ -7,10 +7,12 @@ import type {
 import type JSZip from "jszip";
 import { rgb24ToImageData, rgba32ToImageData } from "./rawImage2ImageData";
 
+const isRgb24 = (format: string): boolean => format.startsWith("RGB24");
+
 const rawToImageData = (data: Uint8Array, item: ManifestV1Item): ImageData => {
   const { width, height } = item.rect;
   if (item.format === "RGBA32") return rgba32ToImageData(data, width, height);
-  if (item.format === "RGB24") return rgb24ToImageData(data, width, height);
+  if (isRgb24(item.format)) return rgb24ToImageData(data, width, height);
   throw new Error(`Unsupported image format: "${item.format}"`);
 };
 
@@ -24,7 +26,7 @@ const applyRects = (
   const bpp =
     format === "RGBA32"
       ? 4
-      : format === "RGB24"
+      : isRgb24(format)
         ? 3
         : (() => {
             throw new Error(`Unsupported format in applyRects: "${format}"`);
