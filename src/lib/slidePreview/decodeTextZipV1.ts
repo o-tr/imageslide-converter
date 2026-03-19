@@ -81,6 +81,11 @@ export const decodeTextZipV1 = async (
         throw new Error(
           `Base frame item "${cropped.basePath}" not found in manifest`,
         );
+      if (baseItem.rect.width !== width || baseItem.rect.height !== height)
+        throw new Error(
+          `Cropped frame "${item.path}" dimensions (${width}×${height}) ` +
+            `differ from base "${cropped.basePath}" (${baseItem.rect.width}×${baseItem.rect.height})`,
+        );
       rawBuffer = applyRects(
         baseBuffer,
         cropped.rects,
