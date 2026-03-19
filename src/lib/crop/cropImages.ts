@@ -4,10 +4,15 @@ import { diff2boundingBox } from "@/lib/crop/diff2boundingBox";
 import { mergeOverlapBoundingBox } from "@/lib/crop/mergeOverlapBoundingBox";
 import { optimizeBoundingBox } from "@/lib/crop/optimizeBoundingBox";
 import { shrinkOverlapBoundingBox } from "@/lib/crop/shrinkOverlapBoundingBox";
-import { rgb242diff } from "@/lib/rawImage2Diff/rgb242diff";
+import { computeThumbnail } from "./computeThumbnail";
+import { type ParentCandidate, selectBestParent } from "./selectBestParent";
 
 export interface CropOptions {
   keyframeInterval?: number;
+  parentSearchWindow?: number;
+  parentSearchTopK?: number;
+  thumbnailGridSize?: number;
+  maxNestingDepth?: number;
 }
 
 export const cropImages = (
@@ -19,21 +24,119 @@ export const cropImages = (
   }
 
   const keyframeInterval = options?.keyframeInterval ?? 0;
+  const parentSearchWindow = options?.parentSearchWindow ?? 10;
+  const parentSearchTopK = Math.max(1, options?.parentSearchTopK ?? 3);
+  const thumbnailGridSize = options?.thumbnailGridSize ?? 32;
+  const maxNestingDepth = Math.max(1, options?.maxNestingDepth ?? 3);
 
-  const croppedImages: RawImageObjV1Cropped[] = [rawImages[0]];
+  // Track thumbnails for coarse similarity comparison (all slides, cheap to retain)
+  const candidates: ParentCandidate[] = [];
+  // Track full-resolution buffers for parent lookup (windowed + keyframes)
+  const parentBuffers = new Map<number, Buffer>();
+  // Track which indices are keyframes (never evicted from parentBuffers)
+  const keyframeIndices = new Set<number>();
+  // Track parent chain depth per slide (master=0, child of master=1, etc.)
+  const depths = new Map<number, number>();
+  // Map image.index -> loop position i so eviction threshold is always
+  // compared against loop positions, not image.index values (which may
+  // be non-sequential or non-zero-based).
+  const loopPositions = new Map<number, number>();
+
+  const croppedImages: RawImageObjV1Cropped[] = [];
+
+  // Register a slide as a master frame (no parent reference)
+  const addAsMaster = (
+    image: RawImageObjV1,
+    thumbnail: Uint8Array,
+    loopPos: number,
+    isKeyframe = false,
+  ) => {
+    loopPositions.set(image.index, loopPos);
+    candidates.push({ index: image.index, thumbnail, rect: image.rect });
+    parentBuffers.set(image.index, image.buffer);
+    depths.set(image.index, 0);
+    if (isKeyframe) keyframeIndices.add(image.index);
+    croppedImages.push(image);
+  };
+
+  // Evict entries outside the search window. Eviction threshold is compared
+  // against loop positions (not image.index) via loopPositions.
+  // Must run after every iteration to enforce the memory bound on all paths.
+  const evictOldEntries = (i: number) => {
+    const threshold = i - parentSearchWindow;
+    const toEvict = Array.from(parentBuffers.keys()).filter((idx) => {
+      const loopPos = loopPositions.get(idx);
+      if (loopPos === undefined) return false; // invariant: should never be absent
+      return loopPos < threshold && !keyframeIndices.has(idx);
+    });
+    for (const idx of toEvict) {
+      parentBuffers.delete(idx);
+      depths.delete(idx);
+      loopPositions.delete(idx);
+    }
+    for (let j = candidates.length - 1; j >= 0; j--) {
+      if (
+        (loopPositions.get(candidates[j].index) ?? 0) < threshold &&
+        !keyframeIndices.has(candidates[j].index)
+      ) {
+        candidates.splice(j, 1);
+      }
+    }
+  };
+
+  const firstImage = rawImages[0];
+  addAsMaster(
+    firstImage,
+    computeThumbnail(
+      firstImage.buffer,
+      firstImage.rect.width,
+      firstImage.rect.height,
+      thumbnailGridSize,
+    ),
+    0,
+    true,
+  );
+
   for (let i = 1; i < rawImages.length; i++) {
-    const lastImage = croppedImages[i - 1];
     const currentImage = rawImages[i];
 
+    const currentThumbnail = computeThumbnail(
+      currentImage.buffer,
+      currentImage.rect.width,
+      currentImage.rect.height,
+      thumbnailGridSize,
+    );
+
+    // Keyframe: store as master file
     if (keyframeInterval > 0 && i % keyframeInterval === 0) {
-      croppedImages.push(currentImage);
+      addAsMaster(currentImage, currentThumbnail, i, true);
+      evictOldEntries(i);
       continue;
     }
 
-    const diff = rgb242diff(lastImage, currentImage);
+    // Filter candidates whose nesting depth would not exceed the limit
+    const eligibleCandidates = candidates.filter(
+      (c) => (depths.get(c.index) ?? 0) < maxNestingDepth,
+    );
+
+    // Find the best parent among eligible candidates
+    const bestParent = selectBestParent(
+      currentImage,
+      currentThumbnail,
+      eligibleCandidates,
+      parentBuffers,
+      parentSearchTopK,
+    );
+
+    // If no suitable parent found or depth limit leaves no candidates, store as master
+    if (!bestParent) {
+      addAsMaster(currentImage, currentThumbnail, i);
+      evictOldEntries(i);
+      continue;
+    }
 
     const diffBox = diff2boundingBox(
-      diff,
+      bestParent.diff,
       currentImage.rect.width,
       currentImage.rect.height,
     );
@@ -44,14 +147,18 @@ export const cropImages = (
       boundingBoxes,
       currentImage.rect,
     );
+
+    // If diff covers entire image or no meaningful diff, store as master
     if (
       mergedBoundingBoxes.length === 0 ||
       mergedBoundingBoxes[0].area ===
         currentImage.rect.width * currentImage.rect.height
     ) {
-      croppedImages.push(currentImage);
+      addAsMaster(currentImage, currentThumbnail, i);
+      evictOldEntries(i);
       continue;
     }
+
     const rects = mergedBoundingBoxes.map((box, index) => {
       const { x1: x, y1: y, width, height } = box;
       const buffer = Buffer.alloc(width * height * 3);
@@ -65,25 +172,42 @@ export const cropImages = (
           srcStart + width * 3,
         );
       }
-      return {
-        index,
-        x,
-        y,
-        width,
-        height,
-        buffer,
-      };
+      return { index, x, y, width, height, buffer };
     });
-    const merged = applyDiff(lastImage, currentImage, rects);
-    const croppedImage: RawImageObjV1Cropped = {
+
+    // Build a proxy for applyDiff using the parent's resolved buffer
+    // selectBestParent guarantees the buffer exists (it checks parentBuffers.get())
+    const parentBuffer = parentBuffers.get(bestParent.parent.index) as Buffer;
+    const parentProxy: RawImageObjV1Cropped = {
+      index: bestParent.parent.index,
+      rect: bestParent.parent.rect,
+      format: currentImage.format,
+      buffer: parentBuffer,
+    };
+
+    const merged = applyDiff(parentProxy, currentImage, rects);
+    croppedImages.push({
       ...currentImage,
       cropped: {
-        baseIndex: lastImage.index,
+        baseIndex: bestParent.parent.index,
         rects,
         merged,
       },
-    };
-    croppedImages.push(croppedImage);
+    });
+
+    // Register this slide as a candidate for future slides
+    const parentDepth = depths.get(bestParent.parent.index) ?? 0;
+    loopPositions.set(currentImage.index, i);
+    depths.set(currentImage.index, parentDepth + 1);
+    candidates.push({
+      index: currentImage.index,
+      thumbnail: currentThumbnail,
+      rect: currentImage.rect,
+    });
+    parentBuffers.set(currentImage.index, merged);
+
+    evictOldEntries(i);
   }
+
   return croppedImages;
 };
