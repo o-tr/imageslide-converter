@@ -250,26 +250,29 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
 
           for (const f of result) {
             if (controller.signal.aborted) break;
+            const sourceImageData = f.imageData;
 
             const bitmap = await (async () => {
               // Prefer direct conversion if available.
               try {
-                return await createImageBitmap(f.imageData);
+                return await createImageBitmap(sourceImageData);
               } catch {
                 // Fallback: draw ImageData into a canvas and convert.
                 const canvas = document.createElement("canvas");
-                canvas.width = f.imageData.width;
-                canvas.height = f.imageData.height;
+                canvas.width = sourceImageData.width;
+                canvas.height = sourceImageData.height;
                 const ctx = canvas.getContext("2d");
                 if (!ctx) {
                   throw new Error(
                     "OffscreenCanvas/Canvas 2d context not available",
                   );
                 }
-                ctx.putImageData(f.imageData, 0, 0);
+                ctx.putImageData(sourceImageData, 0, 0);
                 return await createImageBitmap(canvas);
               }
             })();
+            // Drop CPU-side pixel buffer as soon as it is converted to ImageBitmap.
+            (f as unknown as { imageData: null }).imageData = null;
 
             map.set(f.index, bitmap);
             meta.push({ index: f.index, width: f.width, height: f.height });
