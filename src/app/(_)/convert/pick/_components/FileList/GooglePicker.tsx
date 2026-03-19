@@ -143,6 +143,13 @@ const slide2canvas = async (slideId: string): Promise<SelectedFile[]> => {
     type: "application/pdf",
   });
 
+  if (canvases.length !== metadata.items.length) {
+    throw new Error(
+      `Canvas count (${canvases.length}) does not match slide metadata count (${metadata.items.length}). ` +
+        "The PDF export may not include all slides.",
+    );
+  }
+
   return canvases
     .map((canvas, index) => ({
       canvas,
