@@ -67,6 +67,8 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
   );
   if (manifest.v !== 1)
     throw new Error(`Unsupported EIA version: ${manifest.v}`);
+  if (manifest.c !== "lz4" && manifest.c !== "lz4-base64")
+    throw new Error(`Unsupported compression: ${manifest.c}`);
   const dataOffset = dollarPos + 1;
 
   // Decode the data section once, typed by compression method
