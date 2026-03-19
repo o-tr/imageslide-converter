@@ -117,6 +117,11 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
           `Cropped frame "${item.n}" dimensions (${item.w}×${item.h}) ` +
             `differ from base "${item.b}" (${baseItem.w}×${baseItem.h})`,
         );
+      if (baseItem.f !== item.f)
+        throw new Error(
+          `Cropped frame "${item.n}" format "${item.f}" ` +
+            `differs from base "${item.b}" format "${baseItem.f}"`,
+        );
       rawBuffer = applyRects(baseBuffer, decompressed, item, baseItem.w);
     }
 

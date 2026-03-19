@@ -88,6 +88,11 @@ export const decodeTextZipV1 = async (
           `Cropped frame "${item.path}" dimensions (${width}×${height}) ` +
             `differ from base "${cropped.basePath}" (${baseItem.rect.width}×${baseItem.rect.height})`,
         );
+      if (baseItem.format !== item.format)
+        throw new Error(
+          `Cropped frame "${item.path}" format "${item.format}" ` +
+            `differs from base "${cropped.basePath}" format "${baseItem.format}"`,
+        );
       rawBuffer = applyRects(
         baseBuffer,
         cropped.rects,
