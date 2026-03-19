@@ -80,12 +80,10 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
           setFrames(meta);
         }
       } catch (e: unknown) {
-        if (!controller.signal.aborted)
-          setError(
-            e instanceof Error
-              ? e.message
-              : "プレビューの読み込みに失敗しました",
-          );
+        if (!controller.signal.aborted) {
+          console.error("Slide preview decode error:", e);
+          setError("プレビューの読み込みに失敗しました");
+        }
       }
     };
     load();
@@ -96,11 +94,7 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
   }, [urls]);
 
   if (error) {
-    return (
-      <p className="text-sm text-gray-400">
-        プレビューを表示できませんでした: {error}
-      </p>
-    );
+    return <p className="text-sm text-gray-400">{error}</p>;
   }
 
   if (!frames) {

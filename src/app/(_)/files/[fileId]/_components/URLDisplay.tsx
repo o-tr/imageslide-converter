@@ -60,7 +60,7 @@ export const URLDisplay: FC<{ fileId: string }> = ({ fileId }) => {
           </Flex>
         )}
       </Flex>
-      {urls && urls.length > 0 && file?.format !== "DXT1" && (
+      {urls && urls.length > 0 && file && file.format !== "DXT1" && (
         <SlidePreview urls={urls} />
       )}
       <Flex vertical align={"start"} gap={"middle"}>

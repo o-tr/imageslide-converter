@@ -17,7 +17,10 @@ const decodePart = async (
   signal: AbortSignal,
 ): Promise<SlideFrame[]> => {
   const response = await fetch(url, { signal });
-  if (!response.ok) throw new Error(`Failed to fetch: ${response.status}`);
+  if (!response.ok)
+    throw new Error(
+      `Failed to fetch ${url}: ${response.status} ${response.statusText}`,
+    );
   const buffer = await response.arrayBuffer();
   const uint8 = new Uint8Array(buffer);
 
