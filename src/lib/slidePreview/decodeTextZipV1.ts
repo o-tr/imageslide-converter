@@ -76,11 +76,16 @@ export const decodeTextZipV1 = async (
       const baseBuffer = frameRawBuffers.get(cropped.basePath);
       if (!baseBuffer)
         throw new Error(`Base frame "${cropped.basePath}" not found`);
+      const baseItem = manifest.files.find((f) => f.path === cropped.basePath);
+      if (!baseItem)
+        throw new Error(
+          `Base frame item "${cropped.basePath}" not found in manifest`,
+        );
       rawBuffer = applyRects(
         baseBuffer,
         cropped.rects,
         fileBuffers,
-        width,
+        baseItem.rect.width,
         item.format,
       );
     } else {
