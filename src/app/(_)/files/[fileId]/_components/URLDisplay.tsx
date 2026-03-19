@@ -7,6 +7,7 @@ import Compact from "antd/es/space/Compact";
 import Link from "next/link";
 import { type FC, useEffect, useState } from "react";
 import { TbCheck, TbCopy } from "react-icons/tb";
+import { SlidePreview } from "./SlidePreview";
 
 export const URLDisplay: FC<{ fileId: string }> = ({ fileId }) => {
   const [urls, setUrls] = useState<string[] | undefined>(undefined);
@@ -59,6 +60,9 @@ export const URLDisplay: FC<{ fileId: string }> = ({ fileId }) => {
           </Flex>
         )}
       </Flex>
+      {urls && urls.length > 0 && file?.format !== "DXT1" && (
+        <SlidePreview firstUrl={urls[0]} />
+      )}
       <Flex vertical align={"start"} gap={"middle"}>
         {file?.format === "DXT1" && (
           <Alert
