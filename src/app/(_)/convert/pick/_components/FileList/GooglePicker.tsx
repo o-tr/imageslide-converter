@@ -143,16 +143,24 @@ const slide2canvas = async (slideId: string): Promise<SelectedFile[]> => {
     type: "application/pdf",
   });
 
-  return canvases.map((canvas, index) => ({
-    id: crypto.randomUUID(),
-    fileName: `${metadata.title}-${index + 1}`,
-    canvas,
-    note: metadata.items[index].speakerNote,
-    metadata: {
-      fileType: "pdf",
-      file,
+  return canvases
+    .map((canvas, index) => ({
+      canvas,
       index,
-      scale: 1,
-    },
-  }));
+      isSkipped: metadata.items[index].isSkipped,
+      speakerNote: metadata.items[index].speakerNote,
+    }))
+    .filter(({ isSkipped }) => !isSkipped)
+    .map(({ canvas, index, speakerNote }) => ({
+      id: crypto.randomUUID(),
+      fileName: `${metadata.title}-${index + 1}`,
+      canvas,
+      note: speakerNote,
+      metadata: {
+        fileType: "pdf" as const,
+        file,
+        index,
+        scale: 1,
+      },
+    }));
 };
