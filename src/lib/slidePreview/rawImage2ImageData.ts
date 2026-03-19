@@ -12,15 +12,17 @@ export const rgb24ToImageData = (
       `rgb24ToImageData: buffer too small (got ${data.length}, need ${needed})`,
     );
   const imageData = new ImageData(width, height);
+  // Use Uint32Array view: 1 write per pixel instead of 4
+  // Layout is 0xAABBGGRR on little-endian (all modern browsers)
+  const dst32 = new Uint32Array(imageData.data.buffer);
   for (let row = 0; row < height; row++) {
     const srcRow = height - 1 - row;
+    const srcBase = srcRow * width * 3;
+    const dstBase = row * width;
     for (let col = 0; col < width; col++) {
-      const srcIdx = (srcRow * width + col) * 3;
-      const dstIdx = (row * width + col) * 4;
-      imageData.data[dstIdx] = data[srcIdx];
-      imageData.data[dstIdx + 1] = data[srcIdx + 1];
-      imageData.data[dstIdx + 2] = data[srcIdx + 2];
-      imageData.data[dstIdx + 3] = 255;
+      const s = srcBase + col * 3;
+      dst32[dstBase + col] =
+        data[s] | (data[s + 1] << 8) | (data[s + 2] << 16) | 0xff000000;
     }
   }
   return imageData;

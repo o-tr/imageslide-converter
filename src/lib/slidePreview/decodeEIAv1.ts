@@ -103,6 +103,11 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
       ? textDecoder.decode(uint8.subarray(dataOffset))
       : null;
 
+  const baseNames = new Set(
+    manifest.i
+      .filter((f): f is EIAFileV1Cropped => f.t === "c")
+      .map((f) => f.b),
+  );
   const frameBuffers = new Map<string, Uint8Array>();
   const frames: SlideFrame[] = [];
 
@@ -154,6 +159,11 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
       height: item.h,
       imageData: rawToImageData(rawBuffer, item.w, item.h, item.f),
     });
+
+    // Release raw buffer if no later frame references it as a base
+    if (!baseNames.has(item.n)) {
+      frameBuffers.delete(item.n);
+    }
   }
 
   return frames.sort((a, b) => a.index - b.index);

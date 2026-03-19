@@ -46,11 +46,9 @@ export const decodeSlides = async (
   urls: string[],
   signal: AbortSignal,
 ): Promise<SlideFrame[]> => {
-  const partResults = await Promise.all(
-    urls.map((url) => decodePart(url, signal)),
-  );
   const allFrames: SlideFrame[] = [];
-  for (const partFrames of partResults) {
+  for (const url of urls) {
+    const partFrames = await decodePart(url, signal);
     const offset = allFrames.length;
     const sorted = [...partFrames].sort((a, b) => a.index - b.index);
     for (let i = 0; i < sorted.length; i++) {

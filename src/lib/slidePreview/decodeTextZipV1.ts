@@ -66,6 +66,12 @@ export const decodeTextZipV1 = async (
   zip: JSZip,
   manifest: ManifestV1,
 ): Promise<SlideFrame[]> => {
+  const basePaths = new Set(
+    manifest.files
+      .filter((f) => f.extensions?.cropped)
+      .map((f) => f.extensions?.cropped?.basePath)
+      .filter((p): p is string => p !== undefined),
+  );
   // Map from path → full reconstructed raw pixel buffer (for base-frame lookup)
   const frameRawBuffers = new Map<string, Uint8Array>();
   const frames: SlideFrame[] = [];
@@ -113,6 +119,11 @@ export const decodeTextZipV1 = async (
       height,
       imageData: rawToImageData(rawBuffer, item),
     });
+
+    // Release raw buffer if no later frame references it as a base
+    if (!basePaths.has(item.path)) {
+      frameRawBuffers.delete(item.path);
+    }
   }
 
   return frames;
