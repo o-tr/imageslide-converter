@@ -2,10 +2,15 @@
 import type { SlideFrameMeta } from "@/_types/slide-preview";
 import { decodeSlides } from "@/lib/slidePreview/decodeSlides";
 import { Button, Spin } from "antd";
-import { type FC, useEffect, useRef, useState } from "react";
+import { type FC, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { TbChevronLeft, TbChevronRight } from "react-icons/tb";
 
 const THUMBNAIL_HEIGHT = 128;
+
+// On the client we want to size/draw the canvas before paint to reduce
+// layout shift. On the server, useLayoutEffect would warn, so we fall back.
+const useIsomorphicLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 const SlideThumbnail: FC<{
   frame: SlideFrameMeta;
@@ -17,7 +22,7 @@ const SlideThumbnail: FC<{
   const aspectRatio = frame.width / frame.height;
   const thumbWidth = Math.round(THUMBNAIL_HEIGHT * aspectRatio);
 
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -60,7 +65,7 @@ const SlideThumbnail: FC<{
         ref={canvasRef}
         className={`rounded object-contain md:w-full md:h-auto h-full max-h-full overflow-hidden aspect-video! border-2 hover:border-blue-400 ${borderClass}`}
       />
-      <span className="text-xs text-gray-500">{frame.index + 1}</span>
+      <span className="text-xs text-primary">{frame.index + 1}</span>
     </button>
   );
 };
@@ -74,7 +79,7 @@ const MainSlideDisplay: FC<{
 }> = ({ frame, totalFrames, imageDataMap, onPrevious, onNext }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -117,6 +122,7 @@ const MainSlideDisplay: FC<{
       <button
         onClick={onPrevious}
         disabled={frame.index === 0}
+        aria-label="前のスライド"
         className="absolute left-0 top-0 w-[30%] h-full opacity-0 hover:opacity-100 cursor-pointer disabled:bg-opacity-20 disabled:cursor-not-allowed bg-linear-to-l from-transparent to-black/30"
         type="button"
       >
@@ -128,6 +134,7 @@ const MainSlideDisplay: FC<{
       <button
         onClick={onNext}
         disabled={frame.index === totalFrames - 1}
+        aria-label="次のスライド"
         className="absolute right-0 top-0 w-[30%] h-full opacity-0 hover:opacity-100 cursor-pointer disabled:bg-opacity-20 disabled:cursor-not-allowed bg-linear-to-r from-transparent to-black/30"
         type="button"
       >
@@ -158,7 +165,7 @@ const SlideList: FC<{
   }, [selectedIndex]);
 
   return (
-    <div className="flex overflow-x-auto md:overflow-x-hidden md:overflow-y-auto shrink-0 w-full md:w-1/4 h-[100px] md:h-auto px-2 py-2">
+    <div className="flex overflow-x-auto md:overflow-x-hidden md:overflow-y-auto shrink-0 w-full md:w-auto h-[100px] md:h-auto px-2 py-2">
       <div ref={listRef} className="flex flex-row md:flex-col gap-2">
         {frames.map((frame) => (
           <SlideThumbnail
@@ -201,7 +208,7 @@ const MainView: FC<{
           disabled={selectedIndex <= 0}
         />
 
-        <div className="text-sm text-gray-600 text-center">
+        <div className="text-sm text-center text-primary">
           スライド {selectedIndex + 1} / {frames.length}
         </div>
         {/* Next Button */}
@@ -232,7 +239,7 @@ const SlidePreviewContainer: FC<{
   onNext,
 }) => {
   return (
-    <div className="flex flex-col-reverse md:flex-row gap-2 h-auto max-h-[600px] rounded bg-secondary p-2">
+    <div className="flex flex-col-reverse md:flex-row gap-2 h-auto aspect-video rounded bg-secondary p-2">
       <SlideList
         frames={frames}
         imageDataMap={imageDataMap}
@@ -290,11 +297,11 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
   }, [urls]);
 
   const handlePrevious = () => {
-    setSelectedIndex(Math.max(0, selectedIndex - 1));
+    setSelectedIndex((prev) => Math.max(0, prev - 1));
   };
 
   const handleNext = () => {
-    setSelectedIndex(Math.min((frames?.length ?? 0) - 1, selectedIndex + 1));
+    setSelectedIndex((prev) => Math.min((frames?.length ?? 0) - 1, prev + 1));
   };
 
   if (error) {
@@ -303,9 +310,8 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
 
   if (!frames) {
     return (
-      <div className="flex items-center gap-2 text-sm text-gray-500">
-        <Spin size="small" />
-        <span>プレビューを読み込み中...</span>
+      <div className="grid h-auto aspect-video rounded bg-secondary p-2 place-items-center">
+        <Spin size="large" />
       </div>
     );
   }
