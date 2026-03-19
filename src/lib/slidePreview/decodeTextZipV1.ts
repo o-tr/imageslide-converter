@@ -16,13 +16,19 @@ const rawToImageData = (data: Uint8Array, item: ManifestV1Item): ImageData => {
   throw new Error(`Unsupported image format: "${item.format}"`);
 };
 
-const applyRects = (
+const loadFile = async (zip: JSZip, path: string): Promise<Uint8Array> => {
+  const entry = zip.file(path);
+  if (!entry) throw new Error(`File "${path}" not found in zip`);
+  return entry.async("uint8array");
+};
+
+const applyRects = async (
   baseBuffer: Uint8Array,
   rects: ManifestV1ExtensionCropped["rects"],
-  fileBuffers: Map<string, Uint8Array>,
+  zip: JSZip,
   width: number,
   format: string,
-): Uint8Array => {
+): Promise<Uint8Array> => {
   const bpp =
     format === "RGBA32"
       ? 4
@@ -33,8 +39,12 @@ const applyRects = (
           })();
   const result = new Uint8Array(baseBuffer);
   for (const rect of rects) {
-    const rectData = fileBuffers.get(rect.path);
-    if (!rectData) throw new Error(`Rect file "${rect.path}" not found in zip`);
+    const rectData = await loadFile(zip, rect.path);
+    const expectedBytes = rect.height * rect.width * bpp;
+    if (rectData.length < expectedBytes)
+      throw new Error(
+        `Rect file "${rect.path}" too small: got ${rectData.length}, expected ${expectedBytes}`,
+      );
     for (let j = 0; j < rect.height; j++) {
       const srcOffset = j * rect.width * bpp;
       const dstOffset = ((rect.y + j) * width + rect.x) * bpp;
@@ -51,19 +61,6 @@ export const decodeTextZipV1 = async (
   zip: JSZip,
   manifest: ManifestV1,
 ): Promise<SlideFrame[]> => {
-  // Load all files from the zip in parallel
-  const fileBuffers = new Map<string, Uint8Array>();
-  await Promise.all(
-    Object.keys(zip.files)
-      .filter((name) => name !== "metadata.json")
-      .map(async (name) => {
-        const zipEntry = zip.files[name];
-        if (!zipEntry.dir) {
-          fileBuffers.set(name, await zipEntry.async("uint8array"));
-        }
-      }),
-  );
-
   // Map from path → full reconstructed raw pixel buffer (for base-frame lookup)
   const frameRawBuffers = new Map<string, Uint8Array>();
   const frames: SlideFrame[] = [];
@@ -93,17 +90,15 @@ export const decodeTextZipV1 = async (
           `Cropped frame "${item.path}" format "${item.format}" ` +
             `differs from base "${cropped.basePath}" format "${baseItem.format}"`,
         );
-      rawBuffer = applyRects(
+      rawBuffer = await applyRects(
         baseBuffer,
         cropped.rects,
-        fileBuffers,
+        zip,
         baseItem.rect.width,
         item.format,
       );
     } else {
-      const data = fileBuffers.get(item.path);
-      if (!data) throw new Error(`File "${item.path}" not found in zip`);
-      rawBuffer = data;
+      rawBuffer = await loadFile(zip, item.path);
     }
 
     frameRawBuffers.set(item.path, rawBuffer);

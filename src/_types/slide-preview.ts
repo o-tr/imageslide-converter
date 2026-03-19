@@ -4,3 +4,9 @@ export type SlideFrame = {
   height: number;
   imageData: ImageData;
 };
+
+export type SlideFrameMeta = {
+  index: number;
+  width: number;
+  height: number;
+};

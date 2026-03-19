@@ -1,12 +1,15 @@
 "use client";
-import type { SlideFrame } from "@/_types/slide-preview";
+import type { SlideFrameMeta } from "@/_types/slide-preview";
 import { decodeSlides } from "@/lib/slidePreview/decodeSlides";
 import { Spin } from "antd";
 import { type FC, useEffect, useRef, useState } from "react";
 
 const THUMBNAIL_HEIGHT = 128;
 
-const SlideThumbnail: FC<{ frame: SlideFrame }> = ({ frame }) => {
+const SlideThumbnail: FC<{
+  frame: SlideFrameMeta;
+  imageDataMap: { current: Map<number, ImageData> };
+}> = ({ frame, imageDataMap }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const aspectRatio = frame.width / frame.height;
   const thumbWidth = Math.round(THUMBNAIL_HEIGHT * aspectRatio);
@@ -16,11 +19,13 @@ const SlideThumbnail: FC<{ frame: SlideFrame }> = ({ frame }) => {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    const imageData = imageDataMap.current.get(frame.index);
+    if (!imageData) return;
     const dpr = window.devicePixelRatio ?? 1;
     canvas.width = Math.round(thumbWidth * dpr);
     canvas.height = Math.round(THUMBNAIL_HEIGHT * dpr);
     let cancelled = false;
-    createImageBitmap(frame.imageData)
+    createImageBitmap(imageData)
       .then((bitmap) => {
         try {
           if (!cancelled)
@@ -28,6 +33,8 @@ const SlideThumbnail: FC<{ frame: SlideFrame }> = ({ frame }) => {
         } finally {
           bitmap.close();
         }
+        // Release the heavy ImageData now that pixels are on the canvas
+        if (!cancelled) imageDataMap.current.delete(frame.index);
       })
       .catch(() => {
         // rendering failed; leave the canvas blank
@@ -35,7 +42,7 @@ const SlideThumbnail: FC<{ frame: SlideFrame }> = ({ frame }) => {
     return () => {
       cancelled = true;
     };
-  }, [frame, thumbWidth]);
+  }, [frame, thumbWidth, imageDataMap]);
 
   return (
     <div className="flex flex-col items-center gap-1 flex-shrink-0">
@@ -50,17 +57,28 @@ const SlideThumbnail: FC<{ frame: SlideFrame }> = ({ frame }) => {
 };
 
 export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
-  const [frames, setFrames] = useState<SlideFrame[] | null>(null);
+  const [frames, setFrames] = useState<SlideFrameMeta[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const imageDataMap = useRef<Map<number, ImageData>>(new Map());
 
   useEffect(() => {
     setFrames(null);
     setError(null);
+    imageDataMap.current.clear();
     const controller = new AbortController();
     const load = async () => {
       try {
         const result = await decodeSlides(urls, controller.signal);
-        if (!controller.signal.aborted) setFrames(result);
+        if (!controller.signal.aborted) {
+          const map = new Map<number, ImageData>();
+          const meta: SlideFrameMeta[] = [];
+          for (const f of result) {
+            map.set(f.index, f.imageData);
+            meta.push({ index: f.index, width: f.width, height: f.height });
+          }
+          imageDataMap.current = map;
+          setFrames(meta);
+        }
       } catch (e: unknown) {
         if (!controller.signal.aborted)
           setError(
@@ -73,6 +91,7 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
     load();
     return () => {
       controller.abort();
+      imageDataMap.current.clear();
     };
   }, [urls]);
 
@@ -104,7 +123,11 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
   return (
     <div className="flex gap-2 overflow-x-auto py-2">
       {frames.map((frame) => (
-        <SlideThumbnail key={frame.index} frame={frame} />
+        <SlideThumbnail
+          key={frame.index}
+          frame={frame}
+          imageDataMap={imageDataMap}
+        />
       ))}
     </div>
   );

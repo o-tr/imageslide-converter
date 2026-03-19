@@ -14,6 +14,17 @@ const base64ToUint8Array = (b64: string): Uint8Array => {
 
 const isRgb24 = (format: string): boolean => format.startsWith("RGB24");
 
+const lz4Decompress = (
+  compressed: Uint8Array,
+  uncompressedSize: number,
+  frameName: string,
+): Uint8Array => {
+  const raw = lz4.decompress(compressed, uncompressedSize);
+  if (!raw || !(raw as ArrayLike<number>).length)
+    throw new Error(`lz4 decompression failed for frame "${frameName}"`);
+  return new Uint8Array(raw as ArrayLike<number>);
+};
+
 const rawToImageData = (
   data: Uint8Array,
   width: number,
@@ -42,6 +53,11 @@ const applyRects = (
   const result = new Uint8Array(baseBuffer);
   for (const rect of item.r) {
     const rectData = decompressed.subarray(rect.s, rect.s + rect.l);
+    const expectedBytes = rect.h * rect.w * bpp;
+    if (rectData.length < expectedBytes)
+      throw new Error(
+        `Rect data too small: got ${rectData.length}, expected ${expectedBytes} for rect at (${rect.x},${rect.y})`,
+      );
     for (let j = 0; j < rect.h; j++) {
       const srcOffset = j * rect.w * bpp;
       const dstOffset = ((rect.y + j) * baseWidth + rect.x) * bpp;
@@ -90,15 +106,11 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
 
     if (binarySection !== null) {
       const compressed = binarySection.subarray(item.s, item.s + item.l);
-      decompressed = new Uint8Array(
-        lz4.decompress(compressed, item.u) as ArrayLike<number>,
-      );
+      decompressed = lz4Decompress(compressed, item.u, item.n);
     } else if (textSection !== null) {
       const b64 = textSection.substring(item.s, item.s + item.l);
       const compressed = base64ToUint8Array(b64);
-      decompressed = new Uint8Array(
-        lz4.decompress(compressed, item.u) as ArrayLike<number>,
-      );
+      decompressed = lz4Decompress(compressed, item.u, item.n);
     } else {
       throw new Error(`Unsupported compression: ${manifest.c}`);
     }
