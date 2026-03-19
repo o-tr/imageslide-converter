@@ -22,6 +22,7 @@ const decodePart = async (
       `Failed to fetch ${url}: ${response.status} ${response.statusText}`,
     );
   const buffer = await response.arrayBuffer();
+  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
   const uint8 = new Uint8Array(buffer);
 
   if (isEIA(uint8)) {
