@@ -8,7 +8,7 @@ export default async function Page({ params }: Props) {
   const { fileId } = await params;
   return (
     <div className={"flex-1 grid place-items-center"}>
-      <Flex vertical gap={"middle"} className={"w-3/4"}>
+      <Flex vertical gap={"middle"} className={"w-3/4 overflow-hidden"}>
         <URLDisplay fileId={fileId} />
       </Flex>
       <Reset />
