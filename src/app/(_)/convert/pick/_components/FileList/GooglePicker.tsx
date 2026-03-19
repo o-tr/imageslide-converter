@@ -15,12 +15,13 @@ import {
   showFilePicker,
 } from "@/lib/google";
 import { LoadingOutlined } from "@ant-design/icons";
-import { Button, Flex, Spin } from "antd";
+import { Button, Flex, Spin, message } from "antd";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useState } from "react";
 import { TbBrandGoogleDrive } from "react-icons/tb";
 
 export const GooglePicker = () => {
+  const [messageApi, contextHolder] = message.useMessage();
   const [token, setToken] = useAtom(GooglePickerTokenAtom);
   const isApiLoaded = useAtomValue(IsGooglePickerReadyAtom);
   const setFiles = useSetAtom(SelectedFilesAtom);
@@ -63,34 +64,45 @@ export const GooglePicker = () => {
     if (data.action !== "picked" || !data.docs) return;
     const file = data.docs[0];
     setIsLoading(true);
-    if (file.mimeType === "application/pdf") {
-      const fileObj = new File(
-        [await fetchFileBuffer(file.id)],
-        file.name ?? "unknown file",
-        {
-          type: "application/pdf",
-        },
+    try {
+      if (file.mimeType === "application/pdf") {
+        const fileObj = new File(
+          [await fetchFileBuffer(file.id)],
+          file.name ?? "unknown file",
+          {
+            type: "application/pdf",
+          },
+        );
+        const selectedFiles = await file2selectedFiles(fileObj);
+        setFiles((pv) => [...pv, ...selectedFiles]);
+      }
+      if (file.mimeType === "application/vnd.google-apps.presentation") {
+        const files = await slide2canvas(file.id);
+        setFiles((pv) => [...pv, ...files]);
+      }
+      if (file.mimeType?.startsWith("image/")) {
+        const buffer = await fetchFileBuffer(file.id);
+        const fileObject = new File([buffer], file.name ?? "unknown file", {
+          type: file.mimeType,
+        });
+        const canvas = await file2selectedFiles(fileObject);
+        setFiles((pv) => [...pv, ...canvas]);
+      }
+    } catch (e) {
+      console.error(e);
+      void messageApi.error(
+        e instanceof Error
+          ? e.message
+          : "Failed to load file from Google Drive",
       );
-      const selectedFiles = await file2selectedFiles(fileObj);
-      setFiles((pv) => [...pv, ...selectedFiles]);
+    } finally {
+      setIsLoading(false);
     }
-    if (file.mimeType === "application/vnd.google-apps.presentation") {
-      const files = await slide2canvas(file.id);
-      setFiles((pv) => [...pv, ...files]);
-    }
-    if (file.mimeType?.startsWith("image/")) {
-      const buffer = await fetchFileBuffer(file.id);
-      const fileObject = new File([buffer], file.name ?? "unknown file", {
-        type: file.mimeType,
-      });
-      const canvas = await file2selectedFiles(fileObject);
-      setFiles((pv) => [...pv, ...canvas]);
-    }
-    setIsLoading(false);
   };
 
   return (
     <>
+      {contextHolder}
       <Button
         disabled={!isApiLoaded && !validating}
         icon={
@@ -157,9 +169,9 @@ const slide2canvas = async (slideId: string): Promise<SelectedFile[]> => {
       speakerNote: metadata.items[index].speakerNote,
     }))
     .filter(({ isSkipped }) => !isSkipped)
-    .map(({ canvas, index, speakerNote }) => ({
+    .map(({ canvas, index, speakerNote }, outputIndex) => ({
       id: crypto.randomUUID(),
-      fileName: `${metadata.title}-${index + 1}`,
+      fileName: `${metadata.title}-${outputIndex + 1}`,
       canvas,
       note: speakerNote,
       metadata: {
