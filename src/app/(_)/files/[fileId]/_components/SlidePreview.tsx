@@ -67,12 +67,12 @@ const SlideThumbnail: FC<{
 
 const MainSlideDisplay: FC<{
   frame: SlideFrameMeta;
+  totalFrames: number;
   imageDataMap: { current: Map<number, ImageData> };
   onPrevious: () => void;
   onNext: () => void;
-}> = ({ frame, imageDataMap, onPrevious, onNext }) => {
+}> = ({ frame, totalFrames, imageDataMap, onPrevious, onNext }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -87,22 +87,13 @@ const MainSlideDisplay: FC<{
     canvas.width = imageData.width * dpr;
     canvas.height = imageData.height * dpr;
 
-    const offsetX = (canvas.width - imageData.width * dpr) / 2;
-    const offsetY = (canvas.height - imageData.height * dpr) / 2;
-
     let cancelled = false;
     createImageBitmap(imageData)
       .then((bitmap) => {
         try {
           if (!cancelled) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(
-              bitmap,
-              offsetX,
-              offsetY,
-              imageData.width * dpr,
-              imageData.height * dpr,
-            );
+            ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
           }
         } finally {
           bitmap.close();
@@ -118,10 +109,7 @@ const MainSlideDisplay: FC<{
   }, [frame.index, imageDataMap]);
 
   return (
-    <div
-      ref={containerRef}
-      className="relative flex items-center justify-center flex-1 rounded overflow-hidden aspect-video"
-    >
+    <div className="relative flex items-center justify-center flex-1 rounded overflow-hidden aspect-video">
       <canvas
         ref={canvasRef}
         className="w-full h-full max-w-full max-h-full object-contain"
@@ -139,7 +127,7 @@ const MainSlideDisplay: FC<{
       </button>
       <button
         onClick={onNext}
-        disabled={frame.index === imageDataMap.current.size - 1}
+        disabled={frame.index === totalFrames - 1}
         className="absolute right-0 top-0 w-[30%] h-full opacity-0 hover:opacity-100 cursor-pointer disabled:bg-opacity-20 disabled:cursor-not-allowed bg-linear-to-r from-transparent to-black/30"
         type="button"
       >
@@ -199,6 +187,7 @@ const MainView: FC<{
     <div className="flex flex-col gap-4 flex-1 md:w-3/4 md:px-4 md:py-2">
       <MainSlideDisplay
         frame={selectedFrame}
+        totalFrames={frames.length}
         imageDataMap={imageDataMap}
         onPrevious={onPrevious}
         onNext={onNext}
@@ -301,15 +290,11 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
   }, [urls]);
 
   const handlePrevious = () => {
-    if (selectedIndex > 0) {
-      setSelectedIndex(selectedIndex - 1);
-    }
+    setSelectedIndex(Math.max(0, selectedIndex - 1));
   };
 
   const handleNext = () => {
-    if (selectedIndex < (frames?.length ?? 0) - 1) {
-      setSelectedIndex(selectedIndex + 1);
-    }
+    setSelectedIndex(Math.min((frames?.length ?? 0) - 1, selectedIndex + 1));
   };
 
   if (error) {
