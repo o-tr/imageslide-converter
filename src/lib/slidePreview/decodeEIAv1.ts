@@ -51,7 +51,12 @@ const applyRects = (
             throw new Error(`Unsupported format in applyRects: "${item.f}"`);
           })();
   const result = new Uint8Array(baseBuffer);
+  const baseHeight = baseBuffer.length / (baseWidth * bpp);
   for (const rect of item.r) {
+    if (rect.x + rect.w > baseWidth || rect.y + rect.h > baseHeight)
+      throw new Error(
+        `Rect at (${rect.x},${rect.y}) size ${rect.w}×${rect.h} exceeds frame bounds ${baseWidth}×${baseHeight}`,
+      );
     const rectData = decompressed.subarray(rect.s, rect.s + rect.l);
     const expectedBytes = rect.h * rect.w * bpp;
     if (rectData.length < expectedBytes)

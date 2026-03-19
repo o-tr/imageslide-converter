@@ -38,7 +38,12 @@ const applyRects = async (
             throw new Error(`Unsupported format in applyRects: "${format}"`);
           })();
   const result = new Uint8Array(baseBuffer);
+  const baseHeight = baseBuffer.length / (width * bpp);
   for (const rect of rects) {
+    if (rect.x + rect.width > width || rect.y + rect.height > baseHeight)
+      throw new Error(
+        `Rect at (${rect.x},${rect.y}) size ${rect.width}×${rect.height} exceeds frame bounds ${width}×${baseHeight}`,
+      );
     const rectData = await loadFile(zip, rect.path);
     const expectedBytes = rect.height * rect.width * bpp;
     if (rectData.length < expectedBytes)

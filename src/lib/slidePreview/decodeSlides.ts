@@ -36,7 +36,10 @@ const decodePart = async (
   if (metadata.manifestVersion === 1) {
     return decodeTextZipV1(zip, metadata as ManifestV1);
   }
-  return decodeTextZipV0(zip, metadata as ManifestV0);
+  if (!metadata.manifestVersion) {
+    return decodeTextZipV0(zip, metadata as ManifestV0);
+  }
+  throw new Error(`Unsupported manifest version: ${metadata.manifestVersion}`);
 };
 
 export const decodeSlides = async (
