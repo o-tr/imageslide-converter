@@ -106,7 +106,7 @@ export const decodeTextZipV1 = async (
         cropped.rects,
         zip,
         baseItem.rect.width,
-        item.format,
+        baseItem.format,
       );
     } else {
       rawBuffer = await loadFile(zip, item.path);
