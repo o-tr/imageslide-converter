@@ -1,4 +1,6 @@
 import type { SlideFrame } from "@/_types/slide-preview";
+import type { ManifestV0 } from "@/_types/text-zip/v0";
+import type { ManifestV1 } from "@/_types/text-zip/v1";
 import JSZip from "jszip";
 import { decodeEIAv1 } from "./decodeEIAv1";
 import { decodeTextZipV0 } from "./decodeTextZipV0";
@@ -32,18 +34,20 @@ const decodePart = async (
   const metadata = JSON.parse(await metadataFile.async("string"));
 
   if (metadata.manifestVersion === 1) {
-    return decodeTextZipV1(zip);
+    return decodeTextZipV1(zip, metadata as ManifestV1);
   }
-  return decodeTextZipV0(zip);
+  return decodeTextZipV0(zip, metadata as ManifestV0);
 };
 
 export const decodeSlides = async (
   urls: string[],
   signal: AbortSignal,
 ): Promise<SlideFrame[]> => {
+  const partResults = await Promise.all(
+    urls.map((url) => decodePart(url, signal)),
+  );
   const allFrames: SlideFrame[] = [];
-  for (const url of urls) {
-    const partFrames = await decodePart(url, signal);
+  for (const partFrames of partResults) {
     const offset = allFrames.length;
     for (const frame of partFrames) {
       allFrames.push({ ...frame, index: frame.index + offset });

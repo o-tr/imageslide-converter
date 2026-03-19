@@ -3,11 +3,10 @@ import type { ManifestV0 } from "@/_types/text-zip/v0";
 import type JSZip from "jszip";
 import { rgba32ToImageData } from "./rawImage2ImageData";
 
-export const decodeTextZipV0 = async (zip: JSZip): Promise<SlideFrame[]> => {
-  const metadataFile = zip.file("metadata.json");
-  if (!metadataFile) throw new Error("metadata.json not found in zip");
-  const manifest: ManifestV0 = JSON.parse(await metadataFile.async("string"));
-
+export const decodeTextZipV0 = async (
+  zip: JSZip,
+  manifest: ManifestV0,
+): Promise<SlideFrame[]> => {
   const frames: SlideFrame[] = [];
   for (let i = 0; i < manifest.length; i++) {
     const item = manifest[i];

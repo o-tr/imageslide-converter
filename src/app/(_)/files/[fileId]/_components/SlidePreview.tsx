@@ -20,10 +20,15 @@ const SlideThumbnail: FC<{ frame: SlideFrame }> = ({ frame }) => {
     canvas.width = Math.round(thumbWidth * dpr);
     canvas.height = Math.round(THUMBNAIL_HEIGHT * dpr);
     let cancelled = false;
-    createImageBitmap(frame.imageData).then((bitmap) => {
-      if (!cancelled) ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      bitmap.close();
-    });
+    createImageBitmap(frame.imageData)
+      .then((bitmap) => {
+        if (!cancelled)
+          ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        bitmap.close();
+      })
+      .catch(() => {
+        // rendering failed; leave the canvas blank
+      });
     return () => {
       cancelled = true;
     };

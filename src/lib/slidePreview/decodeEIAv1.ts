@@ -19,7 +19,8 @@ const rawToImageData = (
   format: string,
 ): ImageData => {
   if (format === "RGBA32") return rgba32ToImageData(data, width, height);
-  return rgb24ToImageData(data, width, height);
+  if (format === "RGB24") return rgb24ToImageData(data, width, height);
+  throw new Error(`Unsupported image format: "${format}"`);
 };
 
 const applyRects = (

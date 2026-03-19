@@ -38,11 +38,10 @@ const applyRects = (
   return result;
 };
 
-export const decodeTextZipV1 = async (zip: JSZip): Promise<SlideFrame[]> => {
-  const metadataFile = zip.file("metadata.json");
-  if (!metadataFile) throw new Error("metadata.json not found in zip");
-  const manifest: ManifestV1 = JSON.parse(await metadataFile.async("string"));
-
+export const decodeTextZipV1 = async (
+  zip: JSZip,
+  manifest: ManifestV1,
+): Promise<SlideFrame[]> => {
   // Load all files from the zip in parallel
   const fileBuffers = new Map<string, Uint8Array>();
   await Promise.all(
