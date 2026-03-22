@@ -10,11 +10,12 @@ export const SignIn = () => {
   const handleSignIn = useCallback(() => {
     setLoading(true);
     popupSignIn({
-      onSuccess: () => {
-        void update();
+      onSuccess: async () => {
+        await update();
         setLoading(false);
       },
-      onError: () => {
+      onError: (error) => {
+        console.warn("[popupSignIn]", error);
         setLoading(false);
       },
       fallbackToRedirect: true,

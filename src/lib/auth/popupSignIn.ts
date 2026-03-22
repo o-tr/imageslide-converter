@@ -1,8 +1,8 @@
 import { signIn } from "next-auth/react";
 
 type PopupSignInOptions = {
-  onSuccess?: () => void;
-  onError?: (error: string) => void;
+  onSuccess?: () => void | Promise<void>;
+  onError?: (error: string) => void | Promise<void>;
   /** ポップアップが開けない場合にフルリダイレクトにフォールバックするか (default: true) */
   fallbackToRedirect?: boolean;
   /** フルリダイレクトにフォールバックした場合のcallbackUrl (default: window.location.href) */
@@ -18,7 +18,11 @@ function isMobileDevice(): boolean {
   );
 }
 
-// 前回の呼び出しのクリーンアップ用
+/**
+ * 前回の呼び出しのクリーンアップ用。
+ * モジュールレベルのシングルトン変数であり、同一タブ内のすべてのコンポーネントで共有される。
+ * 複数箇所から同時に呼ばれた場合、後の呼び出しが前の呼び出しのリスナーを破棄する。
+ */
 let cleanupPrevious: (() => void) | null = null;
 
 /**
@@ -40,7 +44,7 @@ export function popupSignIn(options?: PopupSignInOptions): void {
     if (fallback) {
       void signIn("discord", { callbackUrl });
     } else {
-      options?.onError?.("mobile-unsupported");
+      void options?.onError?.("mobile-unsupported");
     }
     return;
   }
@@ -62,7 +66,7 @@ export function popupSignIn(options?: PopupSignInOptions): void {
     if (fallback) {
       void signIn("discord", { callbackUrl });
     } else {
-      options?.onError?.("popup-blocked");
+      void options?.onError?.("popup-blocked");
     }
     return;
   }
@@ -70,7 +74,10 @@ export function popupSignIn(options?: PopupSignInOptions): void {
   // onSuccess/onErrorの二重発火を防ぐフラグ
   let settled = false;
 
-  // ポップアップからのpostMessageを待機
+  // handleMessage, pollTimer, cleanup は相互参照するクロージャ群。
+  // 各関数は非同期でのみ呼ばれるため、宣言順に関わらずランタイムでは初期化済み。
+  // pollTimer を const にするため、cleanup を最後に宣言する。
+
   const handleMessage = (event: MessageEvent) => {
     if (event.origin !== window.location.origin) return;
     if (event.data?.type !== "auth-callback-complete") return;
@@ -80,11 +87,12 @@ export function popupSignIn(options?: PopupSignInOptions): void {
     cleanup();
 
     if (event.data.success) {
-      options?.onSuccess?.();
+      void options?.onSuccess?.();
     } else {
-      options?.onError?.(event.data.error ?? "unknown");
+      void options?.onError?.(event.data.error ?? "unknown");
     }
   };
+
   window.addEventListener("message", handleMessage);
 
   // ポップアップが認証完了前に閉じられた場合の検出
@@ -96,7 +104,7 @@ export function popupSignIn(options?: PopupSignInOptions): void {
       }
       settled = true;
       cleanup();
-      options?.onError?.("popup-closed");
+      void options?.onError?.("popup-closed");
     }
   }, 500);
 

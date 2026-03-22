@@ -5,6 +5,17 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
+const ERROR_MESSAGES: Record<string, string> = {
+  AccessDenied: "アクセスが拒否されました",
+  OAuthAccountNotLinked: "別の方法でログイン済みのアカウントです",
+  OAuthCallback: "認証コールバックでエラーが発生しました",
+  OAuthSignin: "認証の開始に失敗しました",
+};
+
+function getErrorMessage(error: string): string {
+  return ERROR_MESSAGES[error] ?? "エラーが発生しました";
+}
+
 /**
  * 親ウィンドウにpostMessageを送信し、ポップアップを閉じる。
  * window.openerへのアクセスがクロスオリジン制限で失敗する場合に備えてtry/catchで囲む。
@@ -52,7 +63,7 @@ function CallbackContent() {
     return (
       <div className="flex flex-col items-center gap-4 text-center">
         <p className="text-lg">ログインに失敗しました</p>
-        <p className="text-sm text-gray-500">{error}</p>
+        <p className="text-sm text-gray-500">{getErrorMessage(error)}</p>
         <Link href="/">
           <Button type="primary">トップページへ戻る</Button>
         </Link>
