@@ -40,6 +40,7 @@ export const FormatSelect: FC = () => {
     bestFormat !== null && bestFormat.fileSize > FileSizeLimit;
 
   useEffect(() => {
+    if (availableFormats.length === 0) return;
     if (format === "auto") return;
     if (format === "auto-one-file" && oneFileOptionEnabled) return;
     const validIds: string[] = availableFormats.map((f) => f.id);
@@ -78,9 +79,11 @@ export const FormatSelect: FC = () => {
           stale な "auto-one-file")、useEffect による atom リセット前のフラッシュを防ぐ。
           SettingsPanel の forceRender: true により、useEffect はユーザー操作前に実行される。 */}
       <Select
-        value={options.some((o) => o.value === format) ? format : "auto"}
+        value={options.some((o) => o.value === format) ? format : undefined}
         onChange={setFormat}
         options={options}
+        disabled={options.length === 0}
+        placeholder={options.length === 0 ? "フォーマットなし" : undefined}
         className="w-full"
       />
     </Flex>
