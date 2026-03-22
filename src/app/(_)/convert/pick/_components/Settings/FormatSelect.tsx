@@ -17,7 +17,7 @@ const toLabel = (input: FormatItemType & { fileSize: number }) => {
   const sizeStr = formatFileSize(input.fileSize);
   const prefix = input.estimatedCompressionRatio !== undefined ? "~" : "";
   const fileCount = Math.ceil(input.fileSize / FileSizeLimit);
-  return `${input.label} (${prefix}${sizeStr} / ${fileCount}file)`;
+  return `${input.label} (${prefix}${sizeStr} / ${fileCount}file(s))`;
 };
 
 export const FormatSelect: FC = () => {
@@ -41,7 +41,7 @@ export const FormatSelect: FC = () => {
 
   useEffect(() => {
     if (availableFormats.length === 0) {
-      if (format === "auto-one-file") setFormat("auto");
+      if (format !== "auto") setFormat("auto");
       return;
     }
     if (format === "auto") return;
