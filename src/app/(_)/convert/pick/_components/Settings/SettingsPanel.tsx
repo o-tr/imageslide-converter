@@ -13,6 +13,7 @@ export const SettingsPanel: FC = () => {
       items={[
         {
           key: "settings",
+          forceRender: true,
           label: (
             <Flex align="center" gap={8}>
               <SettingOutlined />

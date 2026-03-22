@@ -12,14 +12,14 @@ import { useEffect, useRef } from "react";
 
 export default function Home() {
   const files = useAtomValue(SelectedFilesAtom);
-  const prevCountRef = useRef(files.length);
+  const didRedirectRef = useRef(false);
   const router = useRouter();
 
   useEffect(() => {
-    if (prevCountRef.current === 0 && files.length > 0) {
+    if (!didRedirectRef.current && files.length > 0) {
+      didRedirectRef.current = true;
       router.push("/convert/pick");
     }
-    prevCountRef.current = files.length;
   }, [files.length, router]);
 
   return (

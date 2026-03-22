@@ -1,17 +1,13 @@
 "use client";
-import { UsingVersionAtom } from "@/atoms/convert";
-import { TargetVersions } from "@/const/convert";
+import { UsingVersionAtom, VALID_VERSIONS } from "@/atoms/convert";
 import { Flex, Select } from "antd";
 import { useAtom } from "jotai";
 import type { FC } from "react";
 
-const options = [
-  ...TargetVersions.map((v) => ({
-    value: v.label,
-    label: v.label,
-  })),
-  { value: "all", label: "すべて表示" },
-];
+const options = VALID_VERSIONS.map((v) => ({
+  value: v,
+  label: v === "all" ? "すべて表示" : v,
+}));
 
 export const VersionSelect: FC = () => {
   const [version, setVersion] = useAtom(UsingVersionAtom);

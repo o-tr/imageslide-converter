@@ -32,10 +32,12 @@ export const FormatSelect: FC = () => {
   );
 
   const bestFormat = useMemo(() => {
+    if (availableFormats.length === 0) return null;
     return availableFormats.toSorted((a, b) => b.priority - a.priority)[0];
   }, [availableFormats]);
 
-  const oneFileOptionEnabled = bestFormat?.fileSize > FileSizeLimit;
+  const oneFileOptionEnabled =
+    bestFormat !== null && bestFormat.fileSize > FileSizeLimit;
 
   useEffect(() => {
     if (oneFileOptionEnabled) return;

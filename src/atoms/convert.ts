@@ -3,7 +3,7 @@ import { RESOLUTION_OPTIONS, type Resolution } from "@/const/resolutions";
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 
-const VALID_VERSIONS = [...TargetVersions.map((v) => v.label), "all"];
+export const VALID_VERSIONS = [...TargetVersions.map((v) => v.label), "all"];
 
 export const UsingVersionAtom = atomWithStorage<string>(
   "using-version",
@@ -16,8 +16,8 @@ export const UsingVersionAtom = atomWithStorage<string>(
 
       try {
         const parsed = JSON.parse(storedValue);
-        if (VALID_VERSIONS.includes(parsed)) {
-          return parsed as string;
+        if (typeof parsed === "string" && VALID_VERSIONS.includes(parsed)) {
+          return parsed;
         }
       } catch {
         // パースエラー時はデフォルト値を返す
@@ -26,9 +26,11 @@ export const UsingVersionAtom = atomWithStorage<string>(
       return initialValue;
     },
     setItem: (key, value) => {
+      if (typeof window === "undefined") return;
       localStorage.setItem(key, JSON.stringify(value));
     },
     removeItem: (key) => {
+      if (typeof window === "undefined") return;
       localStorage.removeItem(key);
     },
   },
@@ -59,9 +61,11 @@ export const TargetResolutionAtom = atomWithStorage<Resolution>(
       return initialValue;
     },
     setItem: (key, value) => {
+      if (typeof window === "undefined") return;
       localStorage.setItem(key, JSON.stringify(value));
     },
     removeItem: (key) => {
+      if (typeof window === "undefined") return;
       localStorage.removeItem(key);
     },
   },

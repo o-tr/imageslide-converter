@@ -1,10 +1,13 @@
-import { UploadSteps } from "@/app/(_)/convert/_components/UploadSteps";
+import {
+  UPLOAD_STEP,
+  UploadSteps,
+} from "@/app/(_)/convert/_components/UploadSteps";
 import { Upload } from "@/app/(_)/convert/upload/_components/Upload";
 
 export default function Page() {
   return (
     <>
-      <UploadSteps current={2} />
+      <UploadSteps current={UPLOAD_STEP.UPLOAD} />
       <Upload />
     </>
   );
