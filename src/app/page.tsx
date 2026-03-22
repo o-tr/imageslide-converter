@@ -1,19 +1,26 @@
 "use client";
 import { Controls } from "@/app/(_)/convert/pick/_components/FileList/Controls";
 import { TransitionOnDrag } from "@/app/_components/TransitionOnDrag";
+import { ResultAtom } from "@/atoms/convert";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
 import { AntContent } from "@/components/AntContent";
 import { DragWatcher } from "@/components/DragWatcher";
 import { Flex } from "antd";
-import { useAtomValue } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 
 export default function Home() {
-  const files = useAtomValue(SelectedFilesAtom);
+  const [files, setFiles] = useAtom(SelectedFilesAtom);
+  const setResult = useSetAtom(ResultAtom);
   const didRedirectRef = useRef(false);
   const router = useRouter();
+
+  useEffect(() => {
+    setFiles([]);
+    setResult(undefined);
+  }, [setFiles, setResult]);
 
   useEffect(() => {
     if (!didRedirectRef.current && files.length > 0) {
