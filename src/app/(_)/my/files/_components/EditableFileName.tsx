@@ -34,6 +34,7 @@ export const EditableFileName: FC<{
     setSaving(true);
     try {
       await onUpdate(fileId, { name: trimmed });
+      setValue(trimmed);
       setEditing(false);
     } catch {
       void message.error("ファイル名の変更に失敗しました");
