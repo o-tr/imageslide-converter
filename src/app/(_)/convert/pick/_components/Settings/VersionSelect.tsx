@@ -6,7 +6,7 @@ import type { FC } from "react";
 
 const options = VALID_VERSIONS.map((v) => ({
   value: v,
-  label: v === "all" ? "すべて表示" : v,
+  label: v,
 }));
 
 export const VersionSelect: FC = () => {

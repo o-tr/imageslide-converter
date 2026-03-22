@@ -3,7 +3,7 @@ import { RESOLUTION_OPTIONS, type Resolution } from "@/const/resolutions";
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 
-export const VALID_VERSIONS = [...TargetVersions.map((v) => v.label), "all"];
+export const VALID_VERSIONS = TargetVersions.map((v) => v.label);
 
 export const UsingVersionAtom = atomWithStorage<string>(
   "using-version",
@@ -35,6 +35,7 @@ export const UsingVersionAtom = atomWithStorage<string>(
     },
   },
 );
+
 const VALID_FORMATS = [
   "auto",
   "auto-one-file",

@@ -131,7 +131,7 @@ export const FileList = () => {
       <Flex gap={"middle"} vertical className={"flex-1 overflow-hidden"}>
         <Flex justify={"space-between"}>
           <Controls />
-          {version && version !== "all" ? (
+          {version ? (
             <Link href={"./convert"}>
               <Button type={"primary"}>Next</Button>
             </Link>
