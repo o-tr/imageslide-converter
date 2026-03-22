@@ -85,7 +85,12 @@ export const EditableFileName: FC<{
       onChange={(e) => setValue(e.target.value)}
       onBlur={save}
       onKeyDown={handleKeyDown}
-      suffix={saving ? <LoadingOutlined spin /> : <span />}
+      suffix={
+        <LoadingOutlined
+          spin={saving}
+          style={{ visibility: saving ? "visible" : "hidden" }}
+        />
+      }
     />
   );
 };
