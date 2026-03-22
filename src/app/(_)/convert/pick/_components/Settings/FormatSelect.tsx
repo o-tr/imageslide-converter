@@ -40,9 +40,13 @@ export const FormatSelect: FC = () => {
     bestFormat !== null && bestFormat.fileSize > FileSizeLimit;
 
   useEffect(() => {
-    if (oneFileOptionEnabled) return;
-    if (format === "auto-one-file") setFormat("auto");
-  }, [format, oneFileOptionEnabled, setFormat]);
+    if (format === "auto") return;
+    if (format === "auto-one-file" && oneFileOptionEnabled) return;
+    const validIds: string[] = availableFormats.map((f) => f.id);
+    if (!validIds.includes(format)) {
+      setFormat("auto");
+    }
+  }, [format, availableFormats, oneFileOptionEnabled, setFormat]);
 
   const options = useMemo(() => {
     const result: { value: string; label: string }[] = [];
