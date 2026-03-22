@@ -28,16 +28,6 @@ export const getAvailableFormats = (
     return ((pixelCount * bytePerPixel * 4) / 3) * compressionRatio; // base64でエンコードするときに4/3倍になる
   };
 
-  if (version === "all") {
-    return TargetFormats.map((format) => ({
-      ...format,
-      fileSize: calculateFileSize(
-        files,
-        format.bytePerPixel,
-        format.estimatedCompressionRatio ?? 1,
-      ),
-    }));
-  }
   const supported = TargetVersions.find((v) => v.label === version)?.formats;
   if (!supported) {
     return [];

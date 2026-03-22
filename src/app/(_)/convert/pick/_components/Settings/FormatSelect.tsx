@@ -75,7 +75,7 @@ export const FormatSelect: FC = () => {
     <Flex vertical gap={4}>
       <span className="text-sm font-medium">フォーマット</span>
       <Select
-        value={format}
+        value={options.some((o) => o.value === format) ? format : "auto"}
         onChange={setFormat}
         options={options}
         className="w-full"
