@@ -1,7 +1,6 @@
 "use client";
 import type { SelectedFile } from "@/_types/file-picker";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
-import { threads } from "@/lib/worker/threads";
 import { HolderOutlined } from "@ant-design/icons";
 import { DndContext, type DragEndEvent } from "@dnd-kit/core";
 import type { SyntheticListenerMap } from "@dnd-kit/core/dist/hooks/utilities";
@@ -26,6 +25,7 @@ import {
   useMemo,
 } from "react";
 import { MdDeleteOutline } from "react-icons/md";
+import { SettingsPanel } from "../Settings";
 import { Controls } from "./Controls";
 import { Preview } from "./Preview";
 
@@ -93,7 +93,6 @@ const columns: TableColumnsType<SelectedFile> = [
 export const FileList = () => {
   const [files, setFiles] = useAtom(SelectedFilesAtom);
 
-  console.log(threads);
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (active.id !== over?.id) {
       setFiles((prevState) => {
@@ -123,29 +122,40 @@ export const FileList = () => {
     );
 
   return (
-    <Flex gap={"middle"} vertical className={"flex-1 overflow-hidden"}>
-      <Flex justify={"space-between"}>
-        <Controls />
-        <Link href={"./options"}>
-          <Button type={"primary"}>Next</Button>
-        </Link>
-      </Flex>
-      <div className={"flex-1 overflow-hidden"}>
-        <DndContext modifiers={[restrictToVerticalAxis]} onDragEnd={onDragEnd}>
-          <SortableContext
-            items={files.map((i) => i.id)}
-            strategy={verticalListSortingStrategy}
+    <Flex
+      gap={"middle"}
+      className={"flex-1 overflow-hidden flex-col md:flex-row"}
+    >
+      <Flex gap={"middle"} vertical className={"flex-1 overflow-hidden"}>
+        <Flex justify={"space-between"}>
+          <Controls />
+          <Link href={"./convert"}>
+            <Button type={"primary"}>Next</Button>
+          </Link>
+        </Flex>
+        <div className={"flex-1 overflow-hidden"}>
+          <DndContext
+            modifiers={[restrictToVerticalAxis]}
+            onDragEnd={onDragEnd}
           >
-            <Table
-              rowKey="id"
-              components={{ body: { row: Row } }}
-              columns={columns}
-              dataSource={files}
-              className={"w-full flex-1 overflow-y-scroll h-full"}
-              pagination={false}
-            />
-          </SortableContext>
-        </DndContext>
+            <SortableContext
+              items={files.map((i) => i.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <Table
+                rowKey="id"
+                components={{ body: { row: Row } }}
+                columns={columns}
+                dataSource={files}
+                className={"w-full flex-1 overflow-y-scroll h-full"}
+                pagination={false}
+              />
+            </SortableContext>
+          </DndContext>
+        </div>
+      </Flex>
+      <div className={"w-full md:w-[280px] shrink-0 order-first md:order-last"}>
+        <SettingsPanel />
       </div>
     </Flex>
   );

@@ -1,10 +1,27 @@
+"use client";
+import { Controls } from "@/app/(_)/convert/pick/_components/FileList/Controls";
 import { TransitionOnDrag } from "@/app/_components/TransitionOnDrag";
+import { SelectedFilesAtom } from "@/atoms/file-drop";
 import { AntContent } from "@/components/AntContent";
 import { DragWatcher } from "@/components/DragWatcher";
-import { Button, Flex } from "antd";
+import { Flex } from "antd";
+import { useAtomValue } from "jotai";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef } from "react";
 
 export default function Home() {
+  const files = useAtomValue(SelectedFilesAtom);
+  const didRedirectRef = useRef(false);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!didRedirectRef.current && files.length > 0) {
+      didRedirectRef.current = true;
+      router.push("/convert/pick");
+    }
+  }, [files.length, router]);
+
   return (
     <AntContent className={"flex-1 flex flex-col"}>
       <Flex
@@ -30,7 +47,7 @@ export default function Home() {
             ファイル保持期間は通常サーバーがゲスト7日間、ユーザー30日間、高可用性サーバーがユーザー7日間です
           </p>
         </div>
-        <Button href={"/convert/pick"}>ファイルを追加</Button>
+        <Controls />
       </Flex>
       <TransitionOnDrag />
       <DragWatcher />

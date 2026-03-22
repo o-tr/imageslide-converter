@@ -1,12 +1,16 @@
 import { type StepProps, Steps } from "antd";
 import type { ComponentProps, FC } from "react";
 
+export const UPLOAD_STEP = {
+  PICK_FILE: 0,
+  CONVERT: 1,
+  UPLOAD: 2,
+  COPY_URL: 3, // URL表示は /files/[fileId] で行われ UploadSteps を使用しないため未参照
+} as const;
+
 const items: StepProps[] = [
   {
     title: "ファイルの選択",
-  },
-  {
-    title: "設定",
   },
   {
     title: "変換",
