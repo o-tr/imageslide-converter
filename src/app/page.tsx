@@ -23,7 +23,7 @@ export default function Home() {
   }, [files.length, router]);
 
   return (
-    <AntContent className={"flex-1 flex flex-col"}>
+    <AntContent className={"flex-1 flex flex-col h-full"}>
       <Flex
         className={"flex-1"}
         justify={"center"}
