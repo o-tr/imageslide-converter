@@ -83,7 +83,9 @@ export const FormatSelect: FC = () => {
         onChange={setFormat}
         options={options}
         disabled={options.length === 0}
-        placeholder={options.length === 0 ? "フォーマットなし" : undefined}
+        placeholder={
+          options.length === 0 ? "フォーマットなし" : "選択してください"
+        }
         className="w-full"
       />
     </Flex>
