@@ -1,4 +1,4 @@
-import { TargetVersions } from "@/const/convert";
+import { TargetFormats, TargetVersions } from "@/const/convert";
 import { RESOLUTION_OPTIONS, type Resolution } from "@/const/resolutions";
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
@@ -35,9 +35,41 @@ export const UsingVersionAtom = atomWithStorage<string>(
     },
   },
 );
+const VALID_FORMATS = [
+  "auto",
+  "auto-one-file",
+  ...TargetFormats.map((f) => f.id),
+];
+
 export const ConvertFormatAtom = atomWithStorage<string>(
   "convert-format",
   "auto",
+  {
+    getItem: (key, initialValue) => {
+      if (typeof window === "undefined") return initialValue;
+      const storedValue = localStorage.getItem(key);
+      if (!storedValue) return initialValue;
+
+      try {
+        const parsed = JSON.parse(storedValue);
+        if (typeof parsed === "string" && VALID_FORMATS.includes(parsed)) {
+          return parsed;
+        }
+      } catch {
+        // パースエラー時はデフォルト値を返す
+      }
+
+      return initialValue;
+    },
+    setItem: (key, value) => {
+      if (typeof window === "undefined") return;
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    removeItem: (key) => {
+      if (typeof window === "undefined") return;
+      localStorage.removeItem(key);
+    },
+  },
 );
 export const TargetResolutionAtom = atomWithStorage<Resolution>(
   "target-resolution",
