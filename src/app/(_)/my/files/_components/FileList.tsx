@@ -17,6 +17,7 @@ import type { SorterResult } from "antd/es/table/interface";
 import { signIn } from "next-auth/react";
 import { type FC, useCallback, useEffect, useMemo, useState } from "react";
 import { Actions } from "./Actions";
+import { EditableFileName } from "./EditableFileName";
 import { MigrateHAButton } from "./MigrateHAButton";
 
 type SortState = { key: string; order: "ascend" | "descend" };
@@ -34,23 +35,25 @@ export const FileList: FC = () => {
     setLoading(false);
   }, []);
 
-  const deleteFile = useMemo(
-    () => async (fileId: string) => {
+  const deleteFile = useCallback(
+    async (fileId: string) => {
       setLoading(true);
-      await deleteRegisteredFile(fileId);
-      await loadFiles();
+      try {
+        await deleteRegisteredFile(fileId);
+        await loadFiles();
+      } finally {
+        setLoading(false);
+      }
     },
     [loadFiles],
   );
 
-  const updateFile = useMemo(
-    () => async (fileId: string, data: PatchRequest) => {
-      setLoading(true);
-      await patchMyFile(fileId, data);
-      await loadFiles();
-    },
-    [loadFiles],
-  );
+  const updateFile = useCallback(async (fileId: string, data: PatchRequest) => {
+    await patchMyFile(fileId, data);
+    setFiles((prev) =>
+      prev.map((f) => (f.fileId === fileId ? { ...f, ...data } : f)),
+    );
+  }, []);
 
   useEffect(() => {
     void loadFiles().catch((_e) => {
@@ -138,6 +141,13 @@ export const FileList: FC = () => {
         sorter: { multiple: getSortMultiple("name") },
         sortOrder: getSortOrder("name"),
         sortDirections: ["ascend", "descend"],
+        render: (_: string, file: FileItem) => (
+          <EditableFileName
+            fileId={file.fileId}
+            name={file.name}
+            onUpdate={updateFile}
+          />
+        ),
       },
       {
         title: "URLs",
@@ -159,11 +169,15 @@ export const FileList: FC = () => {
               <MigrateHAButton
                 onClick={async () => {
                   setLoading(true);
-                  await postMigrateHA(file.fileId, (progress) => {
-                    setLoading(true);
-                    setMigrateProgress(progress);
-                  });
-                  await loadFiles();
+                  try {
+                    await postMigrateHA(file.fileId, (progress) => {
+                      setLoading(true);
+                      setMigrateProgress(progress);
+                    });
+                    await loadFiles();
+                  } finally {
+                    setLoading(false);
+                  }
                 }}
               />
             )}
@@ -210,13 +224,7 @@ export const FileList: FC = () => {
         title: "Actions",
         key: "actions",
         width: 175,
-        render: (file) => (
-          <Actions
-            file={file}
-            deleteFile={deleteFile}
-            updateFile={updateFile}
-          />
-        ),
+        render: (file) => <Actions file={file} deleteFile={deleteFile} />,
       },
     ],
     [deleteFile, updateFile, loadFiles, getSortOrder, getSortMultiple],
