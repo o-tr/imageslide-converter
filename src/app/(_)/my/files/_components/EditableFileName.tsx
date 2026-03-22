@@ -81,7 +81,7 @@ export const EditableFileName: FC<{
     <Input
       autoFocus
       value={value}
-      disabled={saving}
+      readOnly={saving}
       onChange={(e) => setValue(e.target.value)}
       onBlur={save}
       onKeyDown={handleKeyDown}
