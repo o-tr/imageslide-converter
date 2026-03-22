@@ -10,6 +10,7 @@ export const UsingVersionAtom = atomWithStorage<string>(
   "v0.3.x",
   {
     getItem: (key, initialValue) => {
+      if (typeof window === "undefined") return initialValue;
       const storedValue = localStorage.getItem(key);
       if (!storedValue) return initialValue;
 
@@ -41,6 +42,7 @@ export const TargetResolutionAtom = atomWithStorage<Resolution>(
   "FHD",
   {
     getItem: (key, initialValue) => {
+      if (typeof window === "undefined") return initialValue;
       const storedValue = localStorage.getItem(key);
       if (!storedValue) return initialValue;
 

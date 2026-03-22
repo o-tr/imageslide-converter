@@ -131,11 +131,15 @@ export const FileList = () => {
       <Flex gap={"middle"} vertical className={"flex-1 overflow-hidden"}>
         <Flex justify={"space-between"}>
           <Controls />
-          <Link href={"./convert"}>
-            <Button type={"primary"} disabled={!version}>
+          {version ? (
+            <Link href={"./convert"}>
+              <Button type={"primary"}>Next</Button>
+            </Link>
+          ) : (
+            <Button type={"primary"} disabled>
               Next
             </Button>
-          </Link>
+          )}
         </Flex>
         <div className={"flex-1 overflow-hidden"}>
           <DndContext
