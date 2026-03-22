@@ -40,7 +40,10 @@ export const FormatSelect: FC = () => {
     bestFormat !== null && bestFormat.fileSize > FileSizeLimit;
 
   useEffect(() => {
-    if (availableFormats.length === 0) return;
+    if (availableFormats.length === 0) {
+      if (format === "auto-one-file") setFormat("auto");
+      return;
+    }
     if (format === "auto") return;
     if (format === "auto-one-file" && oneFileOptionEnabled) return;
     const validIds: string[] = availableFormats.map((f) => f.id);

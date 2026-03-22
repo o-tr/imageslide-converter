@@ -1,6 +1,5 @@
 "use client";
 import type { SelectedFile } from "@/_types/file-picker";
-import { UsingVersionAtom } from "@/atoms/convert";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
 import { HolderOutlined } from "@ant-design/icons";
 import { DndContext, type DragEndEvent } from "@dnd-kit/core";
@@ -14,7 +13,7 @@ import {
 } from "@dnd-kit/sortable";
 import { Button, Flex, Table, type TableColumnsType } from "antd";
 import TextArea from "antd/es/input/TextArea";
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import Link from "next/link";
 import {
   type CSSProperties,
@@ -93,7 +92,6 @@ const columns: TableColumnsType<SelectedFile> = [
 
 export const FileList = () => {
   const [files, setFiles] = useAtom(SelectedFilesAtom);
-  const version = useAtomValue(UsingVersionAtom);
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (active.id !== over?.id) {
@@ -131,15 +129,9 @@ export const FileList = () => {
       <Flex gap={"middle"} vertical className={"flex-1 overflow-hidden"}>
         <Flex justify={"space-between"}>
           <Controls />
-          {version ? (
-            <Link href={"./convert"}>
-              <Button type={"primary"}>Next</Button>
-            </Link>
-          ) : (
-            <Button type={"primary"} disabled>
-              Next
-            </Button>
-          )}
+          <Link href={"./convert"}>
+            <Button type={"primary"}>Next</Button>
+          </Link>
         </Flex>
         <div className={"flex-1 overflow-hidden"}>
           <DndContext
