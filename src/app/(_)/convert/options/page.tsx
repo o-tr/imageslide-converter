@@ -23,7 +23,7 @@ export default function Page() {
 
   return (
     <>
-      <UploadSteps current={1} />
+      <UploadSteps current={0} />
       <Flex justify={"space-between"}>
         <Link href={"./pick"}>
           <Button>Prev</Button>

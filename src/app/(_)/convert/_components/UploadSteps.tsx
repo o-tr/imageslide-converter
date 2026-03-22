@@ -6,9 +6,6 @@ const items: StepProps[] = [
     title: "ファイルの選択",
   },
   {
-    title: "設定",
-  },
-  {
     title: "変換",
   },
   {

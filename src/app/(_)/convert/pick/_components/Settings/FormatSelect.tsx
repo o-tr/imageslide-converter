@@ -1,0 +1,79 @@
+"use client";
+import type { FormatItemType } from "@/_types/text-zip/formats";
+import {
+  ConvertFormatAtom,
+  TargetResolutionAtom,
+  UsingVersionAtom,
+} from "@/atoms/convert";
+import { SelectedFilesAtom } from "@/atoms/file-drop";
+import { FileSizeLimit } from "@/const/convert";
+import { formatFileSize } from "@/utils/formatFileSize";
+import { getAvailableFormats } from "@/utils/getAvailableFormats";
+import { Flex, Select } from "antd";
+import { useAtom, useAtomValue } from "jotai";
+import { type FC, useEffect, useMemo } from "react";
+
+const toLabel = (input: FormatItemType & { fileSize: number }) => {
+  const sizeStr = formatFileSize(input.fileSize);
+  const prefix = input.estimatedCompressionRatio !== undefined ? "~" : "";
+  const fileCount = Math.ceil(input.fileSize / FileSizeLimit);
+  return `${input.label} (${prefix}${sizeStr} / ${fileCount}file)`;
+};
+
+export const FormatSelect: FC = () => {
+  const [format, setFormat] = useAtom(ConvertFormatAtom);
+  const imageSlideVersion = useAtomValue(UsingVersionAtom);
+  const files = useAtomValue(SelectedFilesAtom);
+  const resolution = useAtomValue(TargetResolutionAtom);
+
+  const availableFormats = useMemo(
+    () => getAvailableFormats(imageSlideVersion, files, resolution),
+    [files, imageSlideVersion, resolution],
+  );
+
+  const bestFormat = useMemo(() => {
+    return availableFormats.toSorted((a, b) => b.priority - a.priority)[0];
+  }, [availableFormats]);
+
+  const oneFileOptionEnabled = bestFormat?.fileSize > FileSizeLimit;
+
+  useEffect(() => {
+    if (oneFileOptionEnabled) return;
+    if (format === "auto-one-file") setFormat("auto");
+  }, [format, oneFileOptionEnabled, setFormat]);
+
+  const options = useMemo(() => {
+    const result: { value: string; label: string }[] = [];
+    if (bestFormat) {
+      result.push({
+        value: "auto",
+        label: `自動 (${bestFormat.label})`,
+      });
+    }
+    if (oneFileOptionEnabled) {
+      result.push({
+        value: "auto-one-file",
+        label: "自動 (縮小して1ファイルに纏める)",
+      });
+    }
+    for (const f of availableFormats) {
+      result.push({
+        value: f.id,
+        label: toLabel(f),
+      });
+    }
+    return result;
+  }, [availableFormats, bestFormat, oneFileOptionEnabled]);
+
+  return (
+    <Flex vertical gap={4}>
+      <span className="text-sm font-medium">フォーマット</span>
+      <Select
+        value={format}
+        onChange={setFormat}
+        options={options}
+        className="w-full"
+      />
+    </Flex>
+  );
+};

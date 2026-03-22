@@ -5,7 +5,7 @@ import { Convert } from "./_components/convert";
 export default function Page() {
   return (
     <>
-      <UploadSteps current={2} />
+      <UploadSteps current={1} />
       <div className={"flex-1 grid place-items-center"}>
         <Flex gap={16} align={"center"}>
           <Spin size={"large"} />

@@ -4,7 +4,7 @@ import { Upload } from "@/app/(_)/convert/upload/_components/Upload";
 export default function Page() {
   return (
     <>
-      <UploadSteps current={3} />
+      <UploadSteps current={2} />
       <Upload />
     </>
   );
