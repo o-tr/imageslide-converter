@@ -14,7 +14,7 @@ function isMobileDevice(): boolean {
   return (
     /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
       navigator.userAgent,
-    ) || window.innerWidth < 768
+    ) || screen.width < 768
   );
 }
 
@@ -28,8 +28,10 @@ let cleanupPrevious: (() => void) | null = null;
 /**
  * Discord OAuthをポップアップウィンドウで実行する。
  * モバイルやポップアップブロック時はフルリダイレクトにフォールバック。
+ * @returns クリーンアップ関数。リスナー/タイマーを解除しポップアップフローを中断する。
+ *          フォールバック（リダイレクト/モバイル）の場合は null。
  */
-export function popupSignIn(options?: PopupSignInOptions): void {
+export function popupSignIn(options?: PopupSignInOptions): (() => void) | null {
   // 前回のリスナー/タイマーをクリーンアップ
   cleanupPrevious?.();
   cleanupPrevious = null;
@@ -46,7 +48,7 @@ export function popupSignIn(options?: PopupSignInOptions): void {
     } else {
       void options?.onError?.("mobile-unsupported");
     }
-    return;
+    return null;
   }
 
   // ポップアップをスクリーン中央に配置
@@ -68,7 +70,7 @@ export function popupSignIn(options?: PopupSignInOptions): void {
     } else {
       void options?.onError?.("popup-blocked");
     }
-    return;
+    return null;
   }
 
   // onSuccess/onErrorの二重発火を防ぐフラグ
@@ -115,4 +117,6 @@ export function popupSignIn(options?: PopupSignInOptions): void {
   };
 
   cleanupPrevious = cleanup;
+
+  return cleanup;
 }
