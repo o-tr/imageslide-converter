@@ -74,6 +74,9 @@ export const FormatSelect: FC = () => {
   return (
     <Flex vertical gap={4}>
       <span className="text-sm font-medium">フォーマット</span>
+      {/* 表示値のフォールバック: atom の値が options に含まれない場合(例: ハイドレーション時の
+          stale な "auto-one-file")、useEffect による atom リセット前のフラッシュを防ぐ。
+          SettingsPanel の forceRender: true により、useEffect はユーザー操作前に実行される。 */}
       <Select
         value={options.some((o) => o.value === format) ? format : "auto"}
         onChange={setFormat}
