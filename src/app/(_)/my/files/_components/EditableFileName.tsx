@@ -1,7 +1,7 @@
 "use client";
 import type { PatchRequest } from "@/app/api/my/files/[fileId]/route";
 import { LoadingOutlined } from "@ant-design/icons";
-import { Input } from "antd";
+import { Input, message } from "antd";
 import { type FC, useCallback, useRef, useState } from "react";
 
 export const EditableFileName: FC<{
@@ -13,28 +13,39 @@ export const EditableFileName: FC<{
   const [value, setValue] = useState(name);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const cancelledRef = useRef(false);
+
+  const cancelEditing = useCallback(() => {
+    setValue(name);
+    setEditing(false);
+  }, [name]);
 
   const save = useCallback(async () => {
-    if (savingRef.current) return;
+    if (savingRef.current || cancelledRef.current) {
+      cancelledRef.current = false;
+      return;
+    }
     const trimmed = value.trim();
     if (trimmed === "" || trimmed === name) {
-      setValue(name);
-      setEditing(false);
+      cancelEditing();
       return;
     }
     savingRef.current = true;
     setSaving(true);
     try {
       await onUpdate(fileId, { name: trimmed });
+      setEditing(false);
+    } catch {
+      void message.error("ファイル名の変更に失敗しました");
     } finally {
       savingRef.current = false;
       setSaving(false);
-      setEditing(false);
     }
-  }, [value, name, fileId, onUpdate]);
+  }, [value, name, fileId, onUpdate, cancelEditing]);
 
   const handleClick = useCallback(() => {
     if (editing) return;
+    cancelledRef.current = false;
     setValue(name);
     setEditing(true);
   }, [editing, name]);
@@ -42,15 +53,15 @@ export const EditableFileName: FC<{
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === "Escape") {
-        setValue(name);
-        setEditing(false);
+        cancelledRef.current = true;
+        cancelEditing();
         return;
       }
       if (e.key === "Enter" && !e.nativeEvent.isComposing) {
         e.currentTarget.blur();
       }
     },
-    [name],
+    [cancelEditing],
   );
 
   if (!editing) {

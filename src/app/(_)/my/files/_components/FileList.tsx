@@ -38,8 +38,12 @@ export const FileList: FC = () => {
   const deleteFile = useCallback(
     async (fileId: string) => {
       setLoading(true);
-      await deleteRegisteredFile(fileId);
-      await loadFiles();
+      try {
+        await deleteRegisteredFile(fileId);
+        await loadFiles();
+      } finally {
+        setLoading(false);
+      }
     },
     [loadFiles],
   );
@@ -165,11 +169,15 @@ export const FileList: FC = () => {
               <MigrateHAButton
                 onClick={async () => {
                   setLoading(true);
-                  await postMigrateHA(file.fileId, (progress) => {
-                    setLoading(true);
-                    setMigrateProgress(progress);
-                  });
-                  await loadFiles();
+                  try {
+                    await postMigrateHA(file.fileId, (progress) => {
+                      setLoading(true);
+                      setMigrateProgress(progress);
+                    });
+                    await loadFiles();
+                  } finally {
+                    setLoading(false);
+                  }
                 }}
               />
             )}
