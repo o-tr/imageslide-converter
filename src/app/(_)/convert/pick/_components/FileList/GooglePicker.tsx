@@ -14,6 +14,7 @@ import {
   requestTokenPromise,
   showFilePicker,
 } from "@/lib/google";
+import { extractGifAnimations } from "@/lib/google/extractGifAnimations";
 import { LoadingOutlined } from "@ant-design/icons";
 import { Button, Flex, Spin, message } from "antd";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
@@ -77,7 +78,7 @@ export const GooglePicker = () => {
         setFiles((pv) => [...pv, ...selectedFiles]);
       }
       if (file.mimeType === "application/vnd.google-apps.presentation") {
-        const files = await slide2canvas(file.id);
+        const files = await slide2canvas(file.id, token ?? "");
         setFiles((pv) => [...pv, ...files]);
       }
       if (file.mimeType?.startsWith("image/")) {
@@ -139,7 +140,10 @@ export const GooglePicker = () => {
   );
 };
 
-const slide2canvas = async (slideId: string): Promise<SelectedFile[]> => {
+const slide2canvas = async (
+  slideId: string,
+  token: string,
+): Promise<SelectedFile[]> => {
   const [{ canvases, buffer }, metadata] = await Promise.all([
     (async () => {
       const buffer = await fetchSlideAsPdf(slideId);
@@ -161,24 +165,48 @@ const slide2canvas = async (slideId: string): Promise<SelectedFile[]> => {
     );
   }
 
-  return canvases
+  const results: SelectedFile[] = [];
+  const filteredSlides = canvases
     .map((canvas, index) => ({
       canvas,
       index,
       isSkipped: metadata.items[index].isSkipped,
       speakerNote: metadata.items[index].speakerNote,
+      pageElements: metadata.items[index].pageElements,
     }))
-    .filter(({ isSkipped }) => !isSkipped)
-    .map(({ canvas, index, speakerNote }, outputIndex) => ({
+    .filter(({ isSkipped }) => !isSkipped);
+
+  for (
+    let outputIndex = 0;
+    outputIndex < filteredSlides.length;
+    outputIndex++
+  ) {
+    const { canvas, index, speakerNote, pageElements } =
+      filteredSlides[outputIndex];
+
+    // Extract GIF animations from this slide
+    const animations = await extractGifAnimations(
+      pageElements,
+      metadata.pageSize,
+      { width: canvas.width, height: canvas.height },
+      canvas,
+      token,
+    );
+
+    results.push({
       id: crypto.randomUUID(),
       fileName: `${metadata.title}-${outputIndex + 1}`,
       canvas,
       note: speakerNote,
+      animations: animations.length > 0 ? animations : undefined,
       metadata: {
         fileType: "pdf" as const,
         file,
         index,
         scale: 1,
       },
-    }));
+    });
+  }
+
+  return results;
 };

@@ -1,12 +1,29 @@
 import type { TTextureFormat } from "@/_types/text-zip/formats";
 
-export const EIAExtensions = ["note"];
+export const EIAExtensions = ["note", "a"];
 
 export type EIAExtension = (typeof EIAExtensions)[number];
 
 export type EIAExtensionObject = {
   note?: string;
+  a?: string; // JSON string of EIAAnimationMeta[]
 } & { [key in EIAExtension]?: string };
+
+export type EIAAnimationMeta = {
+  x: number; // pixel X on base image
+  y: number; // pixel Y on base image
+  w: number; // pixel width
+  h: number; // pixel height
+  fps: number; // frame rate
+  f: TTextureFormat; // frame format
+  frames: EIAAnimationFrameRef[];
+};
+
+export type EIAAnimationFrameRef = {
+  s: number; // start offset in data section
+  l: number; // compressed length
+  u: number; // uncompressed size
+};
 
 export type EIACompressionMethod = "lz4" | "lz4-base64";
 
@@ -22,13 +39,13 @@ export type EIAManifestV1 = {
 
 export type EIASignageManifest = {
   [deviceId: string]: EIASignageItem[];
-}
+};
 
 export type EIASignageItem = {
   f: string; // file name
   t: string; // transition
   d: number; // duration
-}
+};
 
 export type EIAFileV1 = EIAFileV1Master | EIAFileV1Cropped;
 

@@ -1,3 +1,4 @@
+import type { SelectedFileAnimation } from "@/_types/file-picker";
 import type { WorkerMessage, WorkerResponse } from "@/_types/worker";
 import { TargetFormats } from "@/const/convert";
 import { getResolutionScale } from "@/utils/getResolutionScale";
@@ -19,6 +20,23 @@ worker.addEventListener(
         file.bitmap.height,
       );
 
+      // Convert animation bitmaps to OffscreenCanvas
+      let animations: SelectedFileAnimation[] | undefined;
+      if (file.animations && file.animations.length > 0) {
+        animations = file.animations.map((anim) => ({
+          x: anim.x,
+          y: anim.y,
+          w: anim.w,
+          h: anim.h,
+          fps: anim.fps,
+          frames: anim.frames.map((bm) => {
+            const c = new OffscreenCanvas(bm.width, bm.height);
+            c.getContext("2d")?.drawImage(bm, 0, 0);
+            return c;
+          }),
+        }));
+      }
+
       if (["DXT1"].includes(format)) {
         // そのままだとノイズが目立つので2倍に拡大してから圧縮
         const _width = Math.ceil((file.bitmap.width * scale * 2) / 4) * 4;
@@ -29,13 +47,13 @@ worker.addEventListener(
             file.bitmap.height,
           );
           canvas.getContext("2d")?.drawImage(file.bitmap, 0, 0);
-          return { ...file, canvas };
+          return { ...file, canvas, animations };
         }
         const canvas = new OffscreenCanvas(_width, _height);
         canvas
           .getContext("2d")
           ?.drawImage(file.bitmap, 0, 0, canvas.width, canvas.height);
-        return { ...file, canvas };
+        return { ...file, canvas, animations };
       }
 
       // 解像度とscaleの両方を考慮した最終スケール
@@ -47,7 +65,7 @@ worker.addEventListener(
           file.bitmap.height,
         );
         canvas.getContext("2d")?.drawImage(file.bitmap, 0, 0);
-        return { ...file, canvas };
+        return { ...file, canvas, animations };
       }
       const canvas = new OffscreenCanvas(
         Math.round(file.bitmap.width * finalScale),
@@ -56,7 +74,7 @@ worker.addEventListener(
       canvas
         .getContext("2d")
         ?.drawImage(file.bitmap, 0, 0, canvas.width, canvas.height);
-      return { ...file, canvas };
+      return { ...file, canvas, animations };
     });
     console.log("compress", files);
     const converter = TargetFormats.find((f) => f.id === format)?.converter;

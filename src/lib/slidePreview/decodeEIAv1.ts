@@ -1,5 +1,9 @@
-import type { EIAFileV1Cropped, EIAManifestV1 } from "@/_types/eia/v1";
-import type { SlideFrame } from "@/_types/slide-preview";
+import type {
+  EIAAnimationMeta,
+  EIAFileV1Cropped,
+  EIAManifestV1,
+} from "@/_types/eia/v1";
+import type { SlideAnimation, SlideFrame } from "@/_types/slide-preview";
 import lz4 from "lz4js";
 import { rgb24ToImageData, rgba32ToImageData } from "./rawImage2ImageData";
 
@@ -153,11 +157,63 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
     if (!Number.isFinite(index))
       throw new Error(`Non-numeric frame name: "${item.n}"`);
 
+    // Decode animation data from e.a extension
+    let animations: SlideAnimation[] | undefined;
+    if (item.e?.a) {
+      try {
+        const animMetas: EIAAnimationMeta[] = JSON.parse(item.e.a);
+        animations = animMetas.map((meta) => {
+          const animFrames: ImageData[] = [];
+          for (const frameRef of meta.frames) {
+            let decompressedFrame: Uint8Array;
+            if (binarySection !== null) {
+              const compressedFrame = binarySection.subarray(
+                frameRef.s,
+                frameRef.s + frameRef.l,
+              );
+              decompressedFrame = lz4Decompress(
+                compressedFrame,
+                frameRef.u,
+                `anim_${item.n}`,
+              );
+            } else if (textSection !== null) {
+              const b64Frame = textSection.substring(
+                frameRef.s,
+                frameRef.s + frameRef.l,
+              );
+              const compressedFrame = base64ToUint8Array(b64Frame);
+              decompressedFrame = lz4Decompress(
+                compressedFrame,
+                frameRef.u,
+                `anim_${item.n}`,
+              );
+            } else {
+              throw new Error(`Unsupported compression: ${manifest.c}`);
+            }
+            animFrames.push(
+              rawToImageData(decompressedFrame, meta.w, meta.h, meta.f),
+            );
+          }
+          return {
+            x: meta.x,
+            y: meta.y,
+            w: meta.w,
+            h: meta.h,
+            fps: meta.fps,
+            frames: animFrames,
+          };
+        });
+      } catch (e) {
+        console.warn(`Failed to decode animation for frame "${item.n}":`, e);
+      }
+    }
+
     frames.push({
       index,
       width: item.w,
       height: item.h,
       imageData: rawToImageData(rawBuffer, item.w, item.h, item.f),
+      animations,
     });
 
     // Release raw buffer if no later frame references it as a base

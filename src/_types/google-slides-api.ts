@@ -1,8 +1,37 @@
+export type SlidePageElement = {
+  objectId?: string;
+  size?: {
+    width: { magnitude: number; unit: string };
+    height: { magnitude: number; unit: string };
+  };
+  transform?: {
+    scaleX?: number;
+    scaleY?: number;
+    translateX?: number;
+    translateY?: number;
+    unit?: string;
+  };
+  image?: {
+    contentUrl?: string;
+    sourceUrl?: string;
+  };
+  shape?: {
+    shapeType: string;
+    text?: {
+      textElements: {
+        textRun?: {
+          content: string;
+        };
+      }[];
+    };
+  };
+};
+
 export type GetSlideResponse = {
   result: {
     slides: {
       objectId: string;
-      pageElements: unknown;
+      pageElements: SlidePageElement[];
       pageProperties: unknown;
       slideProperties: {
         isSkipped?: boolean;
@@ -22,6 +51,10 @@ export type GetSlideResponse = {
         };
       };
     }[];
+    pageSize: {
+      width: { magnitude: number; unit: string };
+      height: { magnitude: number; unit: string };
+    };
     title: string;
   };
 };

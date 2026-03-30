@@ -1,13 +1,18 @@
-import type { GetSlideResponse } from "@/_types/google-slides-api";
+import type {
+  GetSlideResponse,
+  SlidePageElement,
+} from "@/_types/google-slides-api";
 
 type SlideMetadata = {
   title: string;
   items: SlideItem[];
+  pageSize: { width: number; height: number };
 };
 
 type SlideItem = {
   speakerNote: string;
   isSkipped: boolean;
+  pageElements: SlidePageElement[];
 };
 
 export const fetchSlideMetadata = async (
@@ -33,10 +38,15 @@ export const fetchSlideMetadata = async (
     return {
       speakerNote,
       isSkipped: slide.slideProperties.isSkipped || false,
+      pageElements: slide.pageElements ?? [],
     };
   });
   return {
     title: response.result.title,
     items,
+    pageSize: {
+      width: response.result.pageSize.width.magnitude,
+      height: response.result.pageSize.height.magnitude,
+    },
   };
 };

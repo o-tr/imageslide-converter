@@ -25,6 +25,7 @@ worker.addEventListener(
         file.bitmap.height,
       );
       const finalScale = scale * resolutionScale;
+      const { animations: _a, bitmap: _b, ...rest } = file;
 
       if (finalScale === 1) {
         const canvas = new OffscreenCanvas(
@@ -32,7 +33,7 @@ worker.addEventListener(
           file.bitmap.height,
         );
         canvas.getContext("2d")?.drawImage(file.bitmap, 0, 0);
-        return { ...file, canvas };
+        return { ...rest, canvas };
       }
       const canvas = new OffscreenCanvas(
         Math.round(file.bitmap.width * finalScale),
@@ -41,7 +42,7 @@ worker.addEventListener(
       canvas
         .getContext("2d")
         ?.drawImage(file.bitmap, 0, 0, canvas.width, canvas.height);
-      return { ...file, canvas };
+      return { ...rest, canvas };
     });
     console.log("compress", files);
     const converterObj = TargetFormats.find((f) => f.id === format);

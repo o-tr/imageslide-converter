@@ -3,11 +3,25 @@ import type { TTextureConverterFormat } from "@/_types/text-zip/formats";
 import type { Resolution } from "@/const/resolutions";
 import type { EIASignageManifest } from "./eia/v1";
 
+export type WorkerAnimationBitmap = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  fps: number;
+  frames: ImageBitmap[];
+};
+
+type WorkerFile = Omit<SelectedFile, "canvas" | "animations"> & {
+  bitmap: ImageBitmap;
+  animations?: WorkerAnimationBitmap[];
+};
+
 export type WorkerMessage =
   | {
       type: "compress";
       data: {
-        files: (Omit<SelectedFile, "canvas"> & { bitmap: ImageBitmap })[];
+        files: WorkerFile[];
         format: TTextureConverterFormat;
         version: number;
         scale: number;
@@ -17,7 +31,7 @@ export type WorkerMessage =
   | {
       type: "compress-signage";
       data: {
-        files: (Omit<SelectedFile, "canvas"> & { bitmap: ImageBitmap })[];
+        files: WorkerFile[];
         format: TTextureConverterFormat;
         version: number;
         scale: number;

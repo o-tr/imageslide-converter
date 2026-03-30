@@ -1,6 +1,10 @@
 import type { SelectedFile } from "@/_types/file-picker";
 import type { TTextureConverterFormat } from "@/_types/text-zip/formats";
-import type { WorkerMessage, WorkerResponse } from "@/_types/worker";
+import type {
+  WorkerAnimationBitmap,
+  WorkerMessage,
+  WorkerResponse,
+} from "@/_types/worker";
 import type { Resolution } from "@/const/resolutions";
 
 const worker = (
@@ -17,6 +21,39 @@ export const postCompress = (
   resolution: Resolution,
 ): Promise<string[] | Buffer[]> => {
   console.log("postCompress");
+
+  const transferables: Transferable[] = [];
+  const workerFiles = files.map((file) => {
+    const bitmap = file.canvas.transferToImageBitmap();
+    transferables.push(bitmap);
+
+    let animations: WorkerAnimationBitmap[] | undefined;
+    if (file.animations && file.animations.length > 0) {
+      animations = file.animations.map((anim) => {
+        const animBitmaps = anim.frames.map((frame) => {
+          const bm = frame.transferToImageBitmap();
+          transferables.push(bm);
+          return bm;
+        });
+        return {
+          x: anim.x,
+          y: anim.y,
+          w: anim.w,
+          h: anim.h,
+          fps: anim.fps,
+          frames: animBitmaps,
+        };
+      });
+    }
+
+    return {
+      ...file,
+      bitmap,
+      canvas: undefined as unknown as OffscreenCanvas,
+      animations,
+    };
+  });
+
   const message: WorkerMessage = {
     type: "compress",
     data: {
@@ -24,11 +61,7 @@ export const postCompress = (
       version,
       scale,
       resolution,
-      files: files.map((file) => ({
-        ...file,
-        bitmap: file.canvas.transferToImageBitmap(),
-        canvas: undefined,
-      })),
+      files: workerFiles,
     },
   };
   console.log("postCompress", message);
@@ -40,9 +73,6 @@ export const postCompress = (
         resolve(event.data.data);
       },
     );
-    worker.postMessage(
-      message,
-      message.data.files.map((file) => file.bitmap),
-    );
+    worker.postMessage(message, transferables);
   });
 };
