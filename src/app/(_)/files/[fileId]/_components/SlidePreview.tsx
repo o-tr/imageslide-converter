@@ -73,7 +73,6 @@ const MainSlideDisplay: FC<{
   onNext: () => void;
 }> = ({ frame, totalFrames, bitmapMap, animationMap, onPrevious, onNext }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animFrameRef = useRef<number>(0);
 
   useIsomorphicLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -96,9 +95,9 @@ const MainSlideDisplay: FC<{
       return;
     }
 
-    // Animation loop
+    // Animation loop with independent per-animation timing
     const frameIndices = animations.map(() => 0);
-    let lastTime = 0;
+    const lastTimes = animations.map(() => -1); // -1 = not yet initialized
     let rafId: number;
 
     const draw = (time: number) => {
@@ -109,12 +108,14 @@ const MainSlideDisplay: FC<{
         const anim = animations[i];
         if (anim.frames.length === 0) continue;
 
-        // Advance frame based on fps
-        if (lastTime > 0) {
-          const elapsed = time - lastTime;
+        if (lastTimes[i] < 0) {
+          // First draw: initialize this animation's timer
+          lastTimes[i] = time;
+        } else {
           const interval = 1000 / anim.fps;
-          if (elapsed >= interval) {
+          if (time - lastTimes[i] >= interval) {
             frameIndices[i] = (frameIndices[i] + 1) % anim.frames.length;
+            lastTimes[i] = time;
           }
         }
 
@@ -122,17 +123,10 @@ const MainSlideDisplay: FC<{
         ctx.drawImage(animBitmap, anim.x, anim.y, anim.w, anim.h);
       }
 
-      // Use the slowest fps among all animations for timing
-      const minInterval = Math.min(...animations.map((a) => 1000 / a.fps));
-      if (lastTime === 0 || time - lastTime >= minInterval) {
-        lastTime = time;
-      }
-
       rafId = requestAnimationFrame(draw);
     };
 
     rafId = requestAnimationFrame(draw);
-    animFrameRef.current = rafId;
 
     return () => {
       cancelAnimationFrame(rafId);

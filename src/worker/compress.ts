@@ -31,7 +31,11 @@ worker.addEventListener(
           fps: anim.fps,
           frames: anim.frames.map((bm) => {
             const c = new OffscreenCanvas(bm.width, bm.height);
-            c.getContext("2d")?.drawImage(bm, 0, 0);
+            const ctx = c.getContext("2d");
+            if (!ctx)
+              throw new Error("Cannot get 2d context for animation frame");
+            ctx.drawImage(bm, 0, 0);
+            bm.close();
             return c;
           }),
         }));

@@ -19,6 +19,7 @@ type CanvasSize = {
 };
 
 const isGif = (buffer: ArrayBuffer): boolean => {
+  if (buffer.byteLength < 6) return false;
   const header = new Uint8Array(buffer, 0, 6);
   const sig = String.fromCharCode(...header);
   return sig === "GIF87a" || sig === "GIF89a";
@@ -33,52 +34,106 @@ const clampDimensions = (w: number, h: number): { w: number; h: number } => {
   };
 };
 
-const sampleFramesAt2Fps = (frames: ParsedFrame[]): ParsedFrame[] => {
-  if (frames.length <= 1) return frames;
+/**
+ * Returns the set of frame indices to output at TARGET_FPS by accumulating
+ * per-frame delays. All frames must still be composited in order; only frames
+ * at these indices are written to output.
+ */
+const sampleFrameIndices = (frames: ParsedFrame[]): Set<number> => {
+  if (frames.length <= 1) return new Set([0]);
 
-  const sampled: ParsedFrame[] = [frames[0]];
+  const indices = new Set<number>([0]);
   let accumulatedMs = 0;
   let nextSampleMs = TARGET_FRAME_INTERVAL_MS;
 
   for (let i = 1; i < frames.length; i++) {
     accumulatedMs += frames[i].delay || 100;
     if (accumulatedMs >= nextSampleMs) {
-      sampled.push(frames[i]);
+      indices.add(i);
       nextSampleMs += TARGET_FRAME_INTERVAL_MS;
-      if (sampled.length >= MAX_FRAMES) break;
+      if (indices.size >= MAX_FRAMES) break;
     }
   }
-  return sampled;
+  return indices;
 };
 
-const gifFrameToCanvas = (
-  frame: ParsedFrame,
+/**
+ * Compose all GIF frames in order, maintaining a persistent canvas to handle
+ * delta-frame (partial update) GIFs and GIF disposal methods correctly.
+ * Outputs only frames at the given sample indices, resized to targetW × targetH.
+ */
+const buildComposedFrames = (
+  allFrames: ParsedFrame[],
+  sampleIndices: Set<number>,
   gifWidth: number,
   gifHeight: number,
   targetW: number,
   targetH: number,
-): OffscreenCanvas => {
-  // Draw the decompressed frame patch onto a full-size GIF canvas
-  const fullCanvas = new OffscreenCanvas(gifWidth, gifHeight);
-  const fullCtx = fullCanvas.getContext("2d");
-  if (!fullCtx) throw new Error("Cannot get 2d context");
+): OffscreenCanvas[] => {
+  const compositionCanvas = new OffscreenCanvas(gifWidth, gifHeight);
+  const compositionCtx = compositionCanvas.getContext("2d");
+  if (!compositionCtx) throw new Error("Cannot get 2d context");
 
-  const imageData = fullCtx.createImageData(
-    frame.dims.width,
-    frame.dims.height,
-  );
-  imageData.data.set(frame.patch);
-  fullCtx.putImageData(imageData, frame.dims.left, frame.dims.top);
+  const output: OffscreenCanvas[] = [];
+  let prevDisposal = 0;
+  let prevDims: ParsedFrame["dims"] | null = null;
+  let prevSnapshot: ImageData | null = null;
 
-  // Resize to target dimensions
-  if (targetW === gifWidth && targetH === gifHeight) {
-    return fullCanvas;
+  for (let i = 0; i < allFrames.length; i++) {
+    const frame = allFrames[i];
+    const disposal = frame.disposalType ?? 0;
+
+    // Apply previous frame's disposal before drawing current patch
+    if (prevDims) {
+      if (prevDisposal === 2) {
+        // Restore to background (clear to transparent)
+        compositionCtx.clearRect(
+          prevDims.left,
+          prevDims.top,
+          prevDims.width,
+          prevDims.height,
+        );
+      } else if (prevDisposal === 3 && prevSnapshot) {
+        // Restore to what was there before the previous frame was drawn
+        compositionCtx.putImageData(prevSnapshot, prevDims.left, prevDims.top);
+        prevSnapshot = null;
+      }
+      // disposal 0 or 1: leave canvas as-is
+    }
+
+    // Snapshot current region if this frame uses "restore to previous" on disposal
+    if (disposal === 3) {
+      prevSnapshot = compositionCtx.getImageData(
+        frame.dims.left,
+        frame.dims.top,
+        frame.dims.width,
+        frame.dims.height,
+      );
+    }
+
+    // Draw current frame's patch onto the persistent composition canvas
+    const imageData = compositionCtx.createImageData(
+      frame.dims.width,
+      frame.dims.height,
+    );
+    imageData.data.set(frame.patch);
+    compositionCtx.putImageData(imageData, frame.dims.left, frame.dims.top);
+
+    prevDisposal = disposal;
+    prevDims = frame.dims;
+
+    if (sampleIndices.has(i)) {
+      const result = new OffscreenCanvas(targetW, targetH);
+      const resultCtx = result.getContext("2d");
+      if (!resultCtx) throw new Error("Cannot get 2d context");
+      resultCtx.drawImage(compositionCanvas, 0, 0, targetW, targetH);
+      output.push(result);
+    }
+
+    if (output.length >= MAX_FRAMES) break;
   }
-  const resized = new OffscreenCanvas(targetW, targetH);
-  const resizedCtx = resized.getContext("2d");
-  if (!resizedCtx) throw new Error("Cannot get 2d context");
-  resizedCtx.drawImage(fullCanvas, 0, 0, targetW, targetH);
-  return resized;
+
+  return output;
 };
 
 const compositeWithBackground = (
@@ -116,6 +171,11 @@ export const extractGifAnimations = async (
   baseSlideCanvas: OffscreenCanvas,
   token: string,
 ): Promise<SelectedFileAnimation[]> => {
+  if (!token) {
+    console.warn("extractGifAnimations: empty token, skipping GIF extraction");
+    return [];
+  }
+
   const imageElements = pageElements.filter(
     (el) => el.image?.contentUrl && el.size && el.transform,
   );
@@ -139,7 +199,7 @@ export const extractGifAnimations = async (
       const rawFrames = decompressFrames(gif, true);
       if (rawFrames.length <= 1) continue; // Static GIF, skip
 
-      const sampledFrames = sampleFramesAt2Fps(rawFrames);
+      const sampleIndices = sampleFrameIndices(rawFrames);
 
       const gifWidth = gif.lsd.width;
       const gifHeight = gif.lsd.height;
@@ -166,23 +226,20 @@ export const extractGifAnimations = async (
         canvasSize,
       );
 
-      // Convert and composite each frame
-      const frames: OffscreenCanvas[] = [];
-      for (const frame of sampledFrames) {
-        const frameCanvas = gifFrameToCanvas(
-          frame,
-          gifWidth,
-          gifHeight,
-          targetW,
-          targetH,
-        );
-        const composited = compositeWithBackground(
-          baseSlideCanvas,
-          frameCanvas,
-          pixelRect,
-        );
-        frames.push(composited);
-      }
+      // Build composed GIF frames with proper inter-frame compositing
+      const composedFrames = buildComposedFrames(
+        rawFrames,
+        sampleIndices,
+        gifWidth,
+        gifHeight,
+        targetW,
+        targetH,
+      );
+
+      // Composite each frame with base slide background (handles transparent GIFs)
+      const frames = composedFrames.map((frameCanvas) =>
+        compositeWithBackground(baseSlideCanvas, frameCanvas, pixelRect),
+      );
 
       animations.push({
         x: pixelRect.x,

@@ -157,39 +157,23 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
     if (!Number.isFinite(index))
       throw new Error(`Non-numeric frame name: "${item.n}"`);
 
-    // Decode animation data from e.a extension
+    // Decode animation data from e.a extension (binary lz4 only)
     let animations: SlideAnimation[] | undefined;
-    if (item.e?.a) {
+    if (item.e?.a && binarySection !== null) {
       try {
         const animMetas: EIAAnimationMeta[] = JSON.parse(item.e.a);
         animations = animMetas.map((meta) => {
           const animFrames: ImageData[] = [];
           for (const frameRef of meta.frames) {
-            let decompressedFrame: Uint8Array;
-            if (binarySection !== null) {
-              const compressedFrame = binarySection.subarray(
-                frameRef.s,
-                frameRef.s + frameRef.l,
-              );
-              decompressedFrame = lz4Decompress(
-                compressedFrame,
-                frameRef.u,
-                `anim_${item.n}`,
-              );
-            } else if (textSection !== null) {
-              const b64Frame = textSection.substring(
-                frameRef.s,
-                frameRef.s + frameRef.l,
-              );
-              const compressedFrame = base64ToUint8Array(b64Frame);
-              decompressedFrame = lz4Decompress(
-                compressedFrame,
-                frameRef.u,
-                `anim_${item.n}`,
-              );
-            } else {
-              throw new Error(`Unsupported compression: ${manifest.c}`);
-            }
+            const compressedFrame = binarySection.subarray(
+              frameRef.s,
+              frameRef.s + frameRef.l,
+            );
+            const decompressedFrame = lz4Decompress(
+              compressedFrame,
+              frameRef.u,
+              `anim_${item.n}`,
+            );
             animFrames.push(
               rawToImageData(decompressedFrame, meta.w, meta.h, meta.f),
             );
