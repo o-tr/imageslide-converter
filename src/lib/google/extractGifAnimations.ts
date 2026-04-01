@@ -133,6 +133,7 @@ const buildComposedFrames = (
     if (output.length >= MAX_FRAMES) break;
   }
 
+  compositionCanvas.close();
   return output;
 };
 
@@ -237,9 +238,16 @@ export const extractGifAnimations = async (
       );
 
       // Composite each frame with base slide background (handles transparent GIFs)
-      const frames = composedFrames.map((frameCanvas) =>
-        compositeWithBackground(baseSlideCanvas, frameCanvas, pixelRect),
-      );
+      // Close intermediate composed frames after compositing — they are no longer needed
+      const frames = composedFrames.map((frameCanvas) => {
+        const composited = compositeWithBackground(
+          baseSlideCanvas,
+          frameCanvas,
+          pixelRect,
+        );
+        frameCanvas.close();
+        return composited;
+      });
 
       animations.push({
         x: pixelRect.x,

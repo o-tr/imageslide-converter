@@ -33,6 +33,7 @@ export const postCompress = (
         const animBitmaps = anim.frames.map((frame) => {
           const bm = frame.transferToImageBitmap();
           transferables.push(bm);
+          frame.close(); // Release the now-empty canvas backing store
           return bm;
         });
         return {
@@ -66,13 +67,12 @@ export const postCompress = (
   };
   console.log("postCompress", message);
   return new Promise<string[] | Buffer[]>((resolve) => {
-    worker.addEventListener(
-      "message",
-      (event: MessageEvent<WorkerResponse>) => {
-        if (event.data.type !== "compress") return;
-        resolve(event.data.data);
-      },
-    );
+    const handler = (event: MessageEvent<WorkerResponse>) => {
+      if (event.data.type !== "compress") return;
+      worker.removeEventListener("message", handler);
+      resolve(event.data.data);
+    };
+    worker.addEventListener("message", handler);
     worker.postMessage(message, transferables);
   });
 };

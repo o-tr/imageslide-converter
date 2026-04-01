@@ -37,14 +37,13 @@ export const postCompressSignage = (
   };
   console.log("postCompressSignage", message);
   return new Promise<string[] | Buffer[]>((resolve) => {
-    worker.addEventListener(
-      "message",
-      (event: MessageEvent<WorkerResponse>) => {
-        if (event.data.type !== "compress-signage") return;
-        console.log("postCompressSignage response", event.data);
-        resolve(event.data.data);
-      },
-    );
+    const handler = (event: MessageEvent<WorkerResponse>) => {
+      if (event.data.type !== "compress-signage") return;
+      worker.removeEventListener("message", handler);
+      console.log("postCompressSignage response", event.data);
+      resolve(event.data.data);
+    };
+    worker.addEventListener("message", handler);
     worker.postMessage(
       message,
       message.data.files.map((file) => file.bitmap),

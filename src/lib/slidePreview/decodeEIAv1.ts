@@ -165,6 +165,12 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
         animations = animMetas.map((meta) => {
           const animFrames: ImageData[] = [];
           for (const frameRef of meta.frames) {
+            if (frameRef.s + frameRef.l > binarySection.length) {
+              throw new Error(
+                `Animation frame ref out of bounds: offset ${frameRef.s} + length ${frameRef.l} ` +
+                  `exceeds binary section size ${binarySection.length}`,
+              );
+            }
             const compressedFrame = binarySection.subarray(
               frameRef.s,
               frameRef.s + frameRef.l,
