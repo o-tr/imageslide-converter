@@ -1,6 +1,6 @@
 import type { TTextureFormat } from "@/_types/text-zip/formats";
 
-export const EIAExtensions = ["note", "a"];
+export const EIAExtensions = ["note", "a"] as const;
 
 export type EIAExtension = (typeof EIAExtensions)[number];
 

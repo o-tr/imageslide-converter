@@ -168,6 +168,11 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
 
     // Decode animation data from e.a extension (binary lz4 only)
     let animations: SlideAnimation[] | undefined;
+    if (item.e?.a && binarySection === null) {
+      console.warn(
+        `Animation data for frame "${item.n}" cannot be decoded under lz4-base64 compression`,
+      );
+    }
     if (item.e?.a && binarySection !== null) {
       try {
         const animMetas: EIAAnimationMeta[] = JSON.parse(item.e.a);

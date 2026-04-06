@@ -20,64 +20,66 @@ worker.addEventListener(
         file.bitmap.height,
       );
 
-      // Convert animation bitmaps to OffscreenCanvas
+      // Compute effective scale for animations and main canvas
+      let effectiveScaleX: number;
+      let effectiveScaleY: number;
+      let canvas: OffscreenCanvas;
+
+      if (["DXT1"].includes(format)) {
+        // そのままだとノイズが目立つので2倍に拡大してから圧縮
+        const _width = Math.ceil((file.bitmap.width * scale * 2) / 4) * 4;
+        const _height = Math.ceil((file.bitmap.height * scale * 2) / 4) * 4;
+        effectiveScaleX = _width / file.bitmap.width;
+        effectiveScaleY = _height / file.bitmap.height;
+        canvas = new OffscreenCanvas(_width, _height);
+        if (_width === file.bitmap.width && _height === file.bitmap.height) {
+          canvas.getContext("2d")?.drawImage(file.bitmap, 0, 0);
+        } else {
+          canvas
+            .getContext("2d")
+            ?.drawImage(file.bitmap, 0, 0, canvas.width, canvas.height);
+        }
+      } else {
+        const finalScale = scale * resolutionScale;
+        effectiveScaleX = finalScale;
+        effectiveScaleY = finalScale;
+        if (finalScale === 1) {
+          canvas = new OffscreenCanvas(file.bitmap.width, file.bitmap.height);
+          canvas.getContext("2d")?.drawImage(file.bitmap, 0, 0);
+        } else {
+          canvas = new OffscreenCanvas(
+            Math.round(file.bitmap.width * finalScale),
+            Math.round(file.bitmap.height * finalScale),
+          );
+          canvas
+            .getContext("2d")
+            ?.drawImage(file.bitmap, 0, 0, canvas.width, canvas.height);
+        }
+      }
+
+      // Convert animation bitmaps to OffscreenCanvas with scaling applied
       let animations: SelectedFileAnimation[] | undefined;
       if (file.animations && file.animations.length > 0) {
         animations = file.animations.map((anim) => ({
-          x: anim.x,
-          y: anim.y,
-          w: anim.w,
-          h: anim.h,
+          x: Math.round(anim.x * effectiveScaleX),
+          y: Math.round(anim.y * effectiveScaleY),
+          w: Math.round(anim.w * effectiveScaleX),
+          h: Math.round(anim.h * effectiveScaleY),
           fps: anim.fps,
           frames: anim.frames.map((bm) => {
-            const c = new OffscreenCanvas(bm.width, bm.height);
+            const scaledW = Math.round(bm.width * effectiveScaleX);
+            const scaledH = Math.round(bm.height * effectiveScaleY);
+            const c = new OffscreenCanvas(scaledW, scaledH);
             const ctx = c.getContext("2d");
             if (!ctx)
               throw new Error("Cannot get 2d context for animation frame");
-            ctx.drawImage(bm, 0, 0);
+            ctx.drawImage(bm, 0, 0, scaledW, scaledH);
             bm.close();
             return c;
           }),
         }));
       }
 
-      if (["DXT1"].includes(format)) {
-        // そのままだとノイズが目立つので2倍に拡大してから圧縮
-        const _width = Math.ceil((file.bitmap.width * scale * 2) / 4) * 4;
-        const _height = Math.ceil((file.bitmap.height * scale * 2) / 4) * 4;
-        if (_width === file.bitmap.width && _height === file.bitmap.height) {
-          const canvas = new OffscreenCanvas(
-            file.bitmap.width,
-            file.bitmap.height,
-          );
-          canvas.getContext("2d")?.drawImage(file.bitmap, 0, 0);
-          return { ...file, canvas, animations };
-        }
-        const canvas = new OffscreenCanvas(_width, _height);
-        canvas
-          .getContext("2d")
-          ?.drawImage(file.bitmap, 0, 0, canvas.width, canvas.height);
-        return { ...file, canvas, animations };
-      }
-
-      // 解像度とscaleの両方を考慮した最終スケール
-      const finalScale = scale * resolutionScale;
-
-      if (finalScale === 1) {
-        const canvas = new OffscreenCanvas(
-          file.bitmap.width,
-          file.bitmap.height,
-        );
-        canvas.getContext("2d")?.drawImage(file.bitmap, 0, 0);
-        return { ...file, canvas, animations };
-      }
-      const canvas = new OffscreenCanvas(
-        Math.round(file.bitmap.width * finalScale),
-        Math.round(file.bitmap.height * finalScale),
-      );
-      canvas
-        .getContext("2d")
-        ?.drawImage(file.bitmap, 0, 0, canvas.width, canvas.height);
       return { ...file, canvas, animations };
     });
     console.log("compress", files);

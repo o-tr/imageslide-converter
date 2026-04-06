@@ -78,6 +78,11 @@ export const GooglePicker = () => {
         setFiles((pv) => [...pv, ...selectedFiles]);
       }
       if (file.mimeType === "application/vnd.google-apps.presentation") {
+        if (!token) {
+          void messageApi.warning(
+            "認証トークンが無効なため、GIFアニメーションを抽出できません",
+          );
+        }
         const files = await slide2canvas(file.id, token ?? "");
         setFiles((pv) => [...pv, ...files]);
       }

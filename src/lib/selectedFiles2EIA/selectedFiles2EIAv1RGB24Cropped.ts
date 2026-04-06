@@ -46,7 +46,7 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
       }));
       // Apply differential compression to animation frames
       const croppedAnimFrames = cropImages(animRawImages, {
-        keyframeInterval: 10,
+        keyframeInterval,
         parentSearchWindow: 5,
         parentSearchTopK: 1,
       });

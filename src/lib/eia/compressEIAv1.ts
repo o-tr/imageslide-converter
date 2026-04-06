@@ -44,6 +44,12 @@ export const compressEIAv1 = async (
     const compressedPart = await compressEIAv1Part(part, signage, partAnimMap);
 
     if (compressedPart.length > FileSizeLimit) {
+      if (part.length <= 1) {
+        throw new Error(
+          `Slide at index ${part[0]?.index ?? "?"} exceeds file size limit ` +
+            `(${compressedPart.length} > ${FileSizeLimit}) and cannot be split further`,
+        );
+      }
       return compressEIAv1(data, signage, count + 1, stepSize, animationMap);
     }
 

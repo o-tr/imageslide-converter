@@ -7,6 +7,8 @@ export type SlidePageElement = {
   transform?: {
     scaleX?: number;
     scaleY?: number;
+    shearX?: number;
+    shearY?: number;
     translateX?: number;
     translateY?: number;
     unit?: string;

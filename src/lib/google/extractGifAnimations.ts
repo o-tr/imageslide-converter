@@ -35,14 +35,14 @@ const clampDimensions = (w: number, h: number): { w: number; h: number } => {
 };
 
 /**
- * Returns the set of frame indices to output at TARGET_FPS by accumulating
- * per-frame delays. All frames must still be composited in order; only frames
- * at these indices are written to output.
+ * Returns an ordered array of frame indices to output at TARGET_FPS.
+ * A single source frame may appear multiple times if its delay spans
+ * several TARGET_FRAME_INTERVAL_MS buckets, preserving correct playback tempo.
  */
-const sampleFrameIndices = (frames: ParsedFrame[]): Set<number> => {
-  if (frames.length <= 1) return new Set([0]);
+const sampleFrameIndices = (frames: ParsedFrame[]): number[] => {
+  if (frames.length <= 1) return [0];
 
-  const indices = new Set<number>([0]);
+  const indices: number[] = [0];
   // Start accumulation with frame 0's own display time so subsequent
   // thresholds are measured from the moment frame 0 first appears.
   let accumulatedMs = frames[0].delay || 100;
@@ -52,11 +52,12 @@ const sampleFrameIndices = (frames: ParsedFrame[]): Set<number> => {
     // gifuct-js converts GCE delay (centiseconds) to milliseconds via × 10;
     // fall back to 100ms if the field is missing or zero.
     accumulatedMs += frames[i].delay || 100;
-    if (accumulatedMs >= nextSampleMs) {
-      indices.add(i);
+    // Emit this frame once per interval bucket it covers
+    while (accumulatedMs >= nextSampleMs && indices.length < MAX_FRAMES) {
+      indices.push(i);
       nextSampleMs += TARGET_FRAME_INTERVAL_MS;
-      if (indices.size >= MAX_FRAMES) break;
     }
+    if (indices.length >= MAX_FRAMES) break;
   }
   return indices;
 };
@@ -68,7 +69,7 @@ const sampleFrameIndices = (frames: ParsedFrame[]): Set<number> => {
  */
 const buildComposedFrames = (
   allFrames: ParsedFrame[],
-  sampleIndices: Set<number>,
+  sampleIndices: number[],
   gifWidth: number,
   gifHeight: number,
   targetW: number,
@@ -79,6 +80,7 @@ const buildComposedFrames = (
   if (!compositionCtx) throw new Error("Cannot get 2d context");
 
   const output: OffscreenCanvas[] = [];
+  let samplePtr = 0; // pointer into sampleIndices array
   let prevDisposal = 0;
   let prevDims: ParsedFrame["dims"] | null = null;
   let prevSnapshot: ImageData | null = null;
@@ -126,12 +128,15 @@ const buildComposedFrames = (
     prevDisposal = disposal;
     prevDims = frame.dims;
 
-    if (sampleIndices.has(i)) {
+    // Output all samples that reference this frame index (may be >1 for long-delay frames)
+    while (samplePtr < sampleIndices.length && sampleIndices[samplePtr] === i) {
       const result = new OffscreenCanvas(targetW, targetH);
       const resultCtx = result.getContext("2d");
       if (!resultCtx) throw new Error("Cannot get 2d context");
       resultCtx.drawImage(compositionCanvas, 0, 0, targetW, targetH);
       output.push(result);
+      samplePtr++;
+      if (output.length >= MAX_FRAMES) break;
     }
 
     if (output.length >= MAX_FRAMES) break;
@@ -182,7 +187,13 @@ export const extractGifAnimations = async (
   }
 
   const imageElements = pageElements.filter(
-    (el) => el.image?.contentUrl && el.size && el.transform,
+    (el) =>
+      el.image?.contentUrl &&
+      el.size &&
+      el.transform &&
+      // Skip rotated/sheared/flipped elements — affine transform not supported
+      !el.transform.shearX &&
+      !el.transform.shearY,
   );
 
   const animations: SelectedFileAnimation[] = [];
