@@ -16,7 +16,7 @@ export type RawAnimationData = {
   w: number;
   h: number;
   fps: number;
-  frames: { buffer: Buffer }[];
+  frames: RawImageObjV1Cropped[];
 };
 
 export const compressEIAv1 = async (
@@ -134,15 +134,53 @@ const compressEIAv1Part = async (
 
       for (const anim of anims) {
         const frameRefs: EIAAnimationFrameRef[] = [];
+        let hasCroppedFrames = false;
         for (const frame of anim.frames) {
-          const compressed = Buffer.from(lz4.compress(frame.buffer));
-          buffer.push(compressed);
-          frameRefs.push({
-            s: bufferLength,
-            l: compressed.length,
-            u: frame.buffer.length,
-          });
-          bufferLength += compressed.length;
+          if (!frame.cropped) {
+            // Master frame: store full buffer
+            const compressed = Buffer.from(lz4.compress(frame.buffer));
+            buffer.push(compressed);
+            frameRefs.push({
+              t: "m",
+              s: bufferLength,
+              l: compressed.length,
+              u: frame.buffer.length,
+            });
+            bufferLength += compressed.length;
+          } else {
+            // Cropped frame: concatenate rect buffers, then compress
+            hasCroppedFrames = true;
+            let fileBufferLength = 0;
+            const fileBuffer: Buffer[] = [];
+            const parts: EIAFileV1CroppedPart[] = [];
+            for (const rect of frame.cropped.rects) {
+              fileBuffer.push(rect.buffer);
+              parts.push({
+                x: rect.x,
+                y: rect.y,
+                w: rect.width,
+                h: rect.height,
+                s: fileBufferLength,
+                l: rect.buffer.length,
+              });
+              fileBufferLength += rect.buffer.length;
+            }
+            const mergedBuffer = Buffer.concat(fileBuffer);
+            const compressed = Buffer.from(lz4.compress(mergedBuffer));
+            buffer.push(compressed);
+            frameRefs.push({
+              t: "c",
+              b: frame.cropped.baseIndex,
+              r: parts,
+              s: bufferLength,
+              l: compressed.length,
+              u: mergedBuffer.length,
+            });
+            bufferLength += compressed.length;
+          }
+        }
+        if (hasCroppedFrames) {
+          usedFeatures.add("Feature:animation-crop");
         }
 
         animMetas.push({

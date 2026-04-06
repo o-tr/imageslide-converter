@@ -36,16 +36,29 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
   for (let i = 0; i < selectedFiles.length; i++) {
     const file = selectedFiles[i];
     if (!file.animations || file.animations.length === 0) continue;
-    const anims: RawAnimationData[] = file.animations.map((anim) => ({
-      x: anim.x,
-      y: anim.y,
-      w: anim.w,
-      h: anim.h,
-      fps: anim.fps,
-      frames: anim.frames.map((frame) => ({
+    const anims: RawAnimationData[] = file.animations.map((anim) => {
+      // Convert animation frames to RawImageObjV1 for cropImages
+      const animRawImages = anim.frames.map<RawImageObjV1>((frame, fi) => ({
+        index: fi,
+        rect: { width: frame.width, height: frame.height },
+        format: "RGB24",
         buffer: Buffer.from(canvas2rgb24(frame)),
-      })),
-    }));
+      }));
+      // Apply differential compression to animation frames
+      const croppedAnimFrames = cropImages(animRawImages, {
+        keyframeInterval: 10,
+        parentSearchWindow: 5,
+        parentSearchTopK: 1,
+      });
+      return {
+        x: anim.x,
+        y: anim.y,
+        w: anim.w,
+        h: anim.h,
+        fps: anim.fps,
+        frames: croppedAnimFrames,
+      };
+    });
     animationMap.set(i, anims);
   }
 

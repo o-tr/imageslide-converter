@@ -1,6 +1,8 @@
 import type {
+  EIAAnimationFrameRefCropped,
   EIAAnimationMeta,
   EIAFileV1Cropped,
+  EIAFileV1CroppedPart,
   EIAManifestV1,
 } from "@/_types/eia/v1";
 import type { SlideAnimation, SlideFrame } from "@/_types/slide-preview";
@@ -43,20 +45,21 @@ const rawToImageData = (
 const applyRects = (
   baseBuffer: Uint8Array,
   decompressed: Uint8Array,
-  item: EIAFileV1Cropped,
+  rects: EIAFileV1CroppedPart[],
   baseWidth: number,
+  format: string,
 ): Uint8Array => {
   const bpp =
-    item.f === "RGBA32"
+    format === "RGBA32"
       ? 4
-      : isRgb24(item.f)
+      : isRgb24(format)
         ? 3
         : (() => {
-            throw new Error(`Unsupported format in applyRects: "${item.f}"`);
+            throw new Error(`Unsupported format in applyRects: "${format}"`);
           })();
   const result = new Uint8Array(baseBuffer);
   const baseHeight = baseBuffer.length / (baseWidth * bpp);
-  for (const rect of item.r) {
+  for (const rect of rects) {
     if (rect.x + rect.w > baseWidth || rect.y + rect.h > baseHeight)
       throw new Error(
         `Rect at (${rect.x},${rect.y}) size ${rect.w}×${rect.h} exceeds frame bounds ${baseWidth}×${baseHeight}`,
@@ -148,7 +151,13 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
           `Cropped frame "${item.n}" format "${item.f}" ` +
             `differs from base "${item.b}" format "${baseItem.f}"`,
         );
-      rawBuffer = applyRects(baseBuffer, decompressed, item, baseItem.w);
+      rawBuffer = applyRects(
+        baseBuffer,
+        decompressed,
+        item.r,
+        baseItem.w,
+        item.f,
+      );
     }
 
     frameBuffers.set(item.n, rawBuffer);
@@ -164,7 +173,18 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
         const animMetas: EIAAnimationMeta[] = JSON.parse(item.e.a);
         animations = animMetas.map((meta) => {
           const animFrames: ImageData[] = [];
-          for (const frameRef of meta.frames) {
+          const animFrameBuffers = new Map<number, Uint8Array>();
+
+          // Pre-scan to find which frames are referenced as base by cropped frames
+          const animBaseIndices = new Set<number>();
+          for (const fr of meta.frames) {
+            if ("t" in fr && fr.t === "c") {
+              animBaseIndices.add((fr as EIAAnimationFrameRefCropped).b);
+            }
+          }
+
+          for (let fi = 0; fi < meta.frames.length; fi++) {
+            const frameRef = meta.frames[fi];
             if (frameRef.s + frameRef.l > binarySection.length) {
               throw new Error(
                 `Animation frame ref out of bounds: offset ${frameRef.s} + length ${frameRef.l} ` +
@@ -178,11 +198,38 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
             const decompressedFrame = lz4Decompress(
               compressedFrame,
               frameRef.u,
-              `anim_${item.n}`,
+              `anim_${item.n}_${fi}`,
             );
-            animFrames.push(
-              rawToImageData(decompressedFrame, meta.w, meta.h, meta.f),
-            );
+
+            let rawBuffer: Uint8Array;
+            if (!("t" in frameRef) || frameRef.t === "m") {
+              // Master frame (or legacy frame without 't' field)
+              rawBuffer = decompressedFrame;
+            } else {
+              // Cropped frame: apply rects to base
+              const croppedRef = frameRef as EIAAnimationFrameRefCropped;
+              const baseBuffer = animFrameBuffers.get(croppedRef.b);
+              if (!baseBuffer) {
+                throw new Error(
+                  `Animation base frame ${croppedRef.b} not found for cropped frame ${fi}`,
+                );
+              }
+              rawBuffer = applyRects(
+                baseBuffer,
+                decompressedFrame,
+                croppedRef.r,
+                meta.w,
+                meta.f,
+              );
+            }
+
+            animFrameBuffers.set(fi, rawBuffer);
+            animFrames.push(rawToImageData(rawBuffer, meta.w, meta.h, meta.f));
+
+            // Release buffer if not needed as base for future frames
+            if (!animBaseIndices.has(fi)) {
+              animFrameBuffers.delete(fi);
+            }
           }
           return {
             x: meta.x,

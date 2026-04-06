@@ -19,10 +19,24 @@ export type EIAAnimationMeta = {
   frames: EIAAnimationFrameRef[];
 };
 
-export type EIAAnimationFrameRef = {
+export type EIAAnimationFrameRef =
+  | EIAAnimationFrameRefMaster
+  | EIAAnimationFrameRefCropped;
+
+export type EIAAnimationFrameRefMaster = {
+  t: "m"; // master (full frame)
   s: number; // start offset in data section
   l: number; // compressed length
   u: number; // uncompressed size
+};
+
+export type EIAAnimationFrameRefCropped = {
+  t: "c"; // cropped (diff frame)
+  b: number; // base frame index within this animation's frames array
+  s: number; // start offset in data section
+  l: number; // compressed length
+  u: number; // uncompressed size
+  r: EIAFileV1CroppedPart[]; // changed rects
 };
 
 export type EIACompressionMethod = "lz4" | "lz4-base64";
