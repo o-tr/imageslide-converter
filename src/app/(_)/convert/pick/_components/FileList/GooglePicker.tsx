@@ -165,7 +165,6 @@ const slide2canvas = async (
     );
   }
 
-  const results: SelectedFile[] = [];
   const filteredSlides = canvases
     .map((canvas, index) => ({
       canvas,
@@ -176,37 +175,30 @@ const slide2canvas = async (
     }))
     .filter(({ isSkipped }) => !isSkipped);
 
-  for (
-    let outputIndex = 0;
-    outputIndex < filteredSlides.length;
-    outputIndex++
-  ) {
-    const { canvas, index, speakerNote, pageElements } =
-      filteredSlides[outputIndex];
-
-    // Extract GIF animations from this slide
-    const animations = await extractGifAnimations(
-      pageElements,
-      metadata.pageSize,
-      { width: canvas.width, height: canvas.height },
-      canvas,
-      token,
-    );
-
-    results.push({
-      id: crypto.randomUUID(),
-      fileName: `${metadata.title}-${outputIndex + 1}`,
-      canvas,
-      note: speakerNote,
-      animations: animations.length > 0 ? animations : undefined,
-      metadata: {
-        fileType: "pdf" as const,
-        file,
-        index,
-        scale: 1,
+  return Promise.all(
+    filteredSlides.map(
+      async ({ canvas, index, speakerNote, pageElements }, outputIndex) => {
+        const animations = await extractGifAnimations(
+          pageElements,
+          metadata.pageSize,
+          { width: canvas.width, height: canvas.height },
+          canvas,
+          token,
+        );
+        return {
+          id: crypto.randomUUID(),
+          fileName: `${metadata.title}-${outputIndex + 1}`,
+          canvas,
+          note: speakerNote,
+          animations: animations.length > 0 ? animations : undefined,
+          metadata: {
+            fileType: "pdf" as const,
+            file,
+            index,
+            scale: 1,
+          },
+        };
       },
-    });
-  }
-
-  return results;
+    ),
+  );
 };

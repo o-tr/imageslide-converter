@@ -47,12 +47,8 @@ export const postCompress = (
       });
     }
 
-    return {
-      ...file,
-      bitmap,
-      canvas: undefined as unknown as OffscreenCanvas,
-      animations,
-    };
+    const { canvas: _canvas, animations: _origAnimations, ...fileRest } = file;
+    return { ...fileRest, bitmap, animations };
   });
 
   const message: WorkerMessage = {

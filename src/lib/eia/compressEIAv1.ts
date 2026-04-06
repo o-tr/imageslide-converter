@@ -16,7 +16,7 @@ export type RawAnimationData = {
   w: number;
   h: number;
   fps: number;
-  frames: { width: number; height: number; buffer: Buffer }[];
+  frames: { buffer: Buffer }[];
 };
 
 export const compressEIAv1 = async (

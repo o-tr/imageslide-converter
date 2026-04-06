@@ -27,12 +27,11 @@ export const postCompressSignage = (
       signage,
       scale,
       resolution,
-      files: files.map((file) => ({
-        ...file,
-        bitmap: file.canvas.transferToImageBitmap(),
-        canvas: undefined as unknown as OffscreenCanvas,
-        animations: undefined,
-      })),
+      files: files.map((file) => {
+        const bitmap = file.canvas.transferToImageBitmap();
+        const { canvas: _canvas, animations: _animations, ...fileRest } = file;
+        return { ...fileRest, bitmap };
+      }),
     },
   };
   console.log("postCompressSignage", message);

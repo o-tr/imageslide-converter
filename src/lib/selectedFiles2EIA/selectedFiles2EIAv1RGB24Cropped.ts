@@ -43,8 +43,6 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
       h: anim.h,
       fps: anim.fps,
       frames: anim.frames.map((frame) => ({
-        width: frame.width,
-        height: frame.height,
         buffer: Buffer.from(canvas2rgb24(frame)),
       })),
     }));

@@ -47,6 +47,8 @@ const sampleFrameIndices = (frames: ParsedFrame[]): Set<number> => {
   let nextSampleMs = TARGET_FRAME_INTERVAL_MS;
 
   for (let i = 1; i < frames.length; i++) {
+    // gifuct-js converts GCE delay (centiseconds) to milliseconds via × 10;
+    // fall back to 100ms if the field is missing or zero.
     accumulatedMs += frames[i].delay || 100;
     if (accumulatedMs >= nextSampleMs) {
       indices.add(i);
