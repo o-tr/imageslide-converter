@@ -168,85 +168,88 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
 
     // Decode animation data from e.a extension (binary lz4 only)
     let animations: SlideAnimation[] | undefined;
-    if (item.e?.a && binarySection === null) {
-      console.warn(
-        `Animation data for frame "${item.n}" cannot be decoded under lz4-base64 compression`,
-      );
-    }
-    if (item.e?.a && binarySection !== null) {
-      try {
-        const animMetas: EIAAnimationMeta[] = JSON.parse(item.e.a);
-        animations = animMetas.map((meta) => {
-          const animFrames: ImageData[] = [];
-          const animFrameBuffers = new Map<number, Uint8Array>();
+    if (item.e?.a) {
+      if (binarySection === null) {
+        console.warn(
+          `Animation data for frame "${item.n}" cannot be decoded under lz4-base64 compression`,
+        );
+      } else {
+        try {
+          const animMetas: EIAAnimationMeta[] = JSON.parse(item.e.a);
+          animations = animMetas.map((meta) => {
+            const animFrames: ImageData[] = [];
+            const animFrameBuffers = new Map<number, Uint8Array>();
 
-          // Pre-scan to find which frames are referenced as base by cropped frames
-          const animBaseIndices = new Set<number>();
-          for (const fr of meta.frames) {
-            if ("t" in fr && fr.t === "c") {
-              animBaseIndices.add((fr as EIAAnimationFrameRefCropped).b);
+            // Pre-scan to find which frames are referenced as base by cropped frames
+            const animBaseIndices = new Set<number>();
+            for (const fr of meta.frames) {
+              if ("t" in fr && fr.t === "c") {
+                animBaseIndices.add((fr as EIAAnimationFrameRefCropped).b);
+              }
             }
-          }
 
-          for (let fi = 0; fi < meta.frames.length; fi++) {
-            const frameRef = meta.frames[fi];
-            if (frameRef.s + frameRef.l > binarySection.length) {
-              throw new Error(
-                `Animation frame ref out of bounds: offset ${frameRef.s} + length ${frameRef.l} ` +
-                  `exceeds binary section size ${binarySection.length}`,
-              );
-            }
-            const compressedFrame = binarySection.subarray(
-              frameRef.s,
-              frameRef.s + frameRef.l,
-            );
-            const decompressedFrame = lz4Decompress(
-              compressedFrame,
-              frameRef.u,
-              `anim_${item.n}_${fi}`,
-            );
-
-            let rawBuffer: Uint8Array;
-            if (!("t" in frameRef) || frameRef.t === "m") {
-              // Master frame (or legacy frame without 't' field)
-              rawBuffer = decompressedFrame;
-            } else {
-              // Cropped frame: apply rects to base
-              const croppedRef = frameRef as EIAAnimationFrameRefCropped;
-              const baseBuffer = animFrameBuffers.get(croppedRef.b);
-              if (!baseBuffer) {
+            for (let fi = 0; fi < meta.frames.length; fi++) {
+              const frameRef = meta.frames[fi];
+              if (frameRef.s + frameRef.l > binarySection.length) {
                 throw new Error(
-                  `Animation base frame ${croppedRef.b} not found for cropped frame ${fi}`,
+                  `Animation frame ref out of bounds: offset ${frameRef.s} + length ${frameRef.l} ` +
+                    `exceeds binary section size ${binarySection.length}`,
                 );
               }
-              rawBuffer = applyRects(
-                baseBuffer,
-                decompressedFrame,
-                croppedRef.r,
-                meta.w,
-                meta.f,
+              const compressedFrame = binarySection.subarray(
+                frameRef.s,
+                frameRef.s + frameRef.l,
               );
-            }
+              const decompressedFrame = lz4Decompress(
+                compressedFrame,
+                frameRef.u,
+                `anim_${item.n}_${fi}`,
+              );
 
-            animFrameBuffers.set(fi, rawBuffer);
-            animFrames.push(rawToImageData(rawBuffer, meta.w, meta.h, meta.f));
+              let rawBuffer: Uint8Array;
+              if (!("t" in frameRef) || frameRef.t === "m") {
+                // Master frame (or legacy frame without 't' field)
+                rawBuffer = decompressedFrame;
+              } else {
+                // Cropped frame: apply rects to base
+                const croppedRef = frameRef as EIAAnimationFrameRefCropped;
+                const baseBuffer = animFrameBuffers.get(croppedRef.b);
+                if (!baseBuffer) {
+                  throw new Error(
+                    `Animation base frame ${croppedRef.b} not found for cropped frame ${fi}`,
+                  );
+                }
+                rawBuffer = applyRects(
+                  baseBuffer,
+                  decompressedFrame,
+                  croppedRef.r,
+                  meta.w,
+                  meta.f,
+                );
+              }
 
-            // Release buffer if not needed as base for future frames
-            if (!animBaseIndices.has(fi)) {
-              animFrameBuffers.delete(fi);
+              animFrameBuffers.set(fi, rawBuffer);
+              animFrames.push(
+                rawToImageData(rawBuffer, meta.w, meta.h, meta.f),
+              );
+
+              // Release buffer if not needed as base for future frames
+              if (!animBaseIndices.has(fi)) {
+                animFrameBuffers.delete(fi);
+              }
             }
-          }
-          return {
-            x: meta.x,
-            y: meta.y,
-            w: meta.w,
-            h: meta.h,
-            fps: meta.fps,
-            frames: animFrames,
-          };
-        });
-      } catch (e) {
-        console.warn(`Failed to decode animation for frame "${item.n}":`, e);
+            return {
+              x: meta.x,
+              y: meta.y,
+              w: meta.w,
+              h: meta.h,
+              fps: meta.fps,
+              frames: animFrames,
+            };
+          });
+        } catch (e) {
+          console.warn(`Failed to decode animation for frame "${item.n}":`, e);
+        }
       }
     }
 

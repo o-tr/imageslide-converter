@@ -196,87 +196,87 @@ export const extractGifAnimations = async (
       !el.transform.shearY,
   );
 
-  const animations: SelectedFileAnimation[] = [];
+  const results = await Promise.all(
+    imageElements.map(async (element) => {
+      const contentUrl = element.image?.contentUrl;
+      if (!contentUrl) return null;
 
-  for (const element of imageElements) {
-    const contentUrl = element.image?.contentUrl;
-    if (!contentUrl) continue;
+      try {
+        const response = await fetch(contentUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) return null;
 
-    try {
-      const response = await fetch(contentUrl, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) continue;
+        const buffer = await response.arrayBuffer();
+        if (!isGif(buffer)) return null;
 
-      const buffer = await response.arrayBuffer();
-      if (!isGif(buffer)) continue;
+        const gif = parseGIF(buffer);
+        const rawFrames = decompressFrames(gif, true);
+        if (rawFrames.length <= 1) return null; // Static GIF, skip
 
-      const gif = parseGIF(buffer);
-      const rawFrames = decompressFrames(gif, true);
-      if (rawFrames.length <= 1) continue; // Static GIF, skip
+        const sampleIndices = sampleFrameIndices(rawFrames);
 
-      const sampleIndices = sampleFrameIndices(rawFrames);
+        const gifWidth = gif.lsd.width;
+        const gifHeight = gif.lsd.height;
+        const { w: targetW, h: targetH } = clampDimensions(gifWidth, gifHeight);
 
-      const gifWidth = gif.lsd.width;
-      const gifHeight = gif.lsd.height;
-      const { w: targetW, h: targetH } = clampDimensions(gifWidth, gifHeight);
+        // Compute pixel rect on the rendered slide
+        const sizeW = element.size?.width.magnitude ?? 0;
+        const sizeH = element.size?.height.magnitude ?? 0;
+        const scaleX = element.transform?.scaleX ?? 1;
+        const scaleY = element.transform?.scaleY ?? 1;
+        const translateX = element.transform?.translateX ?? 0;
+        const translateY = element.transform?.translateY ?? 0;
 
-      // Compute pixel rect on the rendered slide
-      const sizeW = element.size?.width.magnitude ?? 0;
-      const sizeH = element.size?.height.magnitude ?? 0;
-      const scaleX = element.transform?.scaleX ?? 1;
-      const scaleY = element.transform?.scaleY ?? 1;
-      const translateX = element.transform?.translateX ?? 0;
-      const translateY = element.transform?.translateY ?? 0;
+        const emuRect = {
+          x: translateX,
+          y: translateY,
+          w: sizeW * scaleX,
+          h: sizeH * scaleY,
+        };
 
-      const emuRect = {
-        x: translateX,
-        y: translateY,
-        w: sizeW * scaleX,
-        h: sizeH * scaleY,
-      };
-
-      const pixelRect = emuToPixelRect(
-        emuRect,
-        { width: pageSize.width, height: pageSize.height },
-        canvasSize,
-      );
-
-      // Build composed GIF frames with proper inter-frame compositing
-      const composedFrames = buildComposedFrames(
-        rawFrames,
-        sampleIndices,
-        gifWidth,
-        gifHeight,
-        targetW,
-        targetH,
-      );
-
-      // Composite each frame with base slide background (handles transparent GIFs)
-      // Close intermediate composed frames after compositing — they are no longer needed
-      const frames = composedFrames.map((frameCanvas) => {
-        const composited = compositeWithBackground(
-          baseSlideCanvas,
-          frameCanvas,
-          pixelRect,
+        const pixelRect = emuToPixelRect(
+          emuRect,
+          { width: pageSize.width, height: pageSize.height },
+          canvasSize,
         );
-        frameCanvas.close();
-        return composited;
-      });
 
-      animations.push({
-        x: pixelRect.x,
-        y: pixelRect.y,
-        w: pixelRect.w,
-        h: pixelRect.h,
-        fps: TARGET_FPS,
-        frames,
-      });
-    } catch (e) {
-      console.warn("Failed to extract GIF animation:", e);
-      // Skip this GIF, continue with others
-    }
-  }
+        // Build composed GIF frames with proper inter-frame compositing
+        const composedFrames = buildComposedFrames(
+          rawFrames,
+          sampleIndices,
+          gifWidth,
+          gifHeight,
+          targetW,
+          targetH,
+        );
 
-  return animations;
+        // Composite each frame with base slide background (handles transparent GIFs)
+        // Close intermediate composed frames after compositing — they are no longer needed
+        const frames = composedFrames.map((frameCanvas) => {
+          const composited = compositeWithBackground(
+            baseSlideCanvas,
+            frameCanvas,
+            pixelRect,
+          );
+          frameCanvas.close();
+          return composited;
+        });
+
+        return {
+          x: pixelRect.x,
+          y: pixelRect.y,
+          w: pixelRect.w,
+          h: pixelRect.h,
+          fps: TARGET_FPS,
+          frames,
+        } satisfies SelectedFileAnimation;
+      } catch (e) {
+        console.warn("Failed to extract GIF animation:", e);
+        return null;
+      }
+    }),
+  );
+
+  return results.filter((r): r is SelectedFileAnimation => r !== null);
 };
