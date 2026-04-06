@@ -43,7 +43,9 @@ const sampleFrameIndices = (frames: ParsedFrame[]): Set<number> => {
   if (frames.length <= 1) return new Set([0]);
 
   const indices = new Set<number>([0]);
-  let accumulatedMs = 0;
+  // Start accumulation with frame 0's own display time so subsequent
+  // thresholds are measured from the moment frame 0 first appears.
+  let accumulatedMs = frames[0].delay || 100;
   let nextSampleMs = TARGET_FRAME_INTERVAL_MS;
 
   for (let i = 1; i < frames.length; i++) {

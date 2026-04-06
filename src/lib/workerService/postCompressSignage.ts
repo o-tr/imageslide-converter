@@ -27,6 +27,7 @@ export const postCompressSignage = (
       signage,
       scale,
       resolution,
+      // Signage path does not support GIF animations; they are intentionally excluded.
       files: files.map((file) => {
         const bitmap = file.canvas.transferToImageBitmap();
         const { canvas: _canvas, animations: _animations, ...fileRest } = file;

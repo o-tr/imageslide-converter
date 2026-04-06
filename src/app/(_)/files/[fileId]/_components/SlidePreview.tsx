@@ -115,7 +115,7 @@ const MainSlideDisplay: FC<{
           const interval = 1000 / anim.fps;
           if (time - lastTimes[i] >= interval) {
             frameIndices[i] = (frameIndices[i] + 1) % anim.frames.length;
-            lastTimes[i] = time;
+            lastTimes[i] += interval;
           }
         }
 
