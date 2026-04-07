@@ -32,36 +32,42 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
     `after compress size: ${croppedImages.reduce((acc, cur) => acc + (cur.cropped ? cur.cropped.rects.reduce((acc, cur) => acc + cur.buffer.length, 0) : cur.buffer.length), 0)}`,
   );
 
-  // Extract animation data per slide
-  const animationMap = new Map<number, RawAnimationData[]>();
-  for (let i = 0; i < selectedFiles.length; i++) {
-    const file = selectedFiles[i];
-    if (!file.animations || file.animations.length === 0) continue;
-    const anims: RawAnimationData[] = file.animations.map((anim) => {
-      // Convert animation frames to RawImageObjV1 for cropImages
-      const animRawImages = anim.frames.map<RawImageObjV1>((frame, fi) => ({
-        index: fi,
-        rect: { width: frame.width, height: frame.height },
-        format: IMAGE_FORMAT_RGB24,
-        buffer: Buffer.from(canvas2rgb24(frame)),
-      }));
-      // Apply differential compression to animation frames
-      const croppedAnimFrames = cropImages(animRawImages, {
-        keyframeInterval,
-        parentSearchWindow: 5,
-        parentSearchTopK: 1,
+  let animationMap: Map<number, RawAnimationData[]> | undefined;
+  if (!signage) {
+    // Extract animation data per slide (signage exports intentionally omit animations)
+    const extractedAnimationMap = new Map<number, RawAnimationData[]>();
+    for (let i = 0; i < selectedFiles.length; i++) {
+      const file = selectedFiles[i];
+      if (!file.animations || file.animations.length === 0) continue;
+      const anims: RawAnimationData[] = file.animations.map((anim) => {
+        // Convert animation frames to RawImageObjV1 for cropImages
+        const animRawImages = anim.frames.map<RawImageObjV1>((frame, fi) => ({
+          index: fi,
+          rect: { width: frame.width, height: frame.height },
+          format: IMAGE_FORMAT_RGB24,
+          buffer: Buffer.from(canvas2rgb24(frame)),
+        }));
+        // Apply differential compression to animation frames
+        const croppedAnimFrames = cropImages(animRawImages, {
+          keyframeInterval,
+          parentSearchWindow: 5,
+          parentSearchTopK: 1,
+        });
+        return {
+          x: anim.x,
+          y: anim.y,
+          w: anim.w,
+          h: anim.h,
+          fps: anim.fps,
+          format: IMAGE_FORMAT_RGB24,
+          frames: croppedAnimFrames,
+        };
       });
-      return {
-        x: anim.x,
-        y: anim.y,
-        w: anim.w,
-        h: anim.h,
-        fps: anim.fps,
-        format: IMAGE_FORMAT_RGB24,
-        frames: croppedAnimFrames,
-      };
-    });
-    animationMap.set(i, anims);
+      extractedAnimationMap.set(i, anims);
+    }
+    if (extractedAnimationMap.size > 0) {
+      animationMap = extractedAnimationMap;
+    }
   }
 
   return await compressEIAv1(
@@ -69,6 +75,6 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
     signage,
     1,
     keyframeInterval,
-    animationMap.size > 0 ? animationMap : undefined,
+    animationMap,
   );
 };

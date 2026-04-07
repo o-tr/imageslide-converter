@@ -37,6 +37,40 @@ const clampDimensions = (
   };
 };
 
+const toPixelRect = (
+  element: SlidePageElement,
+  pageSize: PageSize,
+  canvasSize: CanvasSize,
+): PixelRect | null => {
+  const size = element.size;
+  const transform = element.transform;
+  const scaleX = transform?.scaleX;
+  const scaleY = transform?.scaleY;
+  if (
+    !size ||
+    !transform ||
+    // Only positive scale without shear is supported for pixel-rect projection.
+    !!transform.shearX ||
+    !!transform.shearY ||
+    typeof scaleX !== "number" ||
+    scaleX <= 0 ||
+    typeof scaleY !== "number" ||
+    scaleY <= 0
+  ) {
+    return null;
+  }
+
+  const emuRect = {
+    x: transform.translateX ?? 0,
+    y: transform.translateY ?? 0,
+    w: size.width.magnitude * scaleX,
+    h: size.height.magnitude * scaleY,
+  };
+  const pixelRect = emuToPixelRect(emuRect, pageSize, canvasSize);
+  if (pixelRect.w <= 0 || pixelRect.h <= 0) return null;
+  return pixelRect;
+};
+
 /**
  * Returns an ordered array of frame indices to output at TARGET_FPS.
  * A single source frame may appear multiple times if its delay spans
@@ -219,33 +253,9 @@ export const extractGifAnimations = async (
   const imageElements = pageElements
     .map((element) => {
       const contentUrl = element.image?.contentUrl;
-      const size = element.size;
-      const transform = element.transform;
-      const scaleX = transform?.scaleX;
-      const scaleY = transform?.scaleY;
-      if (
-        !contentUrl ||
-        !size ||
-        !transform ||
-        // Skip rotated/sheared/flipped elements — only positive scale without shear is supported
-        !!transform.shearX ||
-        !!transform.shearY ||
-        typeof scaleX !== "number" ||
-        scaleX <= 0 ||
-        typeof scaleY !== "number" ||
-        scaleY <= 0
-      ) {
-        return null;
-      }
-
-      const emuRect = {
-        x: transform.translateX ?? 0,
-        y: transform.translateY ?? 0,
-        w: size.width.magnitude * scaleX,
-        h: size.height.magnitude * scaleY,
-      };
-      const pixelRect = emuToPixelRect(emuRect, pageSize, canvasSize);
-      if (pixelRect.w <= 0 || pixelRect.h <= 0) return null;
+      if (!contentUrl) return null;
+      const pixelRect = toPixelRect(element, pageSize, canvasSize);
+      if (!pixelRect) return null;
 
       return { element, pixelRect };
     })
@@ -258,45 +268,72 @@ export const extractGifAnimations = async (
       } => el !== null,
     );
 
+  const positionedElements = pageElements
+    .map((element) => {
+      const pixelRect = toPixelRect(element, pageSize, canvasSize);
+      if (!pixelRect) return null;
+      return { element, pixelRect };
+    })
+    .filter(
+      (
+        el,
+      ): el is {
+        element: SlidePageElement;
+        pixelRect: PixelRect;
+      } => el !== null,
+    );
+
   type AnimatedGifCandidate = {
+    element: SlidePageElement;
     pixelRect: PixelRect;
     rawFrames: ParsedFrame[];
     gifWidth: number;
     gifHeight: number;
   };
 
-  const animatedGifCandidates = (
-    await Promise.all(
-      imageElements.map(async ({ element, pixelRect }) => {
-        const contentUrl = element.image?.contentUrl;
-        if (!contentUrl) return null;
+  const animatedGifCandidatesRaw: (AnimatedGifCandidate | null)[] = [];
+  for (const { element, pixelRect } of imageElements) {
+    const contentUrl = element.image?.contentUrl;
+    if (!contentUrl) {
+      animatedGifCandidatesRaw.push(null);
+      continue;
+    }
+    try {
+      const response = await fetch(contentUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        animatedGifCandidatesRaw.push(null);
+        continue;
+      }
 
-        try {
-          const response = await fetch(contentUrl, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (!response.ok) return null;
+      const buffer = await response.arrayBuffer();
+      if (!isGif(buffer)) {
+        animatedGifCandidatesRaw.push(null);
+        continue;
+      }
 
-          const buffer = await response.arrayBuffer();
-          if (!isGif(buffer)) return null;
+      const gif = parseGIF(buffer);
+      const rawFrames = decompressFrames(gif, true);
+      if (rawFrames.length <= 1) {
+        animatedGifCandidatesRaw.push(null); // Static GIF, skip
+        continue;
+      }
 
-          const gif = parseGIF(buffer);
-          const rawFrames = decompressFrames(gif, true);
-          if (rawFrames.length <= 1) return null; // Static GIF, skip
+      animatedGifCandidatesRaw.push({
+        element,
+        pixelRect,
+        rawFrames,
+        gifWidth: gif.lsd.width,
+        gifHeight: gif.lsd.height,
+      } satisfies AnimatedGifCandidate);
+    } catch (e) {
+      console.warn("Failed to extract GIF animation:", e);
+      animatedGifCandidatesRaw.push(null);
+    }
+  }
 
-          return {
-            pixelRect,
-            rawFrames,
-            gifWidth: gif.lsd.width,
-            gifHeight: gif.lsd.height,
-          } satisfies AnimatedGifCandidate;
-        } catch (e) {
-          console.warn("Failed to extract GIF animation:", e);
-          return null;
-        }
-      }),
-    )
-  ).filter(
+  const animatedGifCandidates = animatedGifCandidatesRaw.filter(
     (candidate): candidate is AnimatedGifCandidate => candidate !== null,
   );
 
@@ -321,8 +358,30 @@ export const extractGifAnimations = async (
     );
   }
 
+  const animatedElements = new Set(animatedGifCandidates.map((c) => c.element));
+  const intersectingNonAnimatedIndices = new Set<number>();
+  for (let i = 0; i < animatedGifCandidates.length; i++) {
+    const candidate = animatedGifCandidates[i];
+    for (const positioned of positionedElements) {
+      if (positioned.element === candidate.element) continue;
+      if (animatedElements.has(positioned.element)) continue;
+      if (rectsIntersect(candidate.pixelRect, positioned.pixelRect)) {
+        intersectingNonAnimatedIndices.add(i);
+        break;
+      }
+    }
+  }
+
+  if (intersectingNonAnimatedIndices.size > 0) {
+    console.warn(
+      `extractGifAnimations: skipping ${intersectingNonAnimatedIndices.size} animated GIF element(s) overlapping non-animated elements; preserving foreground overlap is not supported with RGB24 animation encoding`,
+    );
+  }
+
   const nonIntersectingAnimatedCandidates = animatedGifCandidates.filter(
-    (_, index) => !intersectingElementIndices.has(index),
+    (_, index) =>
+      !intersectingElementIndices.has(index) &&
+      !intersectingNonAnimatedIndices.has(index),
   );
 
   const results = nonIntersectingAnimatedCandidates
