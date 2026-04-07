@@ -71,6 +71,52 @@ const toPixelRect = (
   return pixelRect;
 };
 
+const computeAABBFromTransformedCorners = (
+  element: SlidePageElement,
+  pageSize: PageSize,
+  canvasSize: CanvasSize,
+): PixelRect | null => {
+  const size = element.size;
+  const transform = element.transform;
+  if (!size || !transform) return null;
+  const sourceW = size.width.magnitude;
+  const sourceH = size.height.magnitude;
+  if (sourceW <= 0 || sourceH <= 0) return null;
+
+  const scaleX = transform.scaleX ?? 1;
+  const scaleY = transform.scaleY ?? 1;
+  const shearX = transform.shearX ?? 0;
+  const shearY = transform.shearY ?? 0;
+  const translateX = transform.translateX ?? 0;
+  const translateY = transform.translateY ?? 0;
+
+  const corners = [
+    { x: 0, y: 0 },
+    { x: sourceW, y: 0 },
+    { x: 0, y: sourceH },
+    { x: sourceW, y: sourceH },
+  ];
+  const pixelScaleX = canvasSize.width / pageSize.width;
+  const pixelScaleY = canvasSize.height / pageSize.height;
+
+  const transformedCorners = corners.map(({ x, y }) => {
+    const emuX = scaleX * x + shearX * y + translateX;
+    const emuY = shearY * x + scaleY * y + translateY;
+    return { x: emuX * pixelScaleX, y: emuY * pixelScaleY };
+  });
+
+  const minX = Math.min(...transformedCorners.map((p) => p.x));
+  const maxX = Math.max(...transformedCorners.map((p) => p.x));
+  const minY = Math.min(...transformedCorners.map((p) => p.y));
+  const maxY = Math.max(...transformedCorners.map((p) => p.y));
+
+  const x = Math.floor(minX);
+  const y = Math.floor(minY);
+  const w = Math.max(1, Math.ceil(maxX) - x);
+  const h = Math.max(1, Math.ceil(maxY) - y);
+  return { x, y, w, h };
+};
+
 /**
  * Returns an ordered array of frame indices to output at TARGET_FPS.
  * A single source frame may appear multiple times if its delay spans
@@ -167,13 +213,6 @@ const buildComposedFrames = (
 
       const dstA = dstData[p + 3] / 255;
       const outA = srcA + dstA * (1 - srcA);
-      if (outA === 0) {
-        dstData[p] = 0;
-        dstData[p + 1] = 0;
-        dstData[p + 2] = 0;
-        dstData[p + 3] = 0;
-        continue;
-      }
 
       dstData[p] = Math.round(
         (srcData[p] * srcA + dstData[p] * dstA * (1 - srcA)) / outA,
@@ -210,6 +249,17 @@ const buildComposedFrames = (
 
 const rectsIntersect = (a: PixelRect, b: PixelRect): boolean =>
   a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+const hasTransparency = (canvas: OffscreenCanvas): boolean => {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Cannot get 2d context");
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] < 255) return true;
+  }
+  return false;
+};
 
 const compositeWithBackground = (
   baseSlideCanvas: OffscreenCanvas,
@@ -270,7 +320,9 @@ export const extractGifAnimations = async (
 
   const positionedElements = pageElements
     .map((element) => {
-      const pixelRect = toPixelRect(element, pageSize, canvasSize);
+      const pixelRect =
+        toPixelRect(element, pageSize, canvasSize) ??
+        computeAABBFromTransformedCorners(element, pageSize, canvasSize);
       if (!pixelRect) return null;
       return { element, pixelRect };
     })
@@ -299,18 +351,33 @@ export const extractGifAnimations = async (
       continue;
     }
     try {
-      const response = await fetch(contentUrl, {
-        headers: { Authorization: `Bearer ${token}` },
+      const rangeSniffResponse = await fetch(contentUrl, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Range: "bytes=0-5",
+        },
       });
-      if (!response.ok) {
+      if (!rangeSniffResponse.ok) {
         animatedGifCandidatesRaw.push(null);
         continue;
       }
 
-      const buffer = await response.arrayBuffer();
-      if (!isGif(buffer)) {
+      const headerBuffer = await rangeSniffResponse.arrayBuffer();
+      if (!isGif(headerBuffer)) {
         animatedGifCandidatesRaw.push(null);
         continue;
+      }
+
+      let buffer = headerBuffer;
+      if (rangeSniffResponse.status === 206 || headerBuffer.byteLength <= 6) {
+        const fullResponse = await fetch(contentUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!fullResponse.ok) {
+          animatedGifCandidatesRaw.push(null);
+          continue;
+        }
+        buffer = await fullResponse.arrayBuffer();
       }
 
       const gif = parseGIF(buffer);
@@ -404,6 +471,14 @@ export const extractGifAnimations = async (
           targetW,
           targetH,
         );
+        if (
+          composedFrames.some((frameCanvas) => hasTransparency(frameCanvas))
+        ) {
+          console.warn(
+            "extractGifAnimations: skipping animated GIF element with transparent pixels; transparency is not supported with RGB24 animation encoding",
+          );
+          return null;
+        }
         const frames = composedFrames.map((frameCanvas) =>
           compositeWithBackground(
             baseSlideCanvas,

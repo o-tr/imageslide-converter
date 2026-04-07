@@ -27,23 +27,29 @@ worker.addEventListener(
         );
         const finalScale = scale * resolutionScale;
         const { animations: _a, bitmap: _b, ...rest } = file;
-
-        if (finalScale === 1) {
-          const canvas = new OffscreenCanvas(
-            file.bitmap.width,
-            file.bitmap.height,
-          );
-          canvas.getContext("2d")?.drawImage(file.bitmap, 0, 0);
+        const canvas =
+          finalScale === 1
+            ? new OffscreenCanvas(file.bitmap.width, file.bitmap.height)
+            : new OffscreenCanvas(
+                Math.max(1, Math.round(file.bitmap.width * finalScale)),
+                Math.max(1, Math.round(file.bitmap.height * finalScale)),
+              );
+        try {
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            throw new Error(
+              `Cannot get 2d context for signage frame ${file.bitmap.width}x${file.bitmap.height}`,
+            );
+          }
+          if (finalScale === 1) {
+            ctx.drawImage(file.bitmap, 0, 0);
+          } else {
+            ctx.drawImage(file.bitmap, 0, 0, canvas.width, canvas.height);
+          }
           return { ...rest, canvas };
+        } finally {
+          file.bitmap.close();
         }
-        const canvas = new OffscreenCanvas(
-          Math.round(file.bitmap.width * finalScale),
-          Math.round(file.bitmap.height * finalScale),
-        );
-        canvas
-          .getContext("2d")
-          ?.drawImage(file.bitmap, 0, 0, canvas.width, canvas.height);
-        return { ...rest, canvas };
       });
       console.log("compress", files);
       const converterObj = TargetFormats.find((f) => f.id === format);

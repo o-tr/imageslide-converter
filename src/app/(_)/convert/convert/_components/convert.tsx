@@ -68,6 +68,8 @@ export const Convert: FC = () => {
         router.push("./upload");
       })
       .catch((e) => {
+        setResults(undefined);
+        initRef.current = false;
         console.error("Compression failed:", e);
         void message.error("変換に失敗しました");
       });

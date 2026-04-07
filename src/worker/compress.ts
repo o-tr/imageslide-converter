@@ -28,8 +28,14 @@ worker.addEventListener(
 
         if (["DXT1"].includes(format)) {
           // そのままだとノイズが目立つので2倍に拡大してから圧縮
-          const _width = Math.ceil((file.bitmap.width * scale * 2) / 4) * 4;
-          const _height = Math.ceil((file.bitmap.height * scale * 2) / 4) * 4;
+          const _width = Math.max(
+            4,
+            Math.ceil((file.bitmap.width * scale * 2) / 4) * 4,
+          );
+          const _height = Math.max(
+            4,
+            Math.ceil((file.bitmap.height * scale * 2) / 4) * 4,
+          );
           effectiveScaleX = _width / file.bitmap.width;
           effectiveScaleY = _height / file.bitmap.height;
           canvas = new OffscreenCanvas(_width, _height);
@@ -42,16 +48,23 @@ worker.addEventListener(
           }
         } else {
           const finalScale = scale * resolutionScale;
-          effectiveScaleX = finalScale;
-          effectiveScaleY = finalScale;
           if (finalScale === 1) {
+            effectiveScaleX = 1;
+            effectiveScaleY = 1;
             canvas = new OffscreenCanvas(file.bitmap.width, file.bitmap.height);
             canvas.getContext("2d")?.drawImage(file.bitmap, 0, 0);
           } else {
-            canvas = new OffscreenCanvas(
+            const scaledWidth = Math.max(
+              1,
               Math.round(file.bitmap.width * finalScale),
+            );
+            const scaledHeight = Math.max(
+              1,
               Math.round(file.bitmap.height * finalScale),
             );
+            effectiveScaleX = scaledWidth / file.bitmap.width;
+            effectiveScaleY = scaledHeight / file.bitmap.height;
+            canvas = new OffscreenCanvas(scaledWidth, scaledHeight);
             canvas
               .getContext("2d")
               ?.drawImage(file.bitmap, 0, 0, canvas.width, canvas.height);
@@ -64,12 +77,18 @@ worker.addEventListener(
           animations = file.animations.map((anim) => ({
             x: Math.round(anim.x * effectiveScaleX),
             y: Math.round(anim.y * effectiveScaleY),
-            w: Math.round(anim.w * effectiveScaleX),
-            h: Math.round(anim.h * effectiveScaleY),
+            w: Math.max(1, Math.round(anim.w * effectiveScaleX)),
+            h: Math.max(1, Math.round(anim.h * effectiveScaleY)),
             fps: anim.fps,
             frames: anim.frames.map((bm) => {
-              const scaledW = Math.round(bm.width * effectiveScaleX);
-              const scaledH = Math.round(bm.height * effectiveScaleY);
+              const scaledW = Math.max(
+                1,
+                Math.round(bm.width * effectiveScaleX),
+              );
+              const scaledH = Math.max(
+                1,
+                Math.round(bm.height * effectiveScaleY),
+              );
               const c = new OffscreenCanvas(scaledW, scaledH);
               const ctx = c.getContext("2d");
               if (!ctx)
