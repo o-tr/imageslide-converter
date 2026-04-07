@@ -110,6 +110,7 @@ const compressEIAv1Part = async (
   const files: EIAFileV1[] = [];
   const buffer: Buffer[] = [];
   let bufferLength = 0;
+  let usesAnimationFrameSizeV2 = false;
 
   // Track animation metadata per slide index
   const slideAnimMeta = new Map<number, string>();
@@ -183,10 +184,20 @@ const compressEIAv1Part = async (
         const frameRefs: EIAAnimationFrameRef[] = [];
         let hasCroppedFrames = false;
         usedFormats.add(anim.format);
+        const frameWidth = anim.frames[0]?.rect.width ?? anim.w;
+        const frameHeight = anim.frames[0]?.rect.height ?? anim.h;
         for (const [frameIndex, frame] of anim.frames.entries()) {
           if (frame.format !== anim.format) {
             throw new Error(
               `Animation format mismatch at slide ${slideIndex}, animation ${animIndex}, frame ${frameIndex}: expected "${anim.format}", got "${frame.format}"`,
+            );
+          }
+          if (
+            frame.rect.width !== frameWidth ||
+            frame.rect.height !== frameHeight
+          ) {
+            throw new Error(
+              `Animation frame size mismatch at slide ${slideIndex}, animation ${animIndex}, frame ${frameIndex}: expected ${frameWidth}x${frameHeight}, got ${frame.rect.width}x${frame.rect.height}`,
             );
           }
           if (!frame.cropped) {
@@ -236,7 +247,7 @@ const compressEIAv1Part = async (
           usedFeatures.add("Feature:animation-crop");
         }
 
-        animMetas.push({
+        const animMeta: EIAAnimationMeta = {
           x: anim.x,
           y: anim.y,
           w: anim.w,
@@ -244,7 +255,14 @@ const compressEIAv1Part = async (
           fps: anim.fps,
           f: anim.format,
           frames: frameRefs,
-        });
+        };
+        if (frameWidth !== anim.w || frameHeight !== anim.h) {
+          animMeta.fw = frameWidth;
+          animMeta.fh = frameHeight;
+          usesAnimationFrameSizeV2 = true;
+          usedFeatures.add("Feature:animation-frame-size");
+        }
+        animMetas.push(animMeta);
       }
 
       slideAnimMeta.set(slideIndex, JSON.stringify(animMetas));
@@ -269,7 +287,7 @@ const compressEIAv1Part = async (
   const manifest: EIAManifestV1 = {
     t: "eia",
     c: "lz4",
-    v: 1,
+    v: usesAnimationFrameSizeV2 ? 2 : 1,
     f: features,
     e: ["note", ...(usedFeatures.has("Feature:animation") ? ["a"] : [])],
     i: files,

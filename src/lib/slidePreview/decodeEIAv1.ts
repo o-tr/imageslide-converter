@@ -96,7 +96,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
   const manifest: EIAManifestV1 = JSON.parse(
     textDecoder.decode(uint8.subarray(4, dollarPos)),
   );
-  if (manifest.v !== 1)
+  if (manifest.v !== 1 && manifest.v !== 2)
     throw new Error(`Unsupported EIA version: ${manifest.v}`);
   if (manifest.c !== "lz4" && manifest.c !== "lz4-base64")
     throw new Error(`Unsupported compression: ${manifest.c}`);
@@ -191,6 +191,8 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
         const decodedAnimations = animMetas
           .map((meta, metaIndex): SlideAnimation | null => {
             try {
+              const frameWidth = meta.fw ?? meta.w;
+              const frameHeight = meta.fh ?? meta.h;
               const animFrames: ImageData[] = [];
               const animFrameBuffers = new Map<number, Uint8Array>();
 
@@ -237,14 +239,14 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
                     baseBuffer,
                     decompressedFrame,
                     croppedRef.r,
-                    meta.w,
+                    frameWidth,
                     meta.f,
                   );
                 }
 
                 animFrameBuffers.set(fi, rawBuffer);
                 animFrames.push(
-                  rawToImageData(rawBuffer, meta.w, meta.h, meta.f),
+                  rawToImageData(rawBuffer, frameWidth, frameHeight, meta.f),
                 );
 
                 // Release buffer if not needed as base for future frames

@@ -9,6 +9,7 @@ import { type ParsedFrame, decompressFrames, parseGIF } from "gifuct-js";
 import { emuToPixelRect } from "./emuToPixel";
 
 const MAX_GIF_DIMENSION = 256;
+const MAX_STORED_FRAME_DIMENSION = 512;
 const MAX_FRAMES = 60;
 const TARGET_FPS = 2;
 const TARGET_FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
@@ -20,12 +21,16 @@ const isGif = (buffer: ArrayBuffer): boolean => {
   return sig === "GIF87a" || sig === "GIF89a";
 };
 
-const clampDimensions = (w: number, h: number): { w: number; h: number } => {
+const clampDimensions = (
+  w: number,
+  h: number,
+  maxDimension = MAX_GIF_DIMENSION,
+): { w: number; h: number } => {
   const safeW = Math.max(1, Math.round(w));
   const safeH = Math.max(1, Math.round(h));
-  if (safeW <= MAX_GIF_DIMENSION && safeH <= MAX_GIF_DIMENSION)
+  if (safeW <= maxDimension && safeH <= maxDimension)
     return { w: safeW, h: safeH };
-  const scale = Math.min(MAX_GIF_DIMENSION / safeW, MAX_GIF_DIMENSION / safeH);
+  const scale = Math.min(maxDimension / safeW, maxDimension / safeH);
   return {
     w: Math.max(1, Math.round(safeW * scale)),
     h: Math.max(1, Math.round(safeH * scale)),
@@ -176,8 +181,10 @@ const compositeWithBackground = (
   baseSlideCanvas: OffscreenCanvas,
   gifFrameCanvas: OffscreenCanvas,
   pixelRect: PixelRect,
+  outputW: number,
+  outputH: number,
 ): OffscreenCanvas => {
-  const composited = new OffscreenCanvas(pixelRect.w, pixelRect.h);
+  const composited = new OffscreenCanvas(outputW, outputH);
   const ctx = composited.getContext("2d");
   if (!ctx) throw new Error("Cannot get 2d context");
 
@@ -189,10 +196,10 @@ const compositeWithBackground = (
     pixelRect.h,
     0,
     0,
-    pixelRect.w,
-    pixelRect.h,
+    outputW,
+    outputH,
   );
-  ctx.drawImage(gifFrameCanvas, 0, 0, pixelRect.w, pixelRect.h);
+  ctx.drawImage(gifFrameCanvas, 0, 0, outputW, outputH);
 
   return composited;
 };
@@ -323,6 +330,11 @@ export const extractGifAnimations = async (
       try {
         const sampleIndices = sampleFrameIndices(rawFrames);
         const { w: targetW, h: targetH } = clampDimensions(gifWidth, gifHeight);
+        const { w: storedFrameW, h: storedFrameH } = clampDimensions(
+          pixelRect.w,
+          pixelRect.h,
+          MAX_STORED_FRAME_DIMENSION,
+        );
 
         // Build composed GIF frames with proper inter-frame compositing
         const composedFrames = buildComposedFrames(
@@ -334,7 +346,13 @@ export const extractGifAnimations = async (
           targetH,
         );
         const frames = composedFrames.map((frameCanvas) =>
-          compositeWithBackground(baseSlideCanvas, frameCanvas, pixelRect),
+          compositeWithBackground(
+            baseSlideCanvas,
+            frameCanvas,
+            pixelRect,
+            storedFrameW,
+            storedFrameH,
+          ),
         );
 
         return {

@@ -12,8 +12,10 @@ export type EIAExtensionObject = {
 export type EIAAnimationMeta = {
   x: number; // pixel X on base image
   y: number; // pixel Y on base image
-  w: number; // pixel width
-  h: number; // pixel height
+  w: number; // display pixel width
+  h: number; // display pixel height
+  fw?: number; // stored frame pixel width (defaults to w)
+  fh?: number; // stored frame pixel height (defaults to h)
   fps: number; // frame rate
   f: TTextureFormat; // frame format
   frames: EIAAnimationFrameRef[];
@@ -44,7 +46,7 @@ export type EIACompressionMethod = "lz4" | "lz4-base64";
 export type EIAManifestV1 = {
   t: "eia"; //type
   c: EIACompressionMethod; //compressor
-  v: 1; //version
+  v: 1 | 2; //version
   f: string[]; //features
   e: EIAExtension[]; //extensions
   i: EIAFileV1[]; //items

@@ -355,6 +355,7 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
             if (f.animations && f.animations.length > 0) {
               const decodedAnims: DecodedAnimation[] = [];
               for (const anim of f.animations) {
+                if (controller.signal.aborted) break;
                 const animBitmaps: ImageBitmap[] = [];
                 for (const frameData of anim.frames) {
                   if (controller.signal.aborted) break;
