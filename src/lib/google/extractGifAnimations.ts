@@ -1,5 +1,10 @@
 import type { SelectedFileAnimation } from "@/_types/file-picker";
 import type { SlidePageElement } from "@/_types/google-slides-api";
+import type {
+  CanvasSize,
+  PageSize,
+  PixelRect,
+} from "@/_types/lib/google/slideGeometry";
 import { type ParsedFrame, decompressFrames, parseGIF } from "gifuct-js";
 import { emuToPixelRect } from "./emuToPixel";
 
@@ -7,16 +12,6 @@ const MAX_GIF_DIMENSION = 256;
 const MAX_FRAMES = 60;
 const TARGET_FPS = 2;
 const TARGET_FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
-
-type PageSize = {
-  width: number;
-  height: number;
-};
-
-type CanvasSize = {
-  width: number;
-  height: number;
-};
 
 const isGif = (buffer: ArrayBuffer): boolean => {
   if (buffer.byteLength < 6) return false;
@@ -42,24 +37,21 @@ const clampDimensions = (w: number, h: number): { w: number; h: number } => {
 const sampleFrameIndices = (frames: ParsedFrame[]): number[] => {
   if (frames.length <= 1) return [0];
 
-  const indices: number[] = [0];
-  // Start accumulation with frame 0's own display time so subsequent
-  // thresholds are measured from the moment frame 0 first appears.
-  let accumulatedMs = frames[0].delay || 100;
-  let nextSampleMs = TARGET_FRAME_INTERVAL_MS;
+  const indices: number[] = [];
+  let accumulatedMs = 0;
+  let nextSampleMs = 0;
 
-  for (let i = 1; i < frames.length; i++) {
+  for (let i = 0; i < frames.length && indices.length < MAX_FRAMES; i++) {
     // gifuct-js converts GCE delay (centiseconds) to milliseconds via × 10;
     // fall back to 100ms if the field is missing or zero.
     accumulatedMs += frames[i].delay || 100;
     // Emit this frame once per interval bucket it covers
-    while (accumulatedMs >= nextSampleMs && indices.length < MAX_FRAMES) {
+    while (accumulatedMs > nextSampleMs && indices.length < MAX_FRAMES) {
       indices.push(i);
       nextSampleMs += TARGET_FRAME_INTERVAL_MS;
     }
-    if (indices.length >= MAX_FRAMES) break;
   }
-  return indices;
+  return indices.length > 0 ? indices : [0];
 };
 
 /**
@@ -142,20 +134,21 @@ const buildComposedFrames = (
     if (output.length >= MAX_FRAMES) break;
   }
 
-  compositionCanvas.close();
   return output;
 };
+
+const rectsIntersect = (a: PixelRect, b: PixelRect): boolean =>
+  a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 
 const compositeWithBackground = (
   baseSlideCanvas: OffscreenCanvas,
   gifFrameCanvas: OffscreenCanvas,
-  pixelRect: { x: number; y: number; w: number; h: number },
+  pixelRect: PixelRect,
 ): OffscreenCanvas => {
   const composited = new OffscreenCanvas(pixelRect.w, pixelRect.h);
   const ctx = composited.getContext("2d");
   if (!ctx) throw new Error("Cannot get 2d context");
 
-  // Draw base slide region as background
   ctx.drawImage(
     baseSlideCanvas,
     pixelRect.x,
@@ -167,8 +160,6 @@ const compositeWithBackground = (
     pixelRect.w,
     pixelRect.h,
   );
-
-  // Overlay GIF frame (transparent areas will show base)
   ctx.drawImage(gifFrameCanvas, 0, 0, pixelRect.w, pixelRect.h);
 
   return composited;
@@ -186,60 +177,120 @@ export const extractGifAnimations = async (
     return [];
   }
 
-  const imageElements = pageElements.filter(
-    (el) =>
-      el.image?.contentUrl &&
-      el.size &&
-      el.transform &&
-      // Skip rotated/sheared/flipped elements — affine transform not supported
-      !el.transform.shearX &&
-      !el.transform.shearY,
+  const imageElements = pageElements
+    .map((element) => {
+      const contentUrl = element.image?.contentUrl;
+      const size = element.size;
+      const transform = element.transform;
+      const scaleX = transform?.scaleX;
+      const scaleY = transform?.scaleY;
+      if (
+        !contentUrl ||
+        !size ||
+        !transform ||
+        // Skip rotated/sheared/flipped elements — only positive scale without shear is supported
+        !!transform.shearX ||
+        !!transform.shearY ||
+        typeof scaleX !== "number" ||
+        scaleX <= 0 ||
+        typeof scaleY !== "number" ||
+        scaleY <= 0
+      ) {
+        return null;
+      }
+
+      const emuRect = {
+        x: transform.translateX ?? 0,
+        y: transform.translateY ?? 0,
+        w: size.width.magnitude * scaleX,
+        h: size.height.magnitude * scaleY,
+      };
+      const pixelRect = emuToPixelRect(emuRect, pageSize, canvasSize);
+      if (pixelRect.w <= 0 || pixelRect.h <= 0) return null;
+
+      return { element, pixelRect };
+    })
+    .filter(
+      (
+        el,
+      ): el is {
+        element: SlidePageElement;
+        pixelRect: PixelRect;
+      } => el !== null,
+    );
+
+  type AnimatedGifCandidate = {
+    pixelRect: PixelRect;
+    rawFrames: ParsedFrame[];
+    gifWidth: number;
+    gifHeight: number;
+  };
+
+  const animatedGifCandidates = (
+    await Promise.all(
+      imageElements.map(async ({ element, pixelRect }) => {
+        const contentUrl = element.image?.contentUrl;
+        if (!contentUrl) return null;
+
+        try {
+          const response = await fetch(contentUrl, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!response.ok) return null;
+
+          const buffer = await response.arrayBuffer();
+          if (!isGif(buffer)) return null;
+
+          const gif = parseGIF(buffer);
+          const rawFrames = decompressFrames(gif, true);
+          if (rawFrames.length <= 1) return null; // Static GIF, skip
+
+          return {
+            pixelRect,
+            rawFrames,
+            gifWidth: gif.lsd.width,
+            gifHeight: gif.lsd.height,
+          } satisfies AnimatedGifCandidate;
+        } catch (e) {
+          console.warn("Failed to extract GIF animation:", e);
+          return null;
+        }
+      }),
+    )
+  ).filter(
+    (candidate): candidate is AnimatedGifCandidate => candidate !== null,
   );
 
-  const results = await Promise.all(
-    imageElements.map(async (element) => {
-      const contentUrl = element.image?.contentUrl;
-      if (!contentUrl) return null;
+  const intersectingElementIndices = new Set<number>();
+  for (let i = 0; i < animatedGifCandidates.length; i++) {
+    for (let j = i + 1; j < animatedGifCandidates.length; j++) {
+      if (
+        rectsIntersect(
+          animatedGifCandidates[i].pixelRect,
+          animatedGifCandidates[j].pixelRect,
+        )
+      ) {
+        intersectingElementIndices.add(i);
+        intersectingElementIndices.add(j);
+      }
+    }
+  }
 
+  if (intersectingElementIndices.size > 0) {
+    console.warn(
+      `extractGifAnimations: skipping ${intersectingElementIndices.size} intersecting animated GIF element(s); overlapping animated rects are not supported with RGB24 animation encoding`,
+    );
+  }
+
+  const nonIntersectingAnimatedCandidates = animatedGifCandidates.filter(
+    (_, index) => !intersectingElementIndices.has(index),
+  );
+
+  const results = nonIntersectingAnimatedCandidates
+    .map(({ pixelRect, rawFrames, gifWidth, gifHeight }) => {
       try {
-        const response = await fetch(contentUrl, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!response.ok) return null;
-
-        const buffer = await response.arrayBuffer();
-        if (!isGif(buffer)) return null;
-
-        const gif = parseGIF(buffer);
-        const rawFrames = decompressFrames(gif, true);
-        if (rawFrames.length <= 1) return null; // Static GIF, skip
-
         const sampleIndices = sampleFrameIndices(rawFrames);
-
-        const gifWidth = gif.lsd.width;
-        const gifHeight = gif.lsd.height;
         const { w: targetW, h: targetH } = clampDimensions(gifWidth, gifHeight);
-
-        // Compute pixel rect on the rendered slide
-        const sizeW = element.size?.width.magnitude ?? 0;
-        const sizeH = element.size?.height.magnitude ?? 0;
-        const scaleX = element.transform?.scaleX ?? 1;
-        const scaleY = element.transform?.scaleY ?? 1;
-        const translateX = element.transform?.translateX ?? 0;
-        const translateY = element.transform?.translateY ?? 0;
-
-        const emuRect = {
-          x: translateX,
-          y: translateY,
-          w: sizeW * scaleX,
-          h: sizeH * scaleY,
-        };
-
-        const pixelRect = emuToPixelRect(
-          emuRect,
-          { width: pageSize.width, height: pageSize.height },
-          canvasSize,
-        );
 
         // Build composed GIF frames with proper inter-frame compositing
         const composedFrames = buildComposedFrames(
@@ -250,18 +301,9 @@ export const extractGifAnimations = async (
           targetW,
           targetH,
         );
-
-        // Composite each frame with base slide background (handles transparent GIFs)
-        // Close intermediate composed frames after compositing — they are no longer needed
-        const frames = composedFrames.map((frameCanvas) => {
-          const composited = compositeWithBackground(
-            baseSlideCanvas,
-            frameCanvas,
-            pixelRect,
-          );
-          frameCanvas.close();
-          return composited;
-        });
+        const frames = composedFrames.map((frameCanvas) =>
+          compositeWithBackground(baseSlideCanvas, frameCanvas, pixelRect),
+        );
 
         return {
           x: pixelRect.x,
@@ -272,11 +314,11 @@ export const extractGifAnimations = async (
           frames,
         } satisfies SelectedFileAnimation;
       } catch (e) {
-        console.warn("Failed to extract GIF animation:", e);
+        console.warn("Failed to build composed GIF frames:", e);
         return null;
       }
-    }),
-  );
+    })
+    .filter((r): r is SelectedFileAnimation => r !== null);
 
-  return results.filter((r): r is SelectedFileAnimation => r !== null);
+  return results;
 };

@@ -58,10 +58,13 @@ export const GooglePicker = () => {
       await showPicker(null);
       return;
     }
-    void showFilePicker(_token, onFilePicked);
+    void showFilePicker(_token, (data) => onFilePicked(data, _token));
   };
 
-  const onFilePicked = async (data: GoogleFilePickerCallbackData) => {
+  const onFilePicked = async (
+    data: GoogleFilePickerCallbackData,
+    currentToken: string,
+  ) => {
     if (data.action !== "picked" || !data.docs) return;
     const file = data.docs[0];
     setIsLoading(true);
@@ -78,12 +81,12 @@ export const GooglePicker = () => {
         setFiles((pv) => [...pv, ...selectedFiles]);
       }
       if (file.mimeType === "application/vnd.google-apps.presentation") {
-        if (!token) {
+        if (!currentToken) {
           void messageApi.warning(
             "認証トークンが無効なため、GIFアニメーションを抽出できません",
           );
         }
-        const files = await slide2canvas(file.id, token ?? "");
+        const files = await slide2canvas(file.id, currentToken);
         setFiles((pv) => [...pv, ...files]);
       }
       if (file.mimeType?.startsWith("image/")) {

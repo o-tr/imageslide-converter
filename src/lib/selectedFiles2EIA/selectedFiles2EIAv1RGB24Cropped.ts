@@ -56,6 +56,7 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
         w: anim.w,
         h: anim.h,
         fps: anim.fps,
+        format: "RGB24",
         frames: croppedAnimFrames,
       };
     });

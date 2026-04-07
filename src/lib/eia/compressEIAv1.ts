@@ -6,6 +6,7 @@ import type {
   EIAManifestV1,
   EIASignageManifest,
 } from "@/_types/eia/v1";
+import type { TTextureFormat } from "@/_types/text-zip/formats";
 import type { RawImageObjV1Cropped } from "@/_types/text-zip/v1";
 import { FileSizeLimit } from "@/const/convert";
 import lz4 from "lz4js";
@@ -16,6 +17,7 @@ export type RawAnimationData = {
   w: number;
   h: number;
   fps: number;
+  format: TTextureFormat;
   frames: RawImageObjV1Cropped[];
 };
 
@@ -138,10 +140,16 @@ const compressEIAv1Part = async (
     for (const [slideIndex, anims] of animationMap) {
       const animMetas: EIAAnimationMeta[] = [];
 
-      for (const anim of anims) {
+      for (const [animIndex, anim] of anims.entries()) {
         const frameRefs: EIAAnimationFrameRef[] = [];
         let hasCroppedFrames = false;
-        for (const frame of anim.frames) {
+        usedFormats.add(anim.format);
+        for (const [frameIndex, frame] of anim.frames.entries()) {
+          if (frame.format !== anim.format) {
+            throw new Error(
+              `Animation format mismatch at slide ${slideIndex}, animation ${animIndex}, frame ${frameIndex}: expected "${anim.format}", got "${frame.format}"`,
+            );
+          }
           if (!frame.cropped) {
             // Master frame: store full buffer
             const compressed = Buffer.from(lz4.compress(frame.buffer));
@@ -195,7 +203,7 @@ const compressEIAv1Part = async (
           w: anim.w,
           h: anim.h,
           fps: anim.fps,
-          f: "RGB24",
+          f: anim.format,
           frames: frameRefs,
         });
       }

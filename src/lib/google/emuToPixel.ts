@@ -1,3 +1,9 @@
+import type {
+  CanvasSize,
+  PageSize,
+  PixelRect,
+} from "@/_types/lib/google/slideGeometry";
+
 /**
  * Convert Google Slides EMU (English Metric Units) coordinates
  * to pixel coordinates on the rendered PDF canvas.
@@ -12,21 +18,11 @@ type EmuRect = {
   h: number;
 };
 
-type PageSizeEmu = {
-  width: number;
-  height: number;
-};
-
-type CanvasSize = {
-  width: number;
-  height: number;
-};
-
 export const emuToPixelRect = (
   emu: EmuRect,
-  pageSize: PageSizeEmu,
+  pageSize: PageSize,
   canvasSize: CanvasSize,
-): { x: number; y: number; w: number; h: number } => {
+): PixelRect => {
   const scaleX = canvasSize.width / pageSize.width;
   const scaleY = canvasSize.height / pageSize.height;
   return {
