@@ -1,5 +1,6 @@
 import type { SelectedFileAnimation } from "@/_types/file-picker";
 import type { SlidePageElement } from "@/_types/google-slides-api";
+import type { AnimatedGifCandidate } from "@/_types/lib/google/gifAnimation";
 import type {
   CanvasSize,
   PageSize,
@@ -250,17 +251,6 @@ const buildComposedFrames = (
 const rectsIntersect = (a: PixelRect, b: PixelRect): boolean =>
   a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 
-const hasTransparency = (canvas: OffscreenCanvas): boolean => {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Cannot get 2d context");
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = imageData.data;
-  for (let i = 3; i < data.length; i += 4) {
-    if (data[i] < 255) return true;
-  }
-  return false;
-};
-
 const compositeWithBackground = (
   baseSlideCanvas: OffscreenCanvas,
   gifFrameCanvas: OffscreenCanvas,
@@ -334,14 +324,6 @@ export const extractGifAnimations = async (
         pixelRect: PixelRect;
       } => el !== null,
     );
-
-  type AnimatedGifCandidate = {
-    element: SlidePageElement;
-    pixelRect: PixelRect;
-    rawFrames: ParsedFrame[];
-    gifWidth: number;
-    gifHeight: number;
-  };
 
   const animatedGifCandidatesRaw: (AnimatedGifCandidate | null)[] = [];
   for (const { element, pixelRect } of imageElements) {
@@ -471,14 +453,6 @@ export const extractGifAnimations = async (
           targetW,
           targetH,
         );
-        if (
-          composedFrames.some((frameCanvas) => hasTransparency(frameCanvas))
-        ) {
-          console.warn(
-            "extractGifAnimations: skipping animated GIF element with transparent pixels; transparency is not supported with RGB24 animation encoding",
-          );
-          return null;
-        }
         const frames = composedFrames.map((frameCanvas) =>
           compositeWithBackground(
             baseSlideCanvas,
