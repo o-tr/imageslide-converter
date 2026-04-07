@@ -1,9 +1,10 @@
+import type { RawAnimationData } from "@/_types/eia/rawAnimationData";
 import type { EIASignageManifest } from "@/_types/eia/v1";
 import type { SelectedFile } from "@/_types/file-picker";
 import type { RawImageObjV1 } from "@/_types/text-zip/v1";
+import { IMAGE_FORMAT_RGB24 } from "@/const/imageFormat";
 import { canvas2rgb24 } from "@/lib/canvas2rawImage/canvas2rgb24";
 import { compressEIAv1 } from "@/lib/eia/compressEIAv1";
-import type { RawAnimationData } from "@/lib/eia/compressEIAv1";
 import { cropImages } from "../crop/cropImages";
 
 const keyframeInterval = 10;
@@ -18,7 +19,7 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
       width: file.canvas.width,
       height: file.canvas.height,
     },
-    format: "RGB24",
+    format: IMAGE_FORMAT_RGB24,
     note: file.note,
     buffer: Buffer.from(canvas2rgb24(file.canvas)),
   }));
@@ -41,7 +42,7 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
       const animRawImages = anim.frames.map<RawImageObjV1>((frame, fi) => ({
         index: fi,
         rect: { width: frame.width, height: frame.height },
-        format: "RGB24",
+        format: IMAGE_FORMAT_RGB24,
         buffer: Buffer.from(canvas2rgb24(frame)),
       }));
       // Apply differential compression to animation frames
@@ -56,7 +57,7 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
         w: anim.w,
         h: anim.h,
         fps: anim.fps,
-        format: "RGB24",
+        format: IMAGE_FORMAT_RGB24,
         frames: croppedAnimFrames,
       };
     });

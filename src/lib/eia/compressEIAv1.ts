@@ -1,3 +1,4 @@
+import type { RawAnimationData } from "@/_types/eia/rawAnimationData";
 import type {
   EIAAnimationFrameRef,
   EIAAnimationMeta,
@@ -6,20 +7,9 @@ import type {
   EIAManifestV1,
   EIASignageManifest,
 } from "@/_types/eia/v1";
-import type { TTextureFormat } from "@/_types/text-zip/formats";
 import type { RawImageObjV1Cropped } from "@/_types/text-zip/v1";
 import { FileSizeLimit } from "@/const/convert";
 import lz4 from "lz4js";
-
-export type RawAnimationData = {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  fps: number;
-  format: TTextureFormat;
-  frames: RawImageObjV1Cropped[];
-};
 
 export const compressEIAv1 = async (
   data: RawImageObjV1Cropped[],
@@ -28,11 +18,19 @@ export const compressEIAv1 = async (
   stepSize = 10,
   animationMap?: Map<number, RawAnimationData[]>,
 ): Promise<Buffer[]> => {
-  const partCount = Math.ceil(data.length / (count * stepSize)) * stepSize;
+  if (data.length === 0) return [];
+
+  const normalizedStepSize = Math.max(1, Math.min(stepSize, data.length));
+  const partCount =
+    Math.ceil(data.length / (count * normalizedStepSize)) * normalizedStepSize;
+  const calculatePartCount = (targetCount: number, targetStepSize: number) =>
+    Math.ceil(data.length / (targetCount * targetStepSize)) * targetStepSize;
   const result: Buffer[] = [];
 
   for (let i = 0; i < count; i++) {
     const part = data.slice(i * partCount, (i + 1) * partCount);
+    if (part.length === 0) break;
+
     // Build animation map for this part's indices
     let partAnimMap: Map<number, RawAnimationData[]> | undefined;
     if (animationMap) {
@@ -52,7 +50,48 @@ export const compressEIAv1 = async (
             `(${compressedPart.length} > ${FileSizeLimit}) and cannot be split further`,
         );
       }
-      return compressEIAv1(data, signage, count + 1, stepSize, animationMap);
+
+      const reducedStepSize = Math.max(1, Math.floor(normalizedStepSize / 2));
+      const stepCandidates =
+        reducedStepSize < normalizedStepSize
+          ? [reducedStepSize, normalizedStepSize]
+          : [normalizedStepSize];
+
+      let nextSplit: { count: number; stepSize: number } | null = null;
+      for (const candidateStepSize of stepCandidates) {
+        const startCount =
+          candidateStepSize === normalizedStepSize ? count + 1 : 1;
+        for (
+          let candidateCount = startCount;
+          candidateCount <= data.length;
+          candidateCount++
+        ) {
+          if (
+            calculatePartCount(candidateCount, candidateStepSize) < partCount
+          ) {
+            nextSplit = {
+              count: candidateCount,
+              stepSize: candidateStepSize,
+            };
+            break;
+          }
+        }
+        if (nextSplit) break;
+      }
+
+      if (!nextSplit) {
+        throw new Error(
+          `Unable to split oversized EIA part for slide index ${part[0]?.index ?? "?"}`,
+        );
+      }
+
+      return compressEIAv1(
+        data,
+        signage,
+        nextSplit.count,
+        nextSplit.stepSize,
+        animationMap,
+      );
     }
 
     result.push(compressedPart);

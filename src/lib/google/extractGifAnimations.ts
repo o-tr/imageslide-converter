@@ -21,11 +21,14 @@ const isGif = (buffer: ArrayBuffer): boolean => {
 };
 
 const clampDimensions = (w: number, h: number): { w: number; h: number } => {
-  if (w <= MAX_GIF_DIMENSION && h <= MAX_GIF_DIMENSION) return { w, h };
-  const scale = Math.min(MAX_GIF_DIMENSION / w, MAX_GIF_DIMENSION / h);
+  const safeW = Math.max(1, Math.round(w));
+  const safeH = Math.max(1, Math.round(h));
+  if (safeW <= MAX_GIF_DIMENSION && safeH <= MAX_GIF_DIMENSION)
+    return { w: safeW, h: safeH };
+  const scale = Math.min(MAX_GIF_DIMENSION / safeW, MAX_GIF_DIMENSION / safeH);
   return {
-    w: Math.round(w * scale),
-    h: Math.round(h * scale),
+    w: Math.max(1, Math.round(safeW * scale)),
+    h: Math.max(1, Math.round(safeH * scale)),
   };
 };
 
@@ -110,11 +113,40 @@ const buildComposedFrames = (
     }
 
     // Draw current frame's patch onto the persistent composition canvas
-    const imageData = compositionCtx.createImageData(
+    // while preserving destination pixels under transparent source pixels.
+    const imageData = compositionCtx.getImageData(
+      frame.dims.left,
+      frame.dims.top,
       frame.dims.width,
       frame.dims.height,
     );
-    imageData.data.set(frame.patch);
+    const dstData = imageData.data;
+    const srcData = frame.patch;
+    for (let p = 0; p < srcData.length; p += 4) {
+      const srcA = srcData[p + 3] / 255;
+      if (srcA === 0) continue;
+
+      const dstA = dstData[p + 3] / 255;
+      const outA = srcA + dstA * (1 - srcA);
+      if (outA === 0) {
+        dstData[p] = 0;
+        dstData[p + 1] = 0;
+        dstData[p + 2] = 0;
+        dstData[p + 3] = 0;
+        continue;
+      }
+
+      dstData[p] = Math.round(
+        (srcData[p] * srcA + dstData[p] * dstA * (1 - srcA)) / outA,
+      );
+      dstData[p + 1] = Math.round(
+        (srcData[p + 1] * srcA + dstData[p + 1] * dstA * (1 - srcA)) / outA,
+      );
+      dstData[p + 2] = Math.round(
+        (srcData[p + 2] * srcA + dstData[p + 2] * dstA * (1 - srcA)) / outA,
+      );
+      dstData[p + 3] = Math.round(outA * 255);
+    }
     compositionCtx.putImageData(imageData, frame.dims.left, frame.dims.top);
 
     prevDisposal = disposal;
