@@ -46,6 +46,14 @@ export type WorkerResponse =
       data: string[] | Buffer[];
     }
   | {
+      type: "compress-error";
+      error: string;
+    }
+  | {
       type: "compress-signage";
       data: string[] | Buffer[];
+    }
+  | {
+      type: "compress-signage-error";
+      error: string;
     };

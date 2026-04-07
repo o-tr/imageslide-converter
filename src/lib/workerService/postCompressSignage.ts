@@ -36,17 +36,47 @@ export const postCompressSignage = (
     },
   };
   console.log("postCompressSignage", message);
-  return new Promise<string[] | Buffer[]>((resolve) => {
+  return new Promise<string[] | Buffer[]>((resolve, reject) => {
     const handler = (event: MessageEvent<WorkerResponse>) => {
-      if (event.data.type !== "compress-signage") return;
+      if (event.data.type === "compress-signage") {
+        cleanup();
+        console.log("postCompressSignage response", event.data);
+        resolve(event.data.data);
+        return;
+      }
+      if (event.data.type === "compress-signage-error") {
+        cleanup();
+        reject(new Error(event.data.error));
+      }
+    };
+    const errorHandler = (event: ErrorEvent) => {
+      cleanup();
+      reject(
+        event.error instanceof Error
+          ? event.error
+          : new Error(event.message || "Signage compression worker failed"),
+      );
+    };
+    const messageErrorHandler = () => {
+      cleanup();
+      reject(new Error("Signage compression worker message error"));
+    };
+    const cleanup = () => {
       worker.removeEventListener("message", handler);
-      console.log("postCompressSignage response", event.data);
-      resolve(event.data.data);
+      worker.removeEventListener("error", errorHandler);
+      worker.removeEventListener("messageerror", messageErrorHandler);
     };
     worker.addEventListener("message", handler);
-    worker.postMessage(
-      message,
-      message.data.files.map((file) => file.bitmap),
-    );
+    worker.addEventListener("error", errorHandler);
+    worker.addEventListener("messageerror", messageErrorHandler);
+    try {
+      worker.postMessage(
+        message,
+        message.data.files.map((file) => file.bitmap),
+      );
+    } catch (e) {
+      cleanup();
+      reject(e instanceof Error ? e : new Error(String(e)));
+    }
   });
 };

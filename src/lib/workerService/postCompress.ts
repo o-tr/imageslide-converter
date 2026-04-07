@@ -61,13 +61,43 @@ export const postCompress = (
     },
   };
   console.log("postCompress", message);
-  return new Promise<string[] | Buffer[]>((resolve) => {
+  return new Promise<string[] | Buffer[]>((resolve, reject) => {
     const handler = (event: MessageEvent<WorkerResponse>) => {
-      if (event.data.type !== "compress") return;
+      if (event.data.type === "compress") {
+        cleanup();
+        resolve(event.data.data);
+        return;
+      }
+      if (event.data.type === "compress-error") {
+        cleanup();
+        reject(new Error(event.data.error));
+      }
+    };
+    const errorHandler = (event: ErrorEvent) => {
+      cleanup();
+      reject(
+        event.error instanceof Error
+          ? event.error
+          : new Error(event.message || "Compression worker failed"),
+      );
+    };
+    const messageErrorHandler = () => {
+      cleanup();
+      reject(new Error("Compression worker message error"));
+    };
+    const cleanup = () => {
       worker.removeEventListener("message", handler);
-      resolve(event.data.data);
+      worker.removeEventListener("error", errorHandler);
+      worker.removeEventListener("messageerror", messageErrorHandler);
     };
     worker.addEventListener("message", handler);
-    worker.postMessage(message, transferables);
+    worker.addEventListener("error", errorHandler);
+    worker.addEventListener("messageerror", messageErrorHandler);
+    try {
+      worker.postMessage(message, transferables);
+    } catch (e) {
+      cleanup();
+      reject(e instanceof Error ? e : new Error(String(e)));
+    }
   });
 };
