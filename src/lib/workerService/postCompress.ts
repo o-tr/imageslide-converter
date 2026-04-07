@@ -33,7 +33,6 @@ export const postCompress = (
         const animBitmaps = anim.frames.map((frame) => {
           const bm = frame.transferToImageBitmap();
           transferables.push(bm);
-          frame.close(); // Release the now-empty canvas backing store
           return bm;
         });
         return {
