@@ -10,6 +10,7 @@ import { type ParsedFrame, decompressFrames, parseGIF } from "gifuct-js";
 import { emuToPixelRect } from "./emuToPixel";
 
 const MAX_GIF_DIMENSION = 256;
+const MAX_SOURCE_GIF_DIMENSION = 4096;
 const MAX_STORED_FRAME_DIMENSION = 512;
 const MAX_FRAMES = 60;
 const TARGET_FPS = 2;
@@ -363,6 +364,21 @@ export const extractGifAnimations = async (
       }
 
       const gif = parseGIF(buffer);
+      const gifWidth = gif.lsd.width;
+      const gifHeight = gif.lsd.height;
+      if (
+        !(gifWidth > 0) ||
+        !(gifHeight > 0) ||
+        gifWidth > MAX_SOURCE_GIF_DIMENSION ||
+        gifHeight > MAX_SOURCE_GIF_DIMENSION
+      ) {
+        console.warn(
+          `extractGifAnimations: GIF dimensions out of range (${gifWidth}x${gifHeight}), skipping`,
+        );
+        animatedGifCandidatesRaw.push(null);
+        continue;
+      }
+
       const rawFrames = decompressFrames(gif, true);
       if (rawFrames.length <= 1) {
         animatedGifCandidatesRaw.push(null); // Static GIF, skip
@@ -373,8 +389,8 @@ export const extractGifAnimations = async (
         element,
         pixelRect,
         rawFrames,
-        gifWidth: gif.lsd.width,
-        gifHeight: gif.lsd.height,
+        gifWidth,
+        gifHeight,
       } satisfies AnimatedGifCandidate);
     } catch (e) {
       console.warn("Failed to extract GIF animation:", e);
