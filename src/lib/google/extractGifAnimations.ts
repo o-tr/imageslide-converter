@@ -30,6 +30,7 @@ const MAX_GIF_DIMENSION = 256;
 const MAX_SOURCE_GIF_DIMENSION = 4096;
 const MAX_STORED_FRAME_DIMENSION = 512;
 const MAX_FRAMES = 60;
+const MAX_SOURCE_FRAMES = 500;
 const TARGET_FPS = 2;
 const TARGET_FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
 
@@ -388,6 +389,13 @@ export const extractGifAnimations = async (
             return null;
           }
 
+          if (gif.frames.length > MAX_SOURCE_FRAMES) {
+            console.warn(
+              `extractGifAnimations: too many frames (${gif.frames.length}), skipping`,
+            );
+            return null;
+          }
+
           const rawFrames = decompressFrames(gif, true);
           if (rawFrames.length <= 1) return null; // Static GIF, skip
 
@@ -477,15 +485,17 @@ export const extractGifAnimations = async (
           targetW,
           targetH,
         );
-        const frames = composedFrames.map((frameCanvas) =>
-          compositeWithBackground(
+        const frames = composedFrames.map((frameCanvas) => {
+          const result = compositeWithBackground(
             baseSlideCanvas,
             frameCanvas,
             pixelRect,
             storedFrameW,
             storedFrameH,
-          ),
-        );
+          );
+          frameCanvas.width = 0;
+          return result;
+        });
 
         return {
           x: pixelRect.x,
