@@ -71,7 +71,9 @@ export const Convert: FC = () => {
         setResults(undefined);
         initRef.current = false;
         console.error("Compression failed:", e);
-        void message.error("変換に失敗しました");
+        void message.error(
+          (e instanceof Error && e.message) || "変換に失敗しました",
+        );
       });
   }, [
     version,

@@ -178,29 +178,30 @@ const slide2canvas = async (
     }))
     .filter(({ isSkipped }) => !isSkipped);
 
-  const results: SelectedFile[] = [];
-  for (const [outputIndex, slide] of filteredSlides.entries()) {
-    const { canvas, index, speakerNote, pageElements } = slide;
-    const animations = await extractGifAnimations(
-      pageElements,
-      metadata.pageSize,
-      { width: canvas.width, height: canvas.height },
-      canvas,
-      token,
-    );
-    results.push({
-      id: crypto.randomUUID(),
-      fileName: `${metadata.title}-${outputIndex + 1}`,
-      canvas,
-      note: speakerNote,
-      animations: animations.length > 0 ? animations : undefined,
-      metadata: {
-        fileType: "pdf" as const,
-        file,
-        index,
-        scale: 1,
-      },
-    });
-  }
+  const results: SelectedFile[] = await Promise.all(
+    filteredSlides.map(async (slide, outputIndex) => {
+      const { canvas, index, speakerNote, pageElements } = slide;
+      const animations = await extractGifAnimations(
+        pageElements,
+        metadata.pageSize,
+        { width: canvas.width, height: canvas.height },
+        canvas,
+        token,
+      );
+      return {
+        id: crypto.randomUUID(),
+        fileName: `${metadata.title}-${outputIndex + 1}`,
+        canvas,
+        note: speakerNote,
+        animations: animations.length > 0 ? animations : undefined,
+        metadata: {
+          fileType: "pdf" as const,
+          file,
+          index,
+          scale: 1,
+        },
+      };
+    }),
+  );
   return results;
 };

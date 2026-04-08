@@ -38,7 +38,9 @@ export const Convert: FC = () => {
         setResults(undefined);
         initRef.current = false;
         console.error("Signage compression failed:", e);
-        void message.error("変換に失敗しました");
+        void message.error(
+          (e instanceof Error && e.message) || "変換に失敗しました",
+        );
       });
   }, [_files, signage, format, router, setResults, resolution]);
   return <></>;
