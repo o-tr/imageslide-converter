@@ -9,6 +9,23 @@ import type {
 import { type ParsedFrame, decompressFrames, parseGIF } from "gifuct-js";
 import { emuToPixelRect } from "./emuToPixel";
 
+const TRUSTED_HOSTNAMES = [
+  ".google.com",
+  ".googleapis.com",
+  ".googleusercontent.com",
+];
+
+const isTrustedOrigin = (url: string): boolean => {
+  try {
+    const { hostname } = new URL(url);
+    return TRUSTED_HOSTNAMES.some(
+      (suffix) => hostname === suffix.slice(1) || hostname.endsWith(suffix),
+    );
+  } catch {
+    return false;
+  }
+};
+
 const MAX_GIF_DIMENSION = 256;
 const MAX_SOURCE_GIF_DIMENSION = 4096;
 const MAX_STORED_FRAME_DIMENSION = 512;
@@ -327,77 +344,67 @@ export const extractGifAnimations = async (
       } => el !== null,
     );
 
-  const animatedGifCandidatesRaw: (AnimatedGifCandidate | null)[] = [];
-  for (const { element, pixelRect } of imageElements) {
-    const contentUrl = element.image?.contentUrl;
-    if (!contentUrl) {
-      animatedGifCandidatesRaw.push(null);
-      continue;
-    }
-    try {
-      const rangeSniffResponse = await fetch(contentUrl, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Range: "bytes=0-5",
-        },
-      });
-      if (!rangeSniffResponse.ok) {
-        animatedGifCandidatesRaw.push(null);
-        continue;
-      }
+  const animatedGifCandidatesRaw = await Promise.all(
+    imageElements.map(
+      async ({ element, pixelRect }): Promise<AnimatedGifCandidate | null> => {
+        const contentUrl = element.image?.contentUrl;
+        if (!contentUrl || !isTrustedOrigin(contentUrl)) return null;
+        try {
+          const rangeSniffResponse = await fetch(contentUrl, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Range: "bytes=0-5",
+            },
+          });
+          if (!rangeSniffResponse.ok) return null;
 
-      const headerBuffer = await rangeSniffResponse.arrayBuffer();
-      if (!isGif(headerBuffer)) {
-        animatedGifCandidatesRaw.push(null);
-        continue;
-      }
+          const headerBuffer = await rangeSniffResponse.arrayBuffer();
+          if (!isGif(headerBuffer)) return null;
 
-      let buffer = headerBuffer;
-      if (rangeSniffResponse.status === 206 || headerBuffer.byteLength <= 6) {
-        const fullResponse = await fetch(contentUrl, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!fullResponse.ok) {
-          animatedGifCandidatesRaw.push(null);
-          continue;
+          let buffer = headerBuffer;
+          if (
+            rangeSniffResponse.status === 206 ||
+            headerBuffer.byteLength <= 6
+          ) {
+            const fullResponse = await fetch(contentUrl, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!fullResponse.ok) return null;
+            buffer = await fullResponse.arrayBuffer();
+          }
+
+          const gif = parseGIF(buffer);
+          const gifWidth = gif.lsd.width;
+          const gifHeight = gif.lsd.height;
+          if (
+            !(gifWidth > 0) ||
+            !(gifHeight > 0) ||
+            gifWidth > MAX_SOURCE_GIF_DIMENSION ||
+            gifHeight > MAX_SOURCE_GIF_DIMENSION
+          ) {
+            console.warn(
+              `extractGifAnimations: GIF dimensions out of range (${gifWidth}x${gifHeight}), skipping`,
+            );
+            return null;
+          }
+
+          const rawFrames = decompressFrames(gif, true);
+          if (rawFrames.length <= 1) return null; // Static GIF, skip
+
+          return {
+            element,
+            pixelRect,
+            rawFrames,
+            gifWidth,
+            gifHeight,
+          } satisfies AnimatedGifCandidate;
+        } catch (e) {
+          console.warn("Failed to extract GIF animation:", e);
+          return null;
         }
-        buffer = await fullResponse.arrayBuffer();
-      }
-
-      const gif = parseGIF(buffer);
-      const gifWidth = gif.lsd.width;
-      const gifHeight = gif.lsd.height;
-      if (
-        !(gifWidth > 0) ||
-        !(gifHeight > 0) ||
-        gifWidth > MAX_SOURCE_GIF_DIMENSION ||
-        gifHeight > MAX_SOURCE_GIF_DIMENSION
-      ) {
-        console.warn(
-          `extractGifAnimations: GIF dimensions out of range (${gifWidth}x${gifHeight}), skipping`,
-        );
-        animatedGifCandidatesRaw.push(null);
-        continue;
-      }
-
-      const rawFrames = decompressFrames(gif, true);
-      if (rawFrames.length <= 1) {
-        animatedGifCandidatesRaw.push(null); // Static GIF, skip
-        continue;
-      }
-
-      animatedGifCandidatesRaw.push({
-        element,
-        pixelRect,
-        rawFrames,
-        gifWidth,
-        gifHeight,
-      } satisfies AnimatedGifCandidate);
-    } catch (e) {
-      console.warn("Failed to extract GIF animation:", e);
-      animatedGifCandidatesRaw.push(null);
-    }
-  }
+      },
+    ),
+  );
 
   const animatedGifCandidates = animatedGifCandidatesRaw.filter(
     (candidate): candidate is AnimatedGifCandidate => candidate !== null,
