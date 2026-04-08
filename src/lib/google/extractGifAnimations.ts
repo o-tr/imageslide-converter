@@ -209,7 +209,8 @@ const buildComposedFrames = (
     );
     const dstData = imageData.data;
     const srcData = frame.patch;
-    for (let p = 0; p < srcData.length; p += 4) {
+    const pixelCount = Math.min(srcData.length, dstData.length);
+    for (let p = 0; p < pixelCount; p += 4) {
       const srcA = srcData[p + 3] / 255;
       if (srcA === 0) continue;
 
