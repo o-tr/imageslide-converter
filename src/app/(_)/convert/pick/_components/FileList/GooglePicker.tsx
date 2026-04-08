@@ -14,6 +14,7 @@ import {
   requestTokenPromise,
   showFilePicker,
 } from "@/lib/google";
+import { extractGifAnimations } from "@/lib/google/extractGifAnimations";
 import { LoadingOutlined } from "@ant-design/icons";
 import { Button, Flex, Spin, message } from "antd";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
@@ -57,10 +58,13 @@ export const GooglePicker = () => {
       await showPicker(null);
       return;
     }
-    void showFilePicker(_token, onFilePicked);
+    void showFilePicker(_token, (data) => onFilePicked(data, _token));
   };
 
-  const onFilePicked = async (data: GoogleFilePickerCallbackData) => {
+  const onFilePicked = async (
+    data: GoogleFilePickerCallbackData,
+    currentToken: string,
+  ) => {
     if (data.action !== "picked" || !data.docs) return;
     const file = data.docs[0];
     setIsLoading(true);
@@ -77,7 +81,7 @@ export const GooglePicker = () => {
         setFiles((pv) => [...pv, ...selectedFiles]);
       }
       if (file.mimeType === "application/vnd.google-apps.presentation") {
-        const files = await slide2canvas(file.id);
+        const files = await slide2canvas(file.id, currentToken);
         setFiles((pv) => [...pv, ...files]);
       }
       if (file.mimeType?.startsWith("image/")) {
@@ -139,7 +143,10 @@ export const GooglePicker = () => {
   );
 };
 
-const slide2canvas = async (slideId: string): Promise<SelectedFile[]> => {
+const slide2canvas = async (
+  slideId: string,
+  token: string,
+): Promise<SelectedFile[]> => {
   const [{ canvases, buffer }, metadata] = await Promise.all([
     (async () => {
       const buffer = await fetchSlideAsPdf(slideId);
@@ -161,24 +168,40 @@ const slide2canvas = async (slideId: string): Promise<SelectedFile[]> => {
     );
   }
 
-  return canvases
+  const filteredSlides = canvases
     .map((canvas, index) => ({
       canvas,
       index,
       isSkipped: metadata.items[index].isSkipped,
       speakerNote: metadata.items[index].speakerNote,
+      pageElements: metadata.items[index].pageElements,
     }))
-    .filter(({ isSkipped }) => !isSkipped)
-    .map(({ canvas, index, speakerNote }, outputIndex) => ({
-      id: crypto.randomUUID(),
-      fileName: `${metadata.title}-${outputIndex + 1}`,
-      canvas,
-      note: speakerNote,
-      metadata: {
-        fileType: "pdf" as const,
-        file,
-        index,
-        scale: 1,
-      },
-    }));
+    .filter(({ isSkipped }) => !isSkipped);
+
+  const results: SelectedFile[] = await Promise.all(
+    filteredSlides.map(async (slide, outputIndex) => {
+      const { canvas, index, speakerNote, pageElements } = slide;
+      const animations = await extractGifAnimations(
+        pageElements,
+        metadata.pageSize,
+        { width: canvas.width, height: canvas.height },
+        canvas,
+        token,
+      );
+      return {
+        id: crypto.randomUUID(),
+        fileName: `${metadata.title}-${outputIndex + 1}`,
+        canvas,
+        note: speakerNote,
+        animations: animations.length > 0 ? animations : undefined,
+        metadata: {
+          fileType: "pdf" as const,
+          file,
+          index,
+          scale: 1,
+        },
+      };
+    }),
+  );
+  return results;
 };

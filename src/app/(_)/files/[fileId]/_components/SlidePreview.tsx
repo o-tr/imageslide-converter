@@ -5,6 +5,15 @@ import { Button, Spin } from "antd";
 import { type FC, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { TbChevronLeft, TbChevronRight } from "react-icons/tb";
 
+type DecodedAnimation = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  fps: number;
+  frames: ImageBitmap[];
+};
+
 const THUMBNAIL_HEIGHT = 128;
 
 // On the client we want to size/draw the canvas before paint to reduce
@@ -59,9 +68,10 @@ const MainSlideDisplay: FC<{
   frame: SlideFrameMeta;
   totalFrames: number;
   bitmapMap: { current: Map<number, ImageBitmap> };
+  animationMap: { current: Map<number, DecodedAnimation[]> };
   onPrevious: () => void;
   onNext: () => void;
-}> = ({ frame, totalFrames, bitmapMap, onPrevious, onNext }) => {
+}> = ({ frame, totalFrames, bitmapMap, animationMap, onPrevious, onNext }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useIsomorphicLayoutEffect(() => {
@@ -76,9 +86,52 @@ const MainSlideDisplay: FC<{
     canvas.width = bitmap.width;
     canvas.height = bitmap.height;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  }, [frame.index, bitmapMap]);
+    const animations = animationMap.current.get(frame.index);
+
+    if (!animations || animations.length === 0) {
+      // No animation: just draw the base bitmap
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      return;
+    }
+
+    // Animation loop with independent per-animation timing
+    const frameIndices = animations.map(() => 0);
+    const lastTimes = animations.map(() => -1); // -1 = not yet initialized
+    let rafId: number;
+
+    const draw = (time: number) => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+      for (let i = 0; i < animations.length; i++) {
+        const anim = animations[i];
+        if (anim.frames.length === 0) continue;
+
+        if (lastTimes[i] < 0) {
+          // First draw: initialize this animation's timer
+          lastTimes[i] = time;
+        } else {
+          const interval = 1000 / anim.fps;
+          if (time - lastTimes[i] >= interval) {
+            frameIndices[i] = (frameIndices[i] + 1) % anim.frames.length;
+            lastTimes[i] += interval;
+          }
+        }
+
+        const animBitmap = anim.frames[frameIndices[i]];
+        ctx.drawImage(animBitmap, anim.x, anim.y, anim.w, anim.h);
+      }
+
+      rafId = requestAnimationFrame(draw);
+    };
+
+    rafId = requestAnimationFrame(draw);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+    };
+  }, [frame.index, bitmapMap, animationMap]);
 
   return (
     <div className="relative flex items-center justify-center flex-1 rounded overflow-hidden aspect-video">
@@ -155,10 +208,18 @@ const SlideList: FC<{
 const MainView: FC<{
   frames: SlideFrameMeta[];
   bitmapMap: { current: Map<number, ImageBitmap> };
+  animationMap: { current: Map<number, DecodedAnimation[]> };
   selectedIndex: number;
   onPrevious: () => void;
   onNext: () => void;
-}> = ({ frames, bitmapMap, selectedIndex, onPrevious, onNext }) => {
+}> = ({
+  frames,
+  bitmapMap,
+  animationMap,
+  selectedIndex,
+  onPrevious,
+  onNext,
+}) => {
   const selectedFrame = frames[selectedIndex];
 
   return (
@@ -167,6 +228,7 @@ const MainView: FC<{
         frame={selectedFrame}
         totalFrames={frames.length}
         bitmapMap={bitmapMap}
+        animationMap={animationMap}
         onPrevious={onPrevious}
         onNext={onNext}
       />
@@ -197,6 +259,7 @@ const MainView: FC<{
 const SlidePreviewContainer: FC<{
   frames: SlideFrameMeta[];
   bitmapMap: { current: Map<number, ImageBitmap> };
+  animationMap: { current: Map<number, DecodedAnimation[]> };
   selectedIndex: number;
   onSelectFrame: (index: number) => void;
   onPrevious: () => void;
@@ -204,6 +267,7 @@ const SlidePreviewContainer: FC<{
 }> = ({
   frames,
   bitmapMap,
+  animationMap,
   selectedIndex,
   onSelectFrame,
   onPrevious,
@@ -220,6 +284,7 @@ const SlidePreviewContainer: FC<{
       <MainView
         frames={frames}
         bitmapMap={bitmapMap}
+        animationMap={animationMap}
         selectedIndex={selectedIndex}
         onPrevious={onPrevious}
         onNext={onNext}
@@ -228,11 +293,26 @@ const SlidePreviewContainer: FC<{
   );
 };
 
+const imageDataToBitmap = async (data: ImageData): Promise<ImageBitmap> => {
+  try {
+    return await createImageBitmap(data);
+  } catch {
+    const canvas = document.createElement("canvas");
+    canvas.width = data.width;
+    canvas.height = data.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2d context not available");
+    ctx.putImageData(data, 0, 0);
+    return await createImageBitmap(canvas);
+  }
+};
+
 export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
   const [frames, setFrames] = useState<SlideFrameMeta[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const bitmapMap = useRef<Map<number, ImageBitmap>>(new Map());
+  const animationMap = useRef<Map<number, DecodedAnimation[]>>(new Map());
 
   useEffect(() => {
     setFrames(null);
@@ -240,13 +320,19 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
     setSelectedIndex(0);
     for (const bitmap of bitmapMap.current.values()) bitmap.close();
     bitmapMap.current.clear();
+    for (const anims of animationMap.current.values()) {
+      for (const anim of anims) {
+        for (const bm of anim.frames) bm.close();
+      }
+    }
+    animationMap.current.clear();
     const controller = new AbortController();
     const load = async () => {
       let nextMap: Map<number, ImageBitmap> | null = null;
+      const nextAnimMap = new Map<number, DecodedAnimation[]>();
       try {
         const result = await decodeSlides(urls, controller.signal);
         if (!controller.signal.aborted) {
-          // Convert ImageData -> ImageBitmap once, then render synchronously.
           const map = new Map<number, ImageBitmap>();
           const meta: SlideFrameMeta[] = [];
           nextMap = map;
@@ -255,34 +341,43 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
             const f = result.shift();
             if (!f) break;
             if (controller.signal.aborted) break;
-            const sourceImageData = f.imageData;
 
-            const bitmap = await (async () => {
-              // Prefer direct conversion if available.
-              try {
-                return await createImageBitmap(sourceImageData);
-              } catch {
-                // Fallback: draw ImageData into a canvas and convert.
-                const canvas = document.createElement("canvas");
-                canvas.width = sourceImageData.width;
-                canvas.height = sourceImageData.height;
-                const ctx = canvas.getContext("2d");
-                if (!ctx) {
-                  throw new Error(
-                    "OffscreenCanvas/Canvas 2d context not available",
-                  );
-                }
-                ctx.putImageData(sourceImageData, 0, 0);
-                return await createImageBitmap(canvas);
-              }
-            })();
+            const bitmap = await imageDataToBitmap(f.imageData);
             map.set(f.index, bitmap);
-            meta.push({ index: f.index, width: f.width, height: f.height });
+            meta.push({
+              index: f.index,
+              width: f.width,
+              height: f.height,
+              hasAnimations: !!f.animations && f.animations.length > 0,
+            });
+
+            // Convert animation ImageData to ImageBitmap
+            if (f.animations && f.animations.length > 0) {
+              const decodedAnims: DecodedAnimation[] = [];
+              for (const anim of f.animations) {
+                if (controller.signal.aborted) break;
+                const animBitmaps: ImageBitmap[] = [];
+                for (const frameData of anim.frames) {
+                  if (controller.signal.aborted) break;
+                  animBitmaps.push(await imageDataToBitmap(frameData));
+                }
+                decodedAnims.push({
+                  x: anim.x,
+                  y: anim.y,
+                  w: anim.w,
+                  h: anim.h,
+                  fps: anim.fps,
+                  frames: animBitmaps,
+                });
+              }
+              nextAnimMap.set(f.index, decodedAnims);
+            }
           }
 
           if (!controller.signal.aborted) {
             bitmapMap.current = map;
-            nextMap = null; // ownership transferred to bitmapMap.current
+            animationMap.current = nextAnimMap;
+            nextMap = null;
             setFrames(meta);
           }
         }
@@ -292,9 +387,13 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
           setError("プレビューの読み込みに失敗しました");
         }
       } finally {
-        // If we aborted or failed before transferring ownership, close created bitmaps.
         if (nextMap) {
           for (const bitmap of nextMap.values()) bitmap.close();
+          for (const anims of nextAnimMap.values()) {
+            for (const anim of anims) {
+              for (const bm of anim.frames) bm.close();
+            }
+          }
         }
       }
     };
@@ -303,6 +402,12 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
       controller.abort();
       for (const bitmap of bitmapMap.current.values()) bitmap.close();
       bitmapMap.current.clear();
+      for (const anims of animationMap.current.values()) {
+        for (const anim of anims) {
+          for (const bm of anim.frames) bm.close();
+        }
+      }
+      animationMap.current.clear();
     };
   }, [urls]);
 
@@ -338,6 +443,7 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
     <SlidePreviewContainer
       frames={frames}
       bitmapMap={bitmapMap}
+      animationMap={animationMap}
       selectedIndex={selectedIndex}
       onSelectFrame={setSelectedIndex}
       onPrevious={handlePrevious}

@@ -9,6 +9,7 @@ import { SelectedFilesAtom } from "@/atoms/file-drop";
 import { FileSizeLimit, TargetVersions } from "@/const/convert";
 import { postCompress } from "@/lib/workerService/postCompress";
 import { getAvailableFormats } from "@/utils/getAvailableFormats";
+import { message } from "antd";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useRouter } from "next/navigation";
 import { type FC, useEffect, useMemo, useRef } from "react";
@@ -57,14 +58,21 @@ export const Convert: FC = () => {
       if (!format) return { id: bestFormat.id, scale: 1 };
       return { id: format.id, scale: 1 };
     })();
-    postCompress(_files, id, version, scale, _resolution).then((result) => {
-      setResults({
-        data: result,
-        format: id,
-        version,
+    postCompress(_files, id, version, scale, _resolution)
+      .then((result) => {
+        setResults({
+          data: result,
+          format: id,
+          version,
+        });
+        router.push("./upload");
+      })
+      .catch((e) => {
+        setResults(undefined);
+        initRef.current = false;
+        console.error("Compression failed:", e);
+        void message.error("変換に失敗しました");
       });
-      router.push("./upload");
-    });
   }, [
     version,
     _format,

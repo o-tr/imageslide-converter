@@ -1,5 +1,11 @@
-import type { EIAFileV1Cropped, EIAManifestV1 } from "@/_types/eia/v1";
-import type { SlideFrame } from "@/_types/slide-preview";
+import type {
+  EIAAnimationFrameRefCropped,
+  EIAAnimationMeta,
+  EIAFileV1Cropped,
+  EIAFileV1CroppedPart,
+  EIAManifestV1,
+} from "@/_types/eia/v1";
+import type { SlideAnimation, SlideFrame } from "@/_types/slide-preview";
 import lz4 from "lz4js";
 import { rgb24ToImageData, rgba32ToImageData } from "./rawImage2ImageData";
 
@@ -39,20 +45,21 @@ const rawToImageData = (
 const applyRects = (
   baseBuffer: Uint8Array,
   decompressed: Uint8Array,
-  item: EIAFileV1Cropped,
+  rects: EIAFileV1CroppedPart[],
   baseWidth: number,
+  format: string,
 ): Uint8Array => {
   const bpp =
-    item.f === "RGBA32"
+    format === "RGBA32"
       ? 4
-      : isRgb24(item.f)
+      : isRgb24(format)
         ? 3
         : (() => {
-            throw new Error(`Unsupported format in applyRects: "${item.f}"`);
+            throw new Error(`Unsupported format in applyRects: "${format}"`);
           })();
   const result = new Uint8Array(baseBuffer);
   const baseHeight = baseBuffer.length / (baseWidth * bpp);
-  for (const rect of item.r) {
+  for (const rect of rects) {
     if (rect.x + rect.w > baseWidth || rect.y + rect.h > baseHeight)
       throw new Error(
         `Rect at (${rect.x},${rect.y}) size ${rect.w}×${rect.h} exceeds frame bounds ${baseWidth}×${baseHeight}`,
@@ -89,7 +96,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
   const manifest: EIAManifestV1 = JSON.parse(
     textDecoder.decode(uint8.subarray(4, dollarPos)),
   );
-  if (manifest.v !== 1)
+  if (manifest.v !== 1 && manifest.v !== 2)
     throw new Error(`Unsupported EIA version: ${manifest.v}`);
   if (manifest.c !== "lz4" && manifest.c !== "lz4-base64")
     throw new Error(`Unsupported compression: ${manifest.c}`);
@@ -144,7 +151,13 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
           `Cropped frame "${item.n}" format "${item.f}" ` +
             `differs from base "${item.b}" format "${baseItem.f}"`,
         );
-      rawBuffer = applyRects(baseBuffer, decompressed, item, baseItem.w);
+      rawBuffer = applyRects(
+        baseBuffer,
+        decompressed,
+        item.r,
+        baseItem.w,
+        item.f,
+      );
     }
 
     frameBuffers.set(item.n, rawBuffer);
@@ -153,11 +166,125 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
     if (!Number.isFinite(index))
       throw new Error(`Non-numeric frame name: "${item.n}"`);
 
+    // Decode animation data from e.a extension (binary lz4 only)
+    let animations: SlideAnimation[] | undefined;
+    if (item.e?.a) {
+      if (binarySection === null) {
+        console.warn(
+          `Animation data for frame "${item.n}" cannot be decoded under lz4-base64 compression`,
+        );
+      } else {
+        let animMetas: EIAAnimationMeta[] = [];
+        try {
+          const parsed = JSON.parse(item.e.a);
+          if (!Array.isArray(parsed)) {
+            throw new Error("Animation metadata must be an array");
+          }
+          animMetas = parsed as EIAAnimationMeta[];
+        } catch (e) {
+          console.warn(
+            `Failed to parse animation metadata for frame "${item.n}":`,
+            e,
+          );
+        }
+
+        const decodedAnimations = animMetas
+          .map((meta, metaIndex): SlideAnimation | null => {
+            try {
+              const frameWidth = meta.fw ?? meta.w;
+              const frameHeight = meta.fh ?? meta.h;
+              const animFrames: ImageData[] = [];
+              const animFrameBuffers = new Map<number, Uint8Array>();
+
+              // Pre-scan to find which frames are referenced as base by cropped frames
+              const animBaseIndices = new Set<number>();
+              for (const fr of meta.frames) {
+                if ("t" in fr && fr.t === "c") {
+                  animBaseIndices.add((fr as EIAAnimationFrameRefCropped).b);
+                }
+              }
+
+              for (let fi = 0; fi < meta.frames.length; fi++) {
+                const frameRef = meta.frames[fi];
+                if (frameRef.s + frameRef.l > binarySection.length) {
+                  throw new Error(
+                    `Animation frame ref out of bounds: offset ${frameRef.s} + length ${frameRef.l} ` +
+                      `exceeds binary section size ${binarySection.length}`,
+                  );
+                }
+                const compressedFrame = binarySection.subarray(
+                  frameRef.s,
+                  frameRef.s + frameRef.l,
+                );
+                const decompressedFrame = lz4Decompress(
+                  compressedFrame,
+                  frameRef.u,
+                  `anim_${item.n}_${metaIndex}_${fi}`,
+                );
+
+                let rawBuffer: Uint8Array;
+                if (!("t" in frameRef) || frameRef.t === "m") {
+                  // Master frame (or legacy frame without 't' field)
+                  rawBuffer = decompressedFrame;
+                } else {
+                  // Cropped frame: apply rects to base
+                  const croppedRef = frameRef as EIAAnimationFrameRefCropped;
+                  const baseBuffer = animFrameBuffers.get(croppedRef.b);
+                  if (!baseBuffer) {
+                    throw new Error(
+                      `Animation base frame ${croppedRef.b} not found for cropped frame ${fi}`,
+                    );
+                  }
+                  rawBuffer = applyRects(
+                    baseBuffer,
+                    decompressedFrame,
+                    croppedRef.r,
+                    frameWidth,
+                    meta.f,
+                  );
+                }
+
+                animFrameBuffers.set(fi, rawBuffer);
+                animFrames.push(
+                  rawToImageData(rawBuffer, frameWidth, frameHeight, meta.f),
+                );
+
+                // Release buffer if not needed as base for future frames
+                if (!animBaseIndices.has(fi)) {
+                  animFrameBuffers.delete(fi);
+                }
+              }
+              return {
+                x: meta.x,
+                y: meta.y,
+                w: meta.w,
+                h: meta.h,
+                fps: meta.fps,
+                frames: animFrames,
+              };
+            } catch (e) {
+              console.warn(
+                `Failed to decode animation meta index ${metaIndex} for frame "${item.n}":`,
+                meta,
+                e,
+              );
+              return null;
+            }
+          })
+          .filter((anim): anim is SlideAnimation => anim !== null);
+
+        if (decodedAnimations.length > 0) {
+          animations = decodedAnimations;
+        }
+      }
+    }
+
     frames.push({
       index,
       width: item.w,
       height: item.h,
       imageData: rawToImageData(rawBuffer, item.w, item.h, item.f),
+      animations,
     });
 
     // Release raw buffer if no later frame references it as a base

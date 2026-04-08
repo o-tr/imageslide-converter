@@ -11,6 +11,15 @@ export const selectedFiles2EIAv1RGB24CroppedBase64 = async (
   selectedFiles: SelectedFile[],
   signage?: EIASignageManifest,
 ): Promise<Buffer[]> => {
+  const hasAnimations = selectedFiles.some(
+    (file) => !!file.animations && file.animations.length > 0,
+  );
+  if (hasAnimations) {
+    throw new Error(
+      "EIA v1 RGB24 cropped base64 does not support animations. Use eia-v1-RGB24-cropped.",
+    );
+  }
+
   const rawImages = selectedFiles.map<RawImageObjV1>((file, index) => ({
     index,
     rect: {

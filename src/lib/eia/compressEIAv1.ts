@@ -1,4 +1,7 @@
+import type { RawAnimationData } from "@/_types/eia/rawAnimationData";
 import type {
+  EIAAnimationFrameRef,
+  EIAAnimationMeta,
   EIAFileV1,
   EIAFileV1CroppedPart,
   EIAManifestV1,
@@ -13,16 +16,82 @@ export const compressEIAv1 = async (
   signage?: EIASignageManifest,
   count = 1,
   stepSize = 10,
+  animationMap?: Map<number, RawAnimationData[]>,
 ): Promise<Buffer[]> => {
-  const partCount = Math.ceil(data.length / (count * stepSize)) * stepSize;
+  if (data.length === 0) return [];
+
+  const normalizedStepSize = Math.max(1, Math.min(stepSize, data.length));
+  const partCount =
+    Math.ceil(data.length / (count * normalizedStepSize)) * normalizedStepSize;
+  const calculatePartCount = (targetCount: number, targetStepSize: number) =>
+    Math.ceil(data.length / (targetCount * targetStepSize)) * targetStepSize;
   const result: Buffer[] = [];
 
   for (let i = 0; i < count; i++) {
     const part = data.slice(i * partCount, (i + 1) * partCount);
-    const compressedPart = await compressEIAv1Part(part, signage);
+    if (part.length === 0) break;
+
+    // Build animation map for this part's indices
+    let partAnimMap: Map<number, RawAnimationData[]> | undefined;
+    if (animationMap) {
+      partAnimMap = new Map();
+      for (const image of part) {
+        const anims = animationMap.get(image.index);
+        if (anims) partAnimMap.set(image.index, anims);
+      }
+      if (partAnimMap.size === 0) partAnimMap = undefined;
+    }
+    const compressedPart = await compressEIAv1Part(part, signage, partAnimMap);
 
     if (compressedPart.length > FileSizeLimit) {
-      return compressEIAv1(data, signage, count + 1);
+      if (part.length <= 1) {
+        throw new Error(
+          `Slide at index ${part[0]?.index ?? "?"} exceeds file size limit ` +
+            `(${compressedPart.length} > ${FileSizeLimit}) and cannot be split further`,
+        );
+      }
+
+      const reducedStepSize = Math.max(1, Math.floor(normalizedStepSize / 2));
+      const stepCandidates =
+        reducedStepSize < normalizedStepSize
+          ? [reducedStepSize, normalizedStepSize]
+          : [normalizedStepSize];
+
+      let nextSplit: { count: number; stepSize: number } | null = null;
+      for (const candidateStepSize of stepCandidates) {
+        const startCount =
+          candidateStepSize === normalizedStepSize ? count + 1 : 1;
+        for (
+          let candidateCount = startCount;
+          candidateCount <= data.length;
+          candidateCount++
+        ) {
+          if (
+            calculatePartCount(candidateCount, candidateStepSize) < partCount
+          ) {
+            nextSplit = {
+              count: candidateCount,
+              stepSize: candidateStepSize,
+            };
+            break;
+          }
+        }
+        if (nextSplit) break;
+      }
+
+      if (!nextSplit) {
+        throw new Error(
+          `Unable to split oversized EIA part for slide index ${part[0]?.index ?? "?"}`,
+        );
+      }
+
+      return compressEIAv1(
+        data,
+        signage,
+        nextSplit.count,
+        nextSplit.stepSize,
+        animationMap,
+      );
     }
 
     result.push(compressedPart);
@@ -34,13 +103,22 @@ export const compressEIAv1 = async (
 const compressEIAv1Part = async (
   data: RawImageObjV1Cropped[],
   signage?: EIASignageManifest,
+  animationMap?: Map<number, RawAnimationData[]>,
 ) => {
   const usedFormats = new Set<string>();
+  const usedFeatures = new Set<string>();
   const files: EIAFileV1[] = [];
   const buffer: Buffer[] = [];
   let bufferLength = 0;
+  let usesAnimationFrameSizeV2 = false;
+
+  // Track animation metadata per slide index
+  const slideAnimMeta = new Map<number, string>();
 
   for (const image of data) {
+    const ext: { note?: string; a?: string } = {};
+    if (image.note) ext.note = image.note;
+
     if (!image.cropped) {
       const compressed = Buffer.from(lz4.compress(image.buffer));
       buffer.push(compressed);
@@ -51,7 +129,7 @@ const compressEIAv1Part = async (
         f: image.format,
         w: image.rect.width,
         h: image.rect.height,
-        e: image.note ? { note: image.note } : undefined,
+        e: Object.keys(ext).length > 0 ? ext : undefined,
         s: bufferLength,
         l: compressed.length,
         u: image.buffer.length,
@@ -91,18 +169,127 @@ const compressEIAv1Part = async (
       s: bufferLength,
       l: compressed.length,
       u: mergedBuffer.length,
-      e: image.note ? { note: image.note } : undefined,
+      e: Object.keys(ext).length > 0 ? ext : undefined,
       r: parts,
     });
     bufferLength += compressed.length;
   }
 
+  // Append animation frames to data section (after all slide data)
+  if (animationMap) {
+    for (const [slideIndex, anims] of animationMap) {
+      const animMetas: EIAAnimationMeta[] = [];
+
+      for (const [animIndex, anim] of anims.entries()) {
+        const frameRefs: EIAAnimationFrameRef[] = [];
+        let hasCroppedFrames = false;
+        usedFormats.add(anim.format);
+        const frameWidth = anim.frames[0]?.rect.width ?? anim.w;
+        const frameHeight = anim.frames[0]?.rect.height ?? anim.h;
+        for (const [frameIndex, frame] of anim.frames.entries()) {
+          if (frame.format !== anim.format) {
+            throw new Error(
+              `Animation format mismatch at slide ${slideIndex}, animation ${animIndex}, frame ${frameIndex}: expected "${anim.format}", got "${frame.format}"`,
+            );
+          }
+          if (
+            frame.rect.width !== frameWidth ||
+            frame.rect.height !== frameHeight
+          ) {
+            throw new Error(
+              `Animation frame size mismatch at slide ${slideIndex}, animation ${animIndex}, frame ${frameIndex}: expected ${frameWidth}x${frameHeight}, got ${frame.rect.width}x${frame.rect.height}`,
+            );
+          }
+          if (!frame.cropped) {
+            // Master frame: store full buffer
+            const compressed = Buffer.from(lz4.compress(frame.buffer));
+            buffer.push(compressed);
+            frameRefs.push({
+              t: "m",
+              s: bufferLength,
+              l: compressed.length,
+              u: frame.buffer.length,
+            });
+            bufferLength += compressed.length;
+          } else {
+            // Cropped frame: concatenate rect buffers, then compress
+            hasCroppedFrames = true;
+            let fileBufferLength = 0;
+            const fileBuffer: Buffer[] = [];
+            const parts: EIAFileV1CroppedPart[] = [];
+            for (const rect of frame.cropped.rects) {
+              fileBuffer.push(rect.buffer);
+              parts.push({
+                x: rect.x,
+                y: rect.y,
+                w: rect.width,
+                h: rect.height,
+                s: fileBufferLength,
+                l: rect.buffer.length,
+              });
+              fileBufferLength += rect.buffer.length;
+            }
+            const mergedBuffer = Buffer.concat(fileBuffer);
+            const compressed = Buffer.from(lz4.compress(mergedBuffer));
+            buffer.push(compressed);
+            frameRefs.push({
+              t: "c",
+              b: frame.cropped.baseIndex,
+              r: parts,
+              s: bufferLength,
+              l: compressed.length,
+              u: mergedBuffer.length,
+            });
+            bufferLength += compressed.length;
+          }
+        }
+        if (hasCroppedFrames) {
+          usedFeatures.add("Feature:animation-crop");
+        }
+
+        const animMeta: EIAAnimationMeta = {
+          x: anim.x,
+          y: anim.y,
+          w: anim.w,
+          h: anim.h,
+          fps: anim.fps,
+          f: anim.format,
+          frames: frameRefs,
+        };
+        if (frameWidth !== anim.w || frameHeight !== anim.h) {
+          animMeta.fw = frameWidth;
+          animMeta.fh = frameHeight;
+          usesAnimationFrameSizeV2 = true;
+          usedFeatures.add("Feature:animation-frame-size");
+        }
+        animMetas.push(animMeta);
+      }
+
+      slideAnimMeta.set(slideIndex, JSON.stringify(animMetas));
+      usedFeatures.add("Feature:animation");
+    }
+
+    // Attach animation metadata to corresponding slide items
+    for (const file of files) {
+      const index = Number(file.n);
+      const animJson = slideAnimMeta.get(index);
+      if (animJson) {
+        file.e = { ...file.e, a: animJson };
+      }
+    }
+  }
+
+  const features = [
+    ...Array.from(usedFormats).map((format) => `Format:${format}`),
+    ...Array.from(usedFeatures),
+  ];
+
   const manifest: EIAManifestV1 = {
     t: "eia",
     c: "lz4",
-    v: 1,
-    f: Array.from(usedFormats).map((format) => `Format:${format}`),
-    e: ["note"],
+    v: usesAnimationFrameSizeV2 ? 2 : 1,
+    f: features,
+    e: ["note", ...(usedFeatures.has("Feature:animation") ? ["a"] : [])],
     i: files,
     m: signage,
   };

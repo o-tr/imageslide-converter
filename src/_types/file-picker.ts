@@ -1,9 +1,19 @@
+export type SelectedFileAnimation = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  fps: number;
+  frames: OffscreenCanvas[];
+};
+
 export type SelectedFile = {
   id: string;
   fileName: string;
   note?: string;
   canvas: OffscreenCanvas;
   metadata: SelectedFileMetadata;
+  animations?: SelectedFileAnimation[];
 };
 
 export type SelectedFileMetadataImage = {
