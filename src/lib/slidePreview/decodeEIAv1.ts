@@ -5,7 +5,13 @@ import type {
   EIAFileV1CroppedPart,
   EIAManifestV1,
 } from "@/_types/eia/v1";
-import type { SlideAnimation, SlideFrame } from "@/_types/slide-preview";
+import type {
+  AnimationFrame,
+  AnimationSequence,
+  DecodeResult,
+  SlideAnimation,
+  SlideFrame,
+} from "@/_types/slide-preview";
 import lz4 from "lz4js";
 import { rgb24ToImageData, rgba32ToImageData } from "./rawImage2ImageData";
 
@@ -82,7 +88,7 @@ const applyRects = (
   return result;
 };
 
-export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
+export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
   const uint8 = new Uint8Array(buffer);
   const textDecoder = new TextDecoder();
 
@@ -117,6 +123,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
   );
   const frameBuffers = new Map<string, Uint8Array>();
   const frames: SlideFrame[] = [];
+  const nameToIndex = new Map<string, number>();
 
   for (const item of manifest.i) {
     let decompressed: Uint8Array;
@@ -293,5 +300,27 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
     }
   }
 
-  return frames.sort((a, b) => a.index - b.index);
+  const sortedFrames = frames.sort((a, b) => a.index - b.index);
+
+  // Build nameToIndex after sorting so positions reflect sorted order
+  for (let i = 0; i < sortedFrames.length; i++) {
+    nameToIndex.set(String(sortedFrames[i].index), i);
+  }
+
+  let animation: AnimationSequence | null = null;
+  if (manifest.m) {
+    const firstDeviceKey = Object.keys(manifest.m)[0];
+    if (firstDeviceKey !== undefined) {
+      const items = manifest.m[firstDeviceKey];
+      const seq: AnimationFrame[] = [];
+      for (const item of items) {
+        const arrayPos = nameToIndex.get(item.f);
+        if (arrayPos === undefined) continue;
+        seq.push({ frameIndex: arrayPos, duration: item.d });
+      }
+      if (seq.length > 0) animation = seq;
+    }
+  }
+
+  return { frames: sortedFrames, animation };
 };

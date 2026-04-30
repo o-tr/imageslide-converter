@@ -1,4 +1,9 @@
-import type { SlideFrame } from "@/_types/slide-preview";
+import type {
+  AnimationFrame,
+  AnimationSequence,
+  DecodeResult,
+  SlideFrame,
+} from "@/_types/slide-preview";
 import type { ManifestV0 } from "@/_types/text-zip/v0";
 import type { ManifestV1 } from "@/_types/text-zip/v1";
 import JSZip from "jszip";
@@ -15,7 +20,7 @@ const isEIA = (uint8: Uint8Array): boolean =>
 const decodePart = async (
   url: string,
   signal: AbortSignal,
-): Promise<SlideFrame[]> => {
+): Promise<DecodeResult> => {
   const response = await fetch(url, { signal });
   if (!response.ok)
     throw new Error(
@@ -49,15 +54,27 @@ const decodePart = async (
 export const decodeSlides = async (
   urls: string[],
   signal: AbortSignal,
-): Promise<SlideFrame[]> => {
+): Promise<DecodeResult> => {
   const allFrames: SlideFrame[] = [];
+  let mergedAnimation: AnimationSequence | null = null;
+
   for (const url of urls) {
-    const partFrames = await decodePart(url, signal);
+    const partResult = await decodePart(url, signal);
     const offset = allFrames.length;
-    const sorted = [...partFrames].sort((a, b) => a.index - b.index);
+    const sorted = [...partResult.frames].sort((a, b) => a.index - b.index);
     for (let i = 0; i < sorted.length; i++) {
       allFrames.push({ ...sorted[i], index: offset + i });
     }
+
+    if (partResult.animation && !mergedAnimation) {
+      mergedAnimation = partResult.animation.map(
+        (f: AnimationFrame): AnimationFrame => ({
+          ...f,
+          frameIndex: f.frameIndex + offset,
+        }),
+      );
+    }
   }
-  return allFrames;
+
+  return { frames: allFrames, animation: mergedAnimation };
 };

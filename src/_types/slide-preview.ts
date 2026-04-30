@@ -21,3 +21,15 @@ export type SlideFrameMeta = {
   height: number;
   hasAnimations?: boolean;
 };
+
+export type AnimationFrame = {
+  frameIndex: number;
+  duration: number; // ms
+};
+
+export type AnimationSequence = AnimationFrame[];
+
+export type DecodeResult = {
+  frames: SlideFrame[];
+  animation: AnimationSequence | null;
+};

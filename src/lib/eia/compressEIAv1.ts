@@ -289,7 +289,7 @@ const compressEIAv1Part = async (
     c: "lz4",
     v: usesAnimationFrameSizeV2 ? 2 : 1,
     f: features,
-    e: ["note", ...(usedFeatures.has("Feature:animation") ? ["a"] : [])],
+    e: ["note", ...(usedFeatures.has("Feature:animation") ? (["a"] as const) : [])],
     i: files,
     m: signage,
   };

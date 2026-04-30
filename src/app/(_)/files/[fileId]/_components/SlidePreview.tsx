@@ -1,9 +1,21 @@
 "use client";
-import type { SlideFrameMeta } from "@/_types/slide-preview";
+import type { AnimationSequence, SlideFrameMeta } from "@/_types/slide-preview";
 import { decodeSlides } from "@/lib/slidePreview/decodeSlides";
 import { Button, Spin } from "antd";
-import { type FC, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { TbChevronLeft, TbChevronRight } from "react-icons/tb";
+import {
+  type FC,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  TbChevronLeft,
+  TbChevronRight,
+  TbPlayerPause,
+  TbPlayerPlay,
+} from "react-icons/tb";
 
 type DecodedAnimation = {
   x: number;
@@ -210,17 +222,66 @@ const MainView: FC<{
   bitmapMap: { current: Map<number, ImageBitmap> };
   animationMap: { current: Map<number, DecodedAnimation[]> };
   selectedIndex: number;
+  animation: AnimationSequence | null;
   onPrevious: () => void;
   onNext: () => void;
+  onSelectFrame: (index: number) => void;
 }> = ({
   frames,
   bitmapMap,
   animationMap,
   selectedIndex,
+  animation,
   onPrevious,
   onNext,
+  onSelectFrame,
 }) => {
   const selectedFrame = frames[selectedIndex];
+  const [isPlaying, setIsPlaying] = useState(false);
+  const animationPosRef = useRef(0);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stopAnimation = useCallback(() => {
+    if (timeoutRef.current !== null) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    setIsPlaying(false);
+  }, []);
+
+  const scheduleNext = useCallback(
+    (pos: number) => {
+      if (!animation) return;
+      const current = animation[pos];
+      timeoutRef.current = setTimeout(() => {
+        const nextPos = (pos + 1) % animation.length;
+        animationPosRef.current = nextPos;
+        onSelectFrame(animation[nextPos].frameIndex);
+        scheduleNext(nextPos);
+      }, current.duration);
+    },
+    [animation, onSelectFrame],
+  );
+
+  const startAnimation = useCallback(() => {
+    if (!animation || animation.length === 0) return;
+    setIsPlaying(true);
+    const startPos = animationPosRef.current;
+    onSelectFrame(animation[startPos].frameIndex);
+    scheduleNext(startPos);
+  }, [animation, onSelectFrame, scheduleNext]);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: animation change triggers position reset
+  useEffect(() => {
+    stopAnimation();
+    animationPosRef.current = 0;
+  }, [animation, stopAnimation]);
 
   return (
     <div className="flex flex-col gap-4 flex-1 md:w-3/4 md:px-4 md:py-2">
@@ -241,9 +302,25 @@ const MainView: FC<{
           disabled={selectedIndex <= 0}
         />
 
-        <div className="text-sm text-center text-primary">
-          スライド {selectedIndex + 1} / {frames.length}
+        <div className="flex items-center gap-2">
+          <div className="text-sm text-center text-primary">
+            スライド {selectedIndex + 1} / {frames.length}
+          </div>
+          {animation && (
+            <Button
+              type="default"
+              icon={
+                isPlaying ? (
+                  <TbPlayerPause size={16} />
+                ) : (
+                  <TbPlayerPlay size={16} />
+                )
+              }
+              onClick={isPlaying ? stopAnimation : startAnimation}
+            />
+          )}
         </div>
+
         {/* Next Button */}
         <Button
           type="primary"
@@ -261,6 +338,7 @@ const SlidePreviewContainer: FC<{
   bitmapMap: { current: Map<number, ImageBitmap> };
   animationMap: { current: Map<number, DecodedAnimation[]> };
   selectedIndex: number;
+  animation: AnimationSequence | null;
   onSelectFrame: (index: number) => void;
   onPrevious: () => void;
   onNext: () => void;
@@ -269,6 +347,7 @@ const SlidePreviewContainer: FC<{
   bitmapMap,
   animationMap,
   selectedIndex,
+  animation,
   onSelectFrame,
   onPrevious,
   onNext,
@@ -286,8 +365,10 @@ const SlidePreviewContainer: FC<{
         bitmapMap={bitmapMap}
         animationMap={animationMap}
         selectedIndex={selectedIndex}
+        animation={animation}
         onPrevious={onPrevious}
         onNext={onNext}
+        onSelectFrame={onSelectFrame}
       />
     </div>
   );
@@ -309,6 +390,7 @@ const imageDataToBitmap = async (data: ImageData): Promise<ImageBitmap> => {
 
 export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
   const [frames, setFrames] = useState<SlideFrameMeta[] | null>(null);
+  const [animation, setAnimation] = useState<AnimationSequence | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const bitmapMap = useRef<Map<number, ImageBitmap>>(new Map());
@@ -316,6 +398,7 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
 
   useEffect(() => {
     setFrames(null);
+    setAnimation(null);
     setError(null);
     setSelectedIndex(0);
     for (const bitmap of bitmapMap.current.values()) bitmap.close();
@@ -336,9 +419,10 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
           const map = new Map<number, ImageBitmap>();
           const meta: SlideFrameMeta[] = [];
           nextMap = map;
+          const remainingFrames = [...result.frames];
 
-          while (result.length > 0) {
-            const f = result.shift();
+          while (remainingFrames.length > 0) {
+            const f = remainingFrames.shift();
             if (!f) break;
             if (controller.signal.aborted) break;
 
@@ -379,6 +463,7 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
             animationMap.current = nextAnimMap;
             nextMap = null;
             setFrames(meta);
+            setAnimation(result.animation);
           }
         }
       } catch (e: unknown) {
@@ -445,6 +530,7 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
       bitmapMap={bitmapMap}
       animationMap={animationMap}
       selectedIndex={selectedIndex}
+      animation={animation}
       onSelectFrame={setSelectedIndex}
       onPrevious={handlePrevious}
       onNext={handleNext}
