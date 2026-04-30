@@ -351,10 +351,13 @@ export const extractGifAnimations = async (
             return null;
           }
 
+          const GIF_SIZE_CAP = 20 * 1024 * 1024; // 20 MB
           const contentLength = fullResponse.headers.get("Content-Length");
-          if (contentLength && Number(contentLength) > 20 * 1024 * 1024)
-            return null; // 20 MB cap
+          if (contentLength && Number(contentLength) > GIF_SIZE_CAP)
+            return null;
           const buffer = await fullResponse.arrayBuffer();
+          // Post-buffer cap for chunked responses where Content-Length is absent
+          if (buffer.byteLength > GIF_SIZE_CAP) return null;
           if (!isGif(buffer)) return null;
 
           const gif = parseGIF(buffer);

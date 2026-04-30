@@ -309,7 +309,15 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
 
   let animation: AnimationSequence | null = null;
   if (manifest.m) {
-    const firstDeviceKey = Object.keys(manifest.m)[0];
+    const deviceKeys = Object.keys(manifest.m);
+    // Preview uses only the first device key. Multi-device EIA files carry separate
+    // sequences per display profile; selecting one is intentional here.
+    if (deviceKeys.length > 1) {
+      console.warn(
+        `EIA manifest has ${deviceKeys.length} device keys; preview uses only "${deviceKeys[0]}"`,
+      );
+    }
+    const firstDeviceKey = deviceKeys[0];
     if (firstDeviceKey !== undefined) {
       const items = manifest.m[firstDeviceKey];
       const seq: AnimationFrame[] = [];
