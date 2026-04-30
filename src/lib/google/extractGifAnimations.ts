@@ -15,8 +15,8 @@ const MAX_SOURCE_GIF_DIMENSION = 4096;
 const MAX_STORED_FRAME_DIMENSION = 512;
 const MAX_FRAMES = 60;
 const MAX_SOURCE_FRAMES = 500;
-const TARGET_FPS = 2;
-const TARGET_FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
+const MAX_PREVIEW_FPS = 15;
+const GIF_SIZE_CAP = 20 * 1024 * 1024; // 20 MB
 
 const isGif = (buffer: ArrayBuffer): boolean => {
   if (buffer.byteLength < 6) return false;
@@ -122,13 +122,28 @@ const computeAABBFromTransformedCorners = (
 };
 
 /**
- * Returns an ordered array of frame indices to output at TARGET_FPS.
- * A single source frame may appear multiple times if its delay spans
- * several TARGET_FRAME_INTERVAL_MS buckets, preserving correct playback tempo.
+ * Derives a preview FPS from the source GIF's median frame delay, capped at MAX_PREVIEW_FPS.
+ * Avoids downsampling smooth GIFs to the old fixed 2 fps.
  */
-const sampleFrameIndices = (frames: ParsedFrame[]): number[] => {
+const derivePreviewFps = (frames: ParsedFrame[]): number => {
+  if (frames.length === 0) return MAX_PREVIEW_FPS;
+  const delays = frames.map((f) => f.delay || 100).sort((a, b) => a - b);
+  const medianDelay = delays[Math.floor(delays.length / 2)];
+  return Math.min(MAX_PREVIEW_FPS, Math.max(1, Math.round(1000 / medianDelay)));
+};
+
+/**
+ * Returns an ordered array of frame indices to output at targetFps.
+ * A single source frame may appear multiple times if its delay spans
+ * several target-interval buckets, preserving correct playback tempo.
+ */
+const sampleFrameIndices = (
+  frames: ParsedFrame[],
+  targetFps: number,
+): number[] => {
   if (frames.length <= 1) return [0];
 
+  const targetIntervalMs = 1000 / targetFps;
   const indices: number[] = [];
   let accumulatedMs = 0;
   let nextSampleMs = 0;
@@ -140,7 +155,7 @@ const sampleFrameIndices = (frames: ParsedFrame[]): number[] => {
     // Emit this frame once per interval bucket it covers
     while (accumulatedMs > nextSampleMs && indices.length < MAX_FRAMES) {
       indices.push(i);
-      nextSampleMs += TARGET_FRAME_INTERVAL_MS;
+      nextSampleMs += targetIntervalMs;
     }
   }
   return indices.length > 0 ? indices : [0];
@@ -351,13 +366,40 @@ export const extractGifAnimations = async (
             return null;
           }
 
-          const GIF_SIZE_CAP = 20 * 1024 * 1024; // 20 MB
+          // Reject before downloading if Content-Length is known and exceeds cap.
           const contentLength = fullResponse.headers.get("Content-Length");
           if (contentLength && Number(contentLength) > GIF_SIZE_CAP)
             return null;
-          const buffer = await fullResponse.arrayBuffer();
-          // Post-buffer cap for chunked responses where Content-Length is absent
-          if (buffer.byteLength > GIF_SIZE_CAP) return null;
+
+          // Read body in chunks so we can abort early without buffering everything.
+          const reader = fullResponse.body?.getReader();
+          if (!reader) return null;
+          const chunks: Uint8Array[] = [];
+          let totalSize = 0;
+          let oversized = false;
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              totalSize += value.byteLength;
+              if (totalSize > GIF_SIZE_CAP) {
+                oversized = true;
+                break;
+              }
+              chunks.push(value);
+            }
+          } finally {
+            reader.cancel();
+          }
+          if (oversized) return null;
+
+          const bodyBytes = new Uint8Array(totalSize);
+          let byteOffset = 0;
+          for (const chunk of chunks) {
+            bodyBytes.set(chunk, byteOffset);
+            byteOffset += chunk.byteLength;
+          }
+          const buffer = bodyBytes.buffer;
           if (!isGif(buffer)) return null;
 
           const gif = parseGIF(buffer);
@@ -465,7 +507,8 @@ export const extractGifAnimations = async (
   const results = nonIntersectingAnimatedCandidates
     .map(({ pixelRect, rawFrames, gifWidth, gifHeight }) => {
       try {
-        const sampleIndices = sampleFrameIndices(rawFrames);
+        const previewFps = derivePreviewFps(rawFrames);
+        const sampleIndices = sampleFrameIndices(rawFrames, previewFps);
         const { w: targetW, h: targetH } = clampDimensions(gifWidth, gifHeight);
         const { w: storedFrameW, h: storedFrameH } = clampDimensions(
           pixelRect.w,
@@ -499,7 +542,7 @@ export const extractGifAnimations = async (
           y: pixelRect.y,
           w: pixelRect.w,
           h: pixelRect.h,
-          fps: TARGET_FPS,
+          fps: previewFps,
           frames,
         } satisfies SelectedFileAnimation;
       } catch (e) {
