@@ -366,11 +366,6 @@ export const extractGifAnimations = async (
             return null;
           }
 
-          // Reject before downloading if Content-Length is known and exceeds cap.
-          const contentLength = fullResponse.headers.get("Content-Length");
-          if (contentLength && Number(contentLength) > GIF_SIZE_CAP)
-            return null;
-
           // Read body in chunks so we can abort early without buffering everything.
           const reader = fullResponse.body?.getReader();
           if (!reader) return null;
@@ -541,7 +536,7 @@ export const extractGifAnimations = async (
             storedFrameW,
             storedFrameH,
           );
-          frameCanvas.width = 0;
+          // OffscreenCanvas has no close() — rely on GC for resource release.
           return result;
         });
 
