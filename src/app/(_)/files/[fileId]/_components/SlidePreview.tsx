@@ -120,6 +120,8 @@ const MainSlideDisplay: FC<{
         const anim = animations[i];
         if (anim.frames.length === 0) continue;
 
+        if (!Number.isFinite(anim.fps) || anim.fps <= 0) continue;
+
         if (lastTimes[i] < 0) {
           // First draw: initialize this animation's timer
           lastTimes[i] = time;
@@ -393,12 +395,16 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
     const anim = animationRef.current;
     if (!anim) return;
     const current = anim[pos];
+    const duration =
+      Number.isFinite(current.duration) && current.duration > 0
+        ? current.duration
+        : 100;
     timeoutRef.current = setTimeout(() => {
       const nextPos = (pos + 1) % anim.length;
       animationPosRef.current = nextPos;
       setSelectedIndex(anim[nextPos].frameIndex);
       scheduleNext(nextPos);
-    }, current.duration);
+    }, duration);
   }, []);
 
   const startAnimation = useCallback(() => {
