@@ -125,9 +125,12 @@ const MainSlideDisplay: FC<{
           lastTimes[i] = time;
         } else {
           const interval = 1000 / anim.fps;
-          if (time - lastTimes[i] >= interval) {
+          const elapsed = time - lastTimes[i];
+          if (elapsed >= interval) {
             frameIndices[i] = (frameIndices[i] + 1) % anim.frames.length;
-            lastTimes[i] += interval;
+            // Absorb all accumulated lag (e.g. after tab hide/show) into a single
+            // frame advance, preserving only the sub-interval remainder.
+            lastTimes[i] = time - (elapsed % interval);
           }
         }
 
