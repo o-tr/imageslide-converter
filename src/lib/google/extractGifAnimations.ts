@@ -306,7 +306,6 @@ export const extractGifAnimations = async (
   token: string,
 ): Promise<SelectedFileAnimation[]> => {
   if (!token) {
-    console.warn("extractGifAnimations: empty token, skipping GIF extraction");
     return [];
   }
 
@@ -351,28 +350,13 @@ export const extractGifAnimations = async (
         const contentUrl = element.image?.contentUrl;
         if (!contentUrl || !isTrustedOrigin(contentUrl)) return null;
         try {
-          const rangeSniffResponse = await fetch(contentUrl, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Range: "bytes=0-5",
-            },
-          });
-          if (!rangeSniffResponse.ok) return null;
+          // lh7-rt.googleusercontent.com does not return CORS headers, so proxy through our own server.
+          const proxyUrl = `/api/proxy-google-image?url=${encodeURIComponent(contentUrl)}`;
+          const fullResponse = await fetch(proxyUrl);
+          if (!fullResponse.ok) return null;
 
-          const headerBuffer = await rangeSniffResponse.arrayBuffer();
-          if (!isGif(headerBuffer)) return null;
-
-          let buffer = headerBuffer;
-          if (
-            rangeSniffResponse.status === 206 ||
-            headerBuffer.byteLength <= 6
-          ) {
-            const fullResponse = await fetch(contentUrl, {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            if (!fullResponse.ok) return null;
-            buffer = await fullResponse.arrayBuffer();
-          }
+          const buffer = await fullResponse.arrayBuffer();
+          if (!isGif(buffer)) return null;
 
           const gif = parseGIF(buffer);
           const gifWidth = gif.lsd.width;
@@ -439,13 +423,24 @@ export const extractGifAnimations = async (
     );
   }
 
+  // Z-order: elements later in pageElements are drawn on top (higher Z).
+  // Only elements drawn ABOVE the GIF can obscure it; elements below are already
+  // baked into the base slide composite and do not cause artifacts.
+  const elementZOrder = new Map<SlidePageElement, number>();
+  for (let i = 0; i < pageElements.length; i++) {
+    elementZOrder.set(pageElements[i], i);
+  }
+
   const animatedElements = new Set(animatedGifCandidates.map((c) => c.element));
   const intersectingNonAnimatedIndices = new Set<number>();
   for (let i = 0; i < animatedGifCandidates.length; i++) {
     const candidate = animatedGifCandidates[i];
+    const gifZ = elementZOrder.get(candidate.element) ?? 0;
     for (const positioned of positionedElements) {
       if (positioned.element === candidate.element) continue;
       if (animatedElements.has(positioned.element)) continue;
+      const posZ = elementZOrder.get(positioned.element) ?? 0;
+      if (posZ <= gifZ) continue; // Below the GIF — composited into background, safe to ignore
       if (rectsIntersect(candidate.pixelRect, positioned.pixelRect)) {
         intersectingNonAnimatedIndices.add(i);
         break;
@@ -455,7 +450,7 @@ export const extractGifAnimations = async (
 
   if (intersectingNonAnimatedIndices.size > 0) {
     console.warn(
-      `extractGifAnimations: skipping ${intersectingNonAnimatedIndices.size} animated GIF element(s) overlapping non-animated elements; preserving foreground overlap is not supported with RGB24 animation encoding`,
+      `extractGifAnimations: skipping ${intersectingNonAnimatedIndices.size} animated GIF element(s) with higher-Z non-animated elements overlapping; foreground overlap is not supported with RGB24 animation encoding`,
     );
   }
 
