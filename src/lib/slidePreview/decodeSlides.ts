@@ -66,13 +66,16 @@ export const decodeSlides = async (
       allFrames.push({ ...sorted[i], index: offset + i });
     }
 
-    if (partResult.animation && !mergedAnimation) {
-      mergedAnimation = partResult.animation.map(
+    if (partResult.animation) {
+      const adjusted = partResult.animation.map(
         (f: AnimationFrame): AnimationFrame => ({
           ...f,
           frameIndex: f.frameIndex + offset,
         }),
       );
+      mergedAnimation = mergedAnimation
+        ? [...mergedAnimation, ...adjusted]
+        : adjusted;
     }
   }
 

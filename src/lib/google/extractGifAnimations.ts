@@ -8,23 +8,7 @@ import type {
 } from "@/_types/lib/google/slideGeometry";
 import { type ParsedFrame, decompressFrames, parseGIF } from "gifuct-js";
 import { emuToPixelRect } from "./emuToPixel";
-
-const TRUSTED_HOSTNAMES = [
-  ".google.com",
-  ".googleapis.com",
-  ".googleusercontent.com",
-];
-
-const isTrustedOrigin = (url: string): boolean => {
-  try {
-    const { hostname } = new URL(url);
-    return TRUSTED_HOSTNAMES.some(
-      (suffix) => hostname === suffix.slice(1) || hostname.endsWith(suffix),
-    );
-  } catch {
-    return false;
-  }
-};
+import { isTrustedOrigin } from "./trustedOrigins";
 
 const MAX_GIF_DIMENSION = 256;
 const MAX_SOURCE_GIF_DIMENSION = 4096;
@@ -354,6 +338,18 @@ export const extractGifAnimations = async (
           const proxyUrl = `/api/proxy-google-image?url=${encodeURIComponent(contentUrl)}`;
           const fullResponse = await fetch(proxyUrl);
           if (!fullResponse.ok) return null;
+
+          // Skip non-GIF content early if Content-Type indicates it's not a GIF.
+          // Fall through for octet-stream/missing headers and let isGif() verify the bytes.
+          const contentType = fullResponse.headers.get("Content-Type") ?? "";
+          if (
+            contentType.length > 0 &&
+            !contentType.includes("gif") &&
+            !contentType.includes("octet-stream")
+          ) {
+            await fullResponse.body?.cancel();
+            return null;
+          }
 
           const buffer = await fullResponse.arrayBuffer();
           if (!isGif(buffer)) return null;

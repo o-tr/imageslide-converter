@@ -226,65 +226,24 @@ const MainView: FC<{
   animationMap: { current: Map<number, DecodedAnimation[]> };
   selectedIndex: number;
   animation: AnimationSequence | null;
+  isPlaying: boolean;
   onPrevious: () => void;
   onNext: () => void;
-  onSelectFrame: (index: number) => void;
+  startAnimation: () => void;
+  stopAnimation: () => void;
 }> = ({
   frames,
   bitmapMap,
   animationMap,
   selectedIndex,
   animation,
+  isPlaying,
   onPrevious,
   onNext,
-  onSelectFrame,
+  startAnimation,
+  stopAnimation,
 }) => {
   const selectedFrame = frames[selectedIndex];
-  const [isPlaying, setIsPlaying] = useState(false);
-  const animationPosRef = useRef(0);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const stopAnimation = useCallback(() => {
-    if (timeoutRef.current !== null) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-    setIsPlaying(false);
-  }, []);
-
-  const scheduleNext = useCallback(
-    (pos: number) => {
-      if (!animation) return;
-      const current = animation[pos];
-      timeoutRef.current = setTimeout(() => {
-        const nextPos = (pos + 1) % animation.length;
-        animationPosRef.current = nextPos;
-        onSelectFrame(animation[nextPos].frameIndex);
-        scheduleNext(nextPos);
-      }, current.duration);
-    },
-    [animation, onSelectFrame],
-  );
-
-  const startAnimation = useCallback(() => {
-    if (!animation || animation.length === 0) return;
-    setIsPlaying(true);
-    const startPos = animationPosRef.current;
-    onSelectFrame(animation[startPos].frameIndex);
-    scheduleNext(startPos);
-  }, [animation, onSelectFrame, scheduleNext]);
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
-    };
-  }, []);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: animation change triggers position reset
-  useEffect(() => {
-    stopAnimation();
-    animationPosRef.current = 0;
-  }, [animation, stopAnimation]);
 
   return (
     <div className="flex flex-col gap-4 flex-1 md:w-3/4 md:px-4 md:py-2">
@@ -320,6 +279,12 @@ const MainView: FC<{
                 )
               }
               onClick={isPlaying ? stopAnimation : startAnimation}
+              aria-label={
+                isPlaying ? "アニメーションを一時停止" : "アニメーションを再生"
+              }
+              title={
+                isPlaying ? "アニメーションを一時停止" : "アニメーションを再生"
+              }
             />
           )}
         </div>
@@ -342,18 +307,24 @@ const SlidePreviewContainer: FC<{
   animationMap: { current: Map<number, DecodedAnimation[]> };
   selectedIndex: number;
   animation: AnimationSequence | null;
+  isPlaying: boolean;
   onSelectFrame: (index: number) => void;
   onPrevious: () => void;
   onNext: () => void;
+  startAnimation: () => void;
+  stopAnimation: () => void;
 }> = ({
   frames,
   bitmapMap,
   animationMap,
   selectedIndex,
   animation,
+  isPlaying,
   onSelectFrame,
   onPrevious,
   onNext,
+  startAnimation,
+  stopAnimation,
 }) => {
   return (
     <div className="flex flex-col-reverse md:flex-row gap-2 h-auto aspect-video rounded bg-secondary p-2">
@@ -369,9 +340,11 @@ const SlidePreviewContainer: FC<{
         animationMap={animationMap}
         selectedIndex={selectedIndex}
         animation={animation}
+        isPlaying={isPlaying}
         onPrevious={onPrevious}
         onNext={onNext}
-        onSelectFrame={onSelectFrame}
+        startAnimation={startAnimation}
+        stopAnimation={stopAnimation}
       />
     </div>
   );
@@ -396,8 +369,83 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
   const [animation, setAnimation] = useState<AnimationSequence | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
   const bitmapMap = useRef<Map<number, ImageBitmap>>(new Map());
   const animationMap = useRef<Map<number, DecodedAnimation[]>>(new Map());
+  const animationRef = useRef<AnimationSequence | null>(null);
+  const animationPosRef = useRef(0);
+  const selectedIndexRef = useRef(0);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Keep refs in sync so callbacks always see the latest values without stale closures
+  animationRef.current = animation;
+  selectedIndexRef.current = selectedIndex;
+
+  const stopAnimation = useCallback(() => {
+    if (timeoutRef.current !== null) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    setIsPlaying(false);
+  }, []);
+
+  const scheduleNext = useCallback((pos: number) => {
+    const anim = animationRef.current;
+    if (!anim) return;
+    const current = anim[pos];
+    timeoutRef.current = setTimeout(() => {
+      const nextPos = (pos + 1) % anim.length;
+      animationPosRef.current = nextPos;
+      setSelectedIndex(anim[nextPos].frameIndex);
+      scheduleNext(nextPos);
+    }, current.duration);
+  }, []);
+
+  const startAnimation = useCallback(() => {
+    const anim = animationRef.current;
+    if (!anim || anim.length === 0) return;
+    // Sync start position to the currently displayed slide via ref (avoids side effects in state updater)
+    const matchPos = anim.findIndex(
+      (f) => f.frameIndex === selectedIndexRef.current,
+    );
+    const startPos = matchPos >= 0 ? matchPos : 0;
+    animationPosRef.current = startPos;
+    setSelectedIndex(anim[startPos].frameIndex);
+    setIsPlaying(true);
+    scheduleNext(startPos);
+  }, [scheduleNext]);
+
+  // Stop animation and reset position when the animation sequence changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: animation change triggers position reset
+  useEffect(() => {
+    stopAnimation();
+    animationPosRef.current = 0;
+  }, [animation, stopAnimation]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  const handlePrevious = useCallback(() => {
+    stopAnimation();
+    setSelectedIndex((prev) => Math.max(0, prev - 1));
+  }, [stopAnimation]);
+
+  const handleNext = useCallback(() => {
+    stopAnimation();
+    setSelectedIndex((prev) => Math.min((frames?.length ?? 1) - 1, prev + 1));
+  }, [stopAnimation, frames]);
+
+  const handleSelectFrame = useCallback(
+    (index: number) => {
+      stopAnimation();
+      setSelectedIndex(index);
+    },
+    [stopAnimation],
+  );
 
   useEffect(() => {
     setFrames(null);
@@ -499,14 +547,6 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
     };
   }, [urls]);
 
-  const handlePrevious = () => {
-    setSelectedIndex((prev) => Math.max(0, prev - 1));
-  };
-
-  const handleNext = () => {
-    setSelectedIndex((prev) => Math.min((frames?.length ?? 0) - 1, prev + 1));
-  };
-
   if (error) {
     return <p className="text-sm text-gray-400">{error}</p>;
   }
@@ -534,9 +574,12 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
       animationMap={animationMap}
       selectedIndex={selectedIndex}
       animation={animation}
-      onSelectFrame={setSelectedIndex}
+      isPlaying={isPlaying}
+      onSelectFrame={handleSelectFrame}
       onPrevious={handlePrevious}
       onNext={handleNext}
+      startAnimation={startAnimation}
+      stopAnimation={stopAnimation}
     />
   );
 };

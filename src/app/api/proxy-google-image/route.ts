@@ -1,21 +1,12 @@
-const TRUSTED_HOSTNAMES = [
-  ".google.com",
-  ".googleapis.com",
-  ".googleusercontent.com",
-];
-
-const isTrustedOrigin = (url: string): boolean => {
-  try {
-    const { hostname } = new URL(url);
-    return TRUSTED_HOSTNAMES.some(
-      (suffix) => hostname === suffix.slice(1) || hostname.endsWith(suffix),
-    );
-  } catch {
-    return false;
-  }
-};
+import { auth } from "@/auth";
+import { isTrustedOrigin } from "@/lib/google/trustedOrigins";
 
 export async function GET(request: Request): Promise<Response> {
+  const session = await auth();
+  if (!session?.user) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const targetUrl = searchParams.get("url");
 
@@ -29,16 +20,18 @@ export async function GET(request: Request): Promise<Response> {
       return new Response(null, { status: upstream.status });
     }
 
-    const buffer = await upstream.arrayBuffer();
     const contentType =
       upstream.headers.get("Content-Type") ?? "application/octet-stream";
+    const contentLength = upstream.headers.get("Content-Length");
 
-    return new Response(buffer, {
-      headers: {
-        "Content-Type": contentType,
-        "Cache-Control": "private, max-age=300",
-      },
-    });
+    const headers: Record<string, string> = {
+      "Content-Type": contentType,
+      "Cache-Control": "private, max-age=300",
+      "X-Content-Type-Options": "nosniff",
+    };
+    if (contentLength) headers["Content-Length"] = contentLength;
+
+    return new Response(upstream.body ?? new Uint8Array(0), { headers });
   } catch {
     return new Response("Internal Server Error", { status: 500 });
   }
