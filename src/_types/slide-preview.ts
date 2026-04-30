@@ -29,7 +29,13 @@ export type AnimationFrame = {
 
 export type AnimationSequence = AnimationFrame[];
 
+export type RawSignageItem = {
+  frameName: string; // EIA frame name (e.g. "5"), used for cross-part global resolution
+  duration: number; // ms
+};
+
 export type DecodeResult = {
   frames: SlideFrame[];
   animation: AnimationSequence | null;
+  rawSignageItems?: RawSignageItem[]; // present for EIA files; used by decodeSlides for global ordering
 };

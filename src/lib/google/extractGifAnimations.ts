@@ -475,14 +475,22 @@ export const extractGifAnimations = async (
     elementZOrder.set(pageElements[i], i);
   }
 
-  const animatedElements = new Set(animatedGifCandidates.map((c) => c.element));
+  // Only GIFs that survived GIF-to-GIF intersection are still animated at render time.
+  // GIFs removed by that filter are now static pixels in the base canvas and must be
+  // treated as potential non-animated foreground blockers for surviving candidates.
+  const survivingAnimatedElements = new Set(
+    animatedGifCandidates
+      .filter((_, i) => !intersectingElementIndices.has(i))
+      .map((c) => c.element),
+  );
   const intersectingNonAnimatedIndices = new Set<number>();
   for (let i = 0; i < animatedGifCandidates.length; i++) {
+    if (intersectingElementIndices.has(i)) continue; // already filtered, skip
     const candidate = animatedGifCandidates[i];
     const gifZ = elementZOrder.get(candidate.element) ?? 0;
     for (const positioned of positionedElements) {
       if (positioned.element === candidate.element) continue;
-      if (animatedElements.has(positioned.element)) continue;
+      if (survivingAnimatedElements.has(positioned.element)) continue;
       const posZ = elementZOrder.get(positioned.element) ?? 0;
       if (posZ <= gifZ) continue; // Below the GIF — composited into background, safe to ignore
       if (rectsIntersect(candidate.pixelRect, positioned.pixelRect)) {

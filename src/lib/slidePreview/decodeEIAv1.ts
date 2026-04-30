@@ -9,6 +9,7 @@ import type {
   AnimationFrame,
   AnimationSequence,
   DecodeResult,
+  RawSignageItem,
   SlideAnimation,
   SlideFrame,
 } from "@/_types/slide-preview";
@@ -308,6 +309,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
   }
 
   let animation: AnimationSequence | null = null;
+  let rawSignageItems: RawSignageItem[] | undefined;
   if (manifest.m) {
     const deviceKeys = Object.keys(manifest.m);
     // Preview uses only the first device key. Multi-device EIA files carry separate
@@ -320,6 +322,11 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
     const firstDeviceKey = deviceKeys[0];
     if (firstDeviceKey !== undefined) {
       const items = manifest.m[firstDeviceKey];
+      // Preserve raw frame names so decodeSlides can do cross-part global resolution
+      rawSignageItems = items.map((item) => ({
+        frameName: item.f,
+        duration: item.d,
+      }));
       const seq: AnimationFrame[] = [];
       for (const item of items) {
         const arrayPos = nameToIndex.get(item.f);
@@ -330,5 +337,5 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
     }
   }
 
-  return { frames: sortedFrames, animation };
+  return { frames: sortedFrames, animation, rawSignageItems };
 };
