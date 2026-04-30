@@ -15,7 +15,10 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   try {
-    const upstream = await fetch(targetUrl);
+    const upstream = await fetch(targetUrl, { redirect: "manual" });
+    if (upstream.status >= 300 && upstream.status < 400) {
+      return new Response("Forbidden", { status: 403 });
+    }
     if (!upstream.ok) {
       return new Response(null, { status: upstream.status });
     }

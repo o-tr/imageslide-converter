@@ -402,6 +402,7 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
   }, []);
 
   const startAnimation = useCallback(() => {
+    stopAnimation(); // clear any orphaned timer before starting a new chain
     const anim = animationRef.current;
     if (!anim || anim.length === 0) return;
     // Sync start position to the currently displayed slide via ref (avoids side effects in state updater)
@@ -413,7 +414,7 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
     setSelectedIndex(anim[startPos].frameIndex);
     setIsPlaying(true);
     scheduleNext(startPos);
-  }, [scheduleNext]);
+  }, [scheduleNext, stopAnimation]);
 
   // Stop animation and reset position when the animation sequence changes
   // biome-ignore lint/correctness/useExhaustiveDependencies: animation change triggers position reset
