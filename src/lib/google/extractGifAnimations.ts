@@ -389,7 +389,7 @@ export const extractGifAnimations = async (
               chunks.push(value);
             }
           } finally {
-            reader.cancel();
+            await reader.cancel();
           }
           if (oversized) return null;
 

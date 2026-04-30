@@ -25,14 +25,14 @@ export async function GET(request: Request): Promise<Response> {
 
     const contentType =
       upstream.headers.get("Content-Type") ?? "application/octet-stream";
-    const contentLength = upstream.headers.get("Content-Length");
 
+    // Do not forward Content-Length: fetch() decompresses gzip/brotli transparently,
+    // so the upstream value reflects the compressed size and would mismatch the body.
     const headers: Record<string, string> = {
       "Content-Type": contentType,
       "Cache-Control": "private, max-age=300",
       "X-Content-Type-Options": "nosniff",
     };
-    if (contentLength) headers["Content-Length"] = contentLength;
 
     return new Response(upstream.body ?? new Uint8Array(0), { headers });
   } catch {
