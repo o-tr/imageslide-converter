@@ -351,6 +351,9 @@ export const extractGifAnimations = async (
             return null;
           }
 
+          const contentLength = fullResponse.headers.get("Content-Length");
+          if (contentLength && Number(contentLength) > 20 * 1024 * 1024)
+            return null; // 20 MB cap
           const buffer = await fullResponse.arrayBuffer();
           if (!isGif(buffer)) return null;
 
