@@ -6,33 +6,17 @@ import type {
   PageSize,
   PixelRect,
 } from "@/_types/lib/google/slideGeometry";
+import { GIF_SIZE_CAP } from "@/const/config";
 import { type ParsedFrame, decompressFrames, parseGIF } from "gifuct-js";
 import { emuToPixelRect } from "./emuToPixel";
-
-const TRUSTED_HOSTNAMES = [
-  ".google.com",
-  ".googleapis.com",
-  ".googleusercontent.com",
-];
-
-const isTrustedOrigin = (url: string): boolean => {
-  try {
-    const { hostname } = new URL(url);
-    return TRUSTED_HOSTNAMES.some(
-      (suffix) => hostname === suffix.slice(1) || hostname.endsWith(suffix),
-    );
-  } catch {
-    return false;
-  }
-};
+import { isTrustedOrigin } from "./trustedOrigins";
 
 const MAX_GIF_DIMENSION = 256;
 const MAX_SOURCE_GIF_DIMENSION = 4096;
 const MAX_STORED_FRAME_DIMENSION = 512;
 const MAX_FRAMES = 60;
 const MAX_SOURCE_FRAMES = 500;
-const TARGET_FPS = 2;
-const TARGET_FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
+const MAX_PREVIEW_FPS = 15;
 
 const isGif = (buffer: ArrayBuffer): boolean => {
   if (buffer.byteLength < 6) return false;
@@ -138,13 +122,32 @@ const computeAABBFromTransformedCorners = (
 };
 
 /**
- * Returns an ordered array of frame indices to output at TARGET_FPS.
- * A single source frame may appear multiple times if its delay spans
- * several TARGET_FRAME_INTERVAL_MS buckets, preserving correct playback tempo.
+ * Derives a preview FPS from the source GIF's median frame delay, capped at MAX_PREVIEW_FPS.
+ * Avoids downsampling smooth GIFs to the old fixed 2 fps.
  */
-const sampleFrameIndices = (frames: ParsedFrame[]): number[] => {
+const derivePreviewFps = (frames: ParsedFrame[]): number => {
+  if (frames.length === 0) return MAX_PREVIEW_FPS;
+  // gifuct-js converts GCE delay (centiseconds) to ms via × 10; fall back to 100 ms
+  // (matching sampleFrameIndices) when the field is missing or zero.
+  const delays = frames.map((f) => f.delay || 100).sort((a, b) => a - b);
+  // Use lower-median index so even-length arrays don't pick the slower half.
+  // e.g. [100ms, 500ms] → lower median 100ms → 10fps, not upper median 500ms → 2fps.
+  const medianDelay = delays[Math.floor((delays.length - 1) / 2)];
+  return Math.min(MAX_PREVIEW_FPS, Math.max(1, Math.round(1000 / medianDelay)));
+};
+
+/**
+ * Returns an ordered array of frame indices to output at targetFps.
+ * A single source frame may appear multiple times if its delay spans
+ * several target-interval buckets, preserving correct playback tempo.
+ */
+const sampleFrameIndices = (
+  frames: ParsedFrame[],
+  targetFps: number,
+): number[] => {
   if (frames.length <= 1) return [0];
 
+  const targetIntervalMs = 1000 / targetFps;
   const indices: number[] = [];
   let accumulatedMs = 0;
   let nextSampleMs = 0;
@@ -156,7 +159,7 @@ const sampleFrameIndices = (frames: ParsedFrame[]): number[] => {
     // Emit this frame once per interval bucket it covers
     while (accumulatedMs > nextSampleMs && indices.length < MAX_FRAMES) {
       indices.push(i);
-      nextSampleMs += TARGET_FRAME_INTERVAL_MS;
+      nextSampleMs += targetIntervalMs;
     }
   }
   return indices.length > 0 ? indices : [0];
@@ -227,6 +230,12 @@ const buildComposedFrames = (
     );
     const dstData = imageData.data;
     const srcData = frame.patch;
+    const expectedLength = frame.dims.width * frame.dims.height * 4;
+    if (srcData.length < expectedLength) {
+      console.warn(
+        `GIF frame patch is smaller than expected: got ${srcData.length} bytes, expected ${expectedLength} (${frame.dims.width}×${frame.dims.height})`,
+      );
+    }
     const pixelCount = Math.min(srcData.length, dstData.length);
     for (let p = 0; p < pixelCount; p += 4) {
       const srcA = srcData[p + 3] / 255;
@@ -234,6 +243,9 @@ const buildComposedFrames = (
 
       const dstA = dstData[p + 3] / 255;
       const outA = srcA + dstA * (1 - srcA);
+      // outA === 0 is unreachable here (srcA > 0 guarantees outA > 0) but guards
+      // against division by zero if floating-point behaviour ever changes.
+      if (outA === 0) continue;
 
       dstData[p] = Math.round(
         (srcData[p] * srcA + dstData[p] * dstA * (1 - srcA)) / outA,
@@ -303,18 +315,22 @@ export const extractGifAnimations = async (
   pageSize: PageSize,
   canvasSize: CanvasSize,
   baseSlideCanvas: OffscreenCanvas,
-  token: string,
+  signal?: AbortSignal,
 ): Promise<SelectedFileAnimation[]> => {
-  if (!token) {
-    return [];
-  }
-
   const imageElements = pageElements
     .map((element) => {
       const contentUrl = element.image?.contentUrl;
       if (!contentUrl) return null;
       const pixelRect = toPixelRect(element, pageSize, canvasSize);
-      if (!pixelRect) return null;
+      if (!pixelRect) {
+        // Sheared or unsupported-transform image elements cannot be projected to
+        // a pixel rect and are not checked for GIF candidacy.
+        console.warn(
+          "extractGifAnimations: skipping image element with unsupported transform (shear/non-positive scale)",
+          element.transform,
+        );
+        return null;
+      }
 
       return { element, pixelRect };
     })
@@ -344,59 +360,143 @@ export const extractGifAnimations = async (
       } => el !== null,
     );
 
-  const animatedGifCandidatesRaw = await Promise.all(
-    imageElements.map(
-      async ({ element, pixelRect }): Promise<AnimatedGifCandidate | null> => {
-        const contentUrl = element.image?.contentUrl;
-        if (!contentUrl || !isTrustedOrigin(contentUrl)) return null;
-        try {
-          // lh7-rt.googleusercontent.com does not return CORS headers, so proxy through our own server.
-          const proxyUrl = `/api/proxy-google-image?url=${encodeURIComponent(contentUrl)}`;
-          const fullResponse = await fetch(proxyUrl);
-          if (!fullResponse.ok) return null;
+  const fetchGifCandidate = async ({
+    element,
+    pixelRect,
+  }: (typeof imageElements)[number]): Promise<AnimatedGifCandidate | null> => {
+    const contentUrl = element.image?.contentUrl;
+    if (!contentUrl || !isTrustedOrigin(contentUrl)) return null;
+    try {
+      // lh7-rt.googleusercontent.com does not return CORS headers, so proxy through our own server.
+      const proxyUrl = `/api/proxy-google-image?url=${encodeURIComponent(contentUrl)}`;
+      const fullResponse = await fetch(proxyUrl, { signal });
+      if (!fullResponse.ok) return null;
 
-          const buffer = await fullResponse.arrayBuffer();
-          if (!isGif(buffer)) return null;
+      // Skip non-GIF content early if Content-Type indicates it's not a GIF.
+      // Fall through for octet-stream/missing headers and let isGif() verify the bytes.
+      // Normalize casing because servers may respond with e.g. "Image/GIF".
+      const contentType = (fullResponse.headers.get("Content-Type") ?? "")
+        .trim()
+        .toLowerCase();
+      if (
+        contentType.length > 0 &&
+        !contentType.includes("gif") &&
+        !contentType.includes("octet-stream")
+      ) {
+        await fullResponse.body?.cancel();
+        return null;
+      }
 
-          const gif = parseGIF(buffer);
-          const gifWidth = gif.lsd.width;
-          const gifHeight = gif.lsd.height;
-          if (
-            !(gifWidth > 0) ||
-            !(gifHeight > 0) ||
-            gifWidth > MAX_SOURCE_GIF_DIMENSION ||
-            gifHeight > MAX_SOURCE_GIF_DIMENSION
-          ) {
-            console.warn(
-              `extractGifAnimations: GIF dimensions out of range (${gifWidth}x${gifHeight}), skipping`,
-            );
-            return null;
+      // Read body in chunks so we can abort early without buffering everything.
+      // The size cap is also enforced server-side by /api/proxy-google-image (which
+      // returns 413, caught by the !ok check above), so this client-side guard is
+      // redundant in normal operation. Kept as defense-in-depth: if the proxy's cap
+      // is ever bypassed, raised, or the response is served from a different path,
+      // we still won't buffer arbitrarily large payloads into memory.
+      const reader = fullResponse.body?.getReader();
+      if (!reader) return null;
+      const chunks: Uint8Array[] = [];
+      let totalSize = 0;
+      let oversized = false;
+      try {
+        while (true) {
+          signal?.throwIfAborted();
+          const { done, value } = await reader.read();
+          if (done) break;
+          totalSize += value.byteLength;
+          if (totalSize > GIF_SIZE_CAP) {
+            oversized = true;
+            break;
           }
-
-          if (gif.frames.length > MAX_SOURCE_FRAMES) {
-            console.warn(
-              `extractGifAnimations: too many frames (${gif.frames.length}), skipping`,
-            );
-            return null;
-          }
-
-          const rawFrames = decompressFrames(gif, true);
-          if (rawFrames.length <= 1) return null; // Static GIF, skip
-
-          return {
-            element,
-            pixelRect,
-            rawFrames,
-            gifWidth,
-            gifHeight,
-          } satisfies AnimatedGifCandidate;
-        } catch (e) {
-          console.warn("Failed to extract GIF animation:", e);
-          return null;
+          chunks.push(value);
         }
-      },
-    ),
-  );
+      } finally {
+        // Swallow cancel() rejection (stream may already be errored) so it does
+        // not replace the original read error that triggered this finally block.
+        reader.cancel().catch(() => {});
+      }
+      if (oversized) return null;
+
+      const bodyBytes = new Uint8Array(totalSize);
+      let byteOffset = 0;
+      for (const chunk of chunks) {
+        bodyBytes.set(chunk, byteOffset);
+        byteOffset += chunk.byteLength;
+      }
+      const buffer = bodyBytes.buffer;
+      if (!isGif(buffer)) return null;
+
+      const gif = parseGIF(buffer);
+      const gifWidth = gif.lsd.width;
+      const gifHeight = gif.lsd.height;
+      if (
+        !(gifWidth > 0) ||
+        !(gifHeight > 0) ||
+        gifWidth > MAX_SOURCE_GIF_DIMENSION ||
+        gifHeight > MAX_SOURCE_GIF_DIMENSION
+      ) {
+        console.warn(
+          `extractGifAnimations: GIF dimensions out of range (${gifWidth}x${gifHeight}), skipping`,
+        );
+        return null;
+      }
+
+      if (gif.frames.length > MAX_SOURCE_FRAMES) {
+        console.warn(
+          `extractGifAnimations: too many frames (${gif.frames.length}), skipping`,
+        );
+        return null;
+      }
+
+      const rawFrames = decompressFrames(gif, true);
+      if (rawFrames.length <= 1) return null; // Static GIF, skip
+
+      // Spec-compliant GIF frames stay within the logical screen. Reject
+      // malformed frames upfront because the canvas API silently clips
+      // out-of-bounds get/putImageData regions, which corrupts blending and
+      // disposal-3 snapshots in subtle ways.
+      const framesInBounds = rawFrames.every(
+        (f) =>
+          f.dims.width > 0 &&
+          f.dims.height > 0 &&
+          f.dims.left >= 0 &&
+          f.dims.top >= 0 &&
+          f.dims.left + f.dims.width <= gifWidth &&
+          f.dims.top + f.dims.height <= gifHeight,
+      );
+      if (!framesInBounds) {
+        console.warn(
+          "extractGifAnimations: GIF has frame(s) outside logical canvas, skipping",
+        );
+        return null;
+      }
+
+      return {
+        element,
+        pixelRect,
+        rawFrames,
+        gifWidth,
+        gifHeight,
+      } satisfies AnimatedGifCandidate;
+    } catch (e) {
+      // Re-throw on abort so the batch loop exits immediately instead of
+      // continuing to fetch remaining batches after the caller cancelled.
+      if (signal?.aborted) throw e;
+      console.warn("Failed to extract GIF animation:", e);
+      return null;
+    }
+  };
+
+  // Process in batches to cap concurrency and avoid saturating the proxy or
+  // triggering Google-side rate limits on slides with many embedded images.
+  const GIF_FETCH_CONCURRENCY = 4;
+  const animatedGifCandidatesRaw: Array<AnimatedGifCandidate | null> = [];
+  for (let i = 0; i < imageElements.length; i += GIF_FETCH_CONCURRENCY) {
+    signal?.throwIfAborted();
+    const batch = imageElements.slice(i, i + GIF_FETCH_CONCURRENCY);
+    const batchResults = await Promise.all(batch.map(fetchGifCandidate));
+    animatedGifCandidatesRaw.push(...batchResults);
+  }
 
   const animatedGifCandidates = animatedGifCandidatesRaw.filter(
     (candidate): candidate is AnimatedGifCandidate => candidate !== null,
@@ -431,14 +531,25 @@ export const extractGifAnimations = async (
     elementZOrder.set(pageElements[i], i);
   }
 
-  const animatedElements = new Set(animatedGifCandidates.map((c) => c.element));
+  // Only GIFs that survived GIF-to-GIF intersection are still animated at render time.
+  // GIFs removed by that filter are now static pixels in the base canvas and must be
+  // treated as potential non-animated foreground blockers for surviving candidates.
+  // Invariant: survivors are pairwise non-overlapping (the pairwise check above marks
+  // BOTH i and j when their rects intersect), so survivingAnimatedElements.has() in the
+  // Z-order loop below can safely skip other survivors without missing any occlusion.
+  const survivingAnimatedElements = new Set(
+    animatedGifCandidates
+      .filter((_, i) => !intersectingElementIndices.has(i))
+      .map((c) => c.element),
+  );
   const intersectingNonAnimatedIndices = new Set<number>();
   for (let i = 0; i < animatedGifCandidates.length; i++) {
+    if (intersectingElementIndices.has(i)) continue; // already filtered, skip
     const candidate = animatedGifCandidates[i];
     const gifZ = elementZOrder.get(candidate.element) ?? 0;
     for (const positioned of positionedElements) {
       if (positioned.element === candidate.element) continue;
-      if (animatedElements.has(positioned.element)) continue;
+      if (survivingAnimatedElements.has(positioned.element)) continue;
       const posZ = elementZOrder.get(positioned.element) ?? 0;
       if (posZ <= gifZ) continue; // Below the GIF — composited into background, safe to ignore
       if (rectsIntersect(candidate.pixelRect, positioned.pixelRect)) {
@@ -463,7 +574,8 @@ export const extractGifAnimations = async (
   const results = nonIntersectingAnimatedCandidates
     .map(({ pixelRect, rawFrames, gifWidth, gifHeight }) => {
       try {
-        const sampleIndices = sampleFrameIndices(rawFrames);
+        const previewFps = derivePreviewFps(rawFrames);
+        const sampleIndices = sampleFrameIndices(rawFrames, previewFps);
         const { w: targetW, h: targetH } = clampDimensions(gifWidth, gifHeight);
         const { w: storedFrameW, h: storedFrameH } = clampDimensions(
           pixelRect.w,
@@ -488,7 +600,7 @@ export const extractGifAnimations = async (
             storedFrameW,
             storedFrameH,
           );
-          frameCanvas.width = 0;
+          // OffscreenCanvas has no close() — rely on GC for resource release.
           return result;
         });
 
@@ -497,7 +609,7 @@ export const extractGifAnimations = async (
           y: pixelRect.y,
           w: pixelRect.w,
           h: pixelRect.h,
-          fps: TARGET_FPS,
+          fps: previewFps,
           frames,
         } satisfies SelectedFileAnimation;
       } catch (e) {
