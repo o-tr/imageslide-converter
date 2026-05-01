@@ -5,6 +5,9 @@ import { isTrustedOrigin } from "@/lib/google/trustedOrigins";
 // Allow only known non-scriptable raster/binary types.
 // image/svg+xml is intentionally excluded: SVG is executable XML (inline <script>,
 // event handlers) and would enable XSS from attacker-controlled Google-hosted content.
+// application/octet-stream is included for CDN responses that omit a specific MIME type;
+// callers MUST validate the actual content bytes (e.g. via isGif()) before treating the
+// payload as any specific format — this proxy does not perform content-level validation.
 const ALLOWED_CONTENT_TYPES = new Set([
   "image/gif",
   "image/jpeg",

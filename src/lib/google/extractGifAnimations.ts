@@ -350,100 +350,109 @@ export const extractGifAnimations = async (
       } => el !== null,
     );
 
-  const animatedGifCandidatesRaw = await Promise.all(
-    imageElements.map(
-      async ({ element, pixelRect }): Promise<AnimatedGifCandidate | null> => {
-        const contentUrl = element.image?.contentUrl;
-        if (!contentUrl || !isTrustedOrigin(contentUrl)) return null;
-        try {
-          // lh7-rt.googleusercontent.com does not return CORS headers, so proxy through our own server.
-          const proxyUrl = `/api/proxy-google-image?url=${encodeURIComponent(contentUrl)}`;
-          const fullResponse = await fetch(proxyUrl, { signal });
-          if (!fullResponse.ok) return null;
+  const fetchGifCandidate = async ({
+    element,
+    pixelRect,
+  }: (typeof imageElements)[number]): Promise<AnimatedGifCandidate | null> => {
+    const contentUrl = element.image?.contentUrl;
+    if (!contentUrl || !isTrustedOrigin(contentUrl)) return null;
+    try {
+      // lh7-rt.googleusercontent.com does not return CORS headers, so proxy through our own server.
+      const proxyUrl = `/api/proxy-google-image?url=${encodeURIComponent(contentUrl)}`;
+      const fullResponse = await fetch(proxyUrl, { signal });
+      if (!fullResponse.ok) return null;
 
-          // Skip non-GIF content early if Content-Type indicates it's not a GIF.
-          // Fall through for octet-stream/missing headers and let isGif() verify the bytes.
-          const contentType = fullResponse.headers.get("Content-Type") ?? "";
-          if (
-            contentType.length > 0 &&
-            !contentType.includes("gif") &&
-            !contentType.includes("octet-stream")
-          ) {
-            await fullResponse.body?.cancel();
-            return null;
+      // Skip non-GIF content early if Content-Type indicates it's not a GIF.
+      // Fall through for octet-stream/missing headers and let isGif() verify the bytes.
+      const contentType = fullResponse.headers.get("Content-Type") ?? "";
+      if (
+        contentType.length > 0 &&
+        !contentType.includes("gif") &&
+        !contentType.includes("octet-stream")
+      ) {
+        await fullResponse.body?.cancel();
+        return null;
+      }
+
+      // Read body in chunks so we can abort early without buffering everything.
+      const reader = fullResponse.body?.getReader();
+      if (!reader) return null;
+      const chunks: Uint8Array[] = [];
+      let totalSize = 0;
+      let oversized = false;
+      try {
+        while (true) {
+          signal?.throwIfAborted();
+          const { done, value } = await reader.read();
+          if (done) break;
+          totalSize += value.byteLength;
+          if (totalSize > GIF_SIZE_CAP) {
+            oversized = true;
+            break;
           }
-
-          // Read body in chunks so we can abort early without buffering everything.
-          const reader = fullResponse.body?.getReader();
-          if (!reader) return null;
-          const chunks: Uint8Array[] = [];
-          let totalSize = 0;
-          let oversized = false;
-          try {
-            while (true) {
-              signal?.throwIfAborted();
-              const { done, value } = await reader.read();
-              if (done) break;
-              totalSize += value.byteLength;
-              if (totalSize > GIF_SIZE_CAP) {
-                oversized = true;
-                break;
-              }
-              chunks.push(value);
-            }
-          } finally {
-            await reader.cancel();
-          }
-          if (oversized) return null;
-
-          const bodyBytes = new Uint8Array(totalSize);
-          let byteOffset = 0;
-          for (const chunk of chunks) {
-            bodyBytes.set(chunk, byteOffset);
-            byteOffset += chunk.byteLength;
-          }
-          const buffer = bodyBytes.buffer;
-          if (!isGif(buffer)) return null;
-
-          const gif = parseGIF(buffer);
-          const gifWidth = gif.lsd.width;
-          const gifHeight = gif.lsd.height;
-          if (
-            !(gifWidth > 0) ||
-            !(gifHeight > 0) ||
-            gifWidth > MAX_SOURCE_GIF_DIMENSION ||
-            gifHeight > MAX_SOURCE_GIF_DIMENSION
-          ) {
-            console.warn(
-              `extractGifAnimations: GIF dimensions out of range (${gifWidth}x${gifHeight}), skipping`,
-            );
-            return null;
-          }
-
-          if (gif.frames.length > MAX_SOURCE_FRAMES) {
-            console.warn(
-              `extractGifAnimations: too many frames (${gif.frames.length}), skipping`,
-            );
-            return null;
-          }
-
-          const rawFrames = decompressFrames(gif, true);
-          if (rawFrames.length <= 1) return null; // Static GIF, skip
-
-          return {
-            element,
-            pixelRect,
-            rawFrames,
-            gifWidth,
-            gifHeight,
-          } satisfies AnimatedGifCandidate;
-        } catch (e) {
-          console.warn("Failed to extract GIF animation:", e);
-          return null;
+          chunks.push(value);
         }
-      },
-    ),
-  );
+      } finally {
+        await reader.cancel();
+      }
+      if (oversized) return null;
+
+      const bodyBytes = new Uint8Array(totalSize);
+      let byteOffset = 0;
+      for (const chunk of chunks) {
+        bodyBytes.set(chunk, byteOffset);
+        byteOffset += chunk.byteLength;
+      }
+      const buffer = bodyBytes.buffer;
+      if (!isGif(buffer)) return null;
+
+      const gif = parseGIF(buffer);
+      const gifWidth = gif.lsd.width;
+      const gifHeight = gif.lsd.height;
+      if (
+        !(gifWidth > 0) ||
+        !(gifHeight > 0) ||
+        gifWidth > MAX_SOURCE_GIF_DIMENSION ||
+        gifHeight > MAX_SOURCE_GIF_DIMENSION
+      ) {
+        console.warn(
+          `extractGifAnimations: GIF dimensions out of range (${gifWidth}x${gifHeight}), skipping`,
+        );
+        return null;
+      }
+
+      if (gif.frames.length > MAX_SOURCE_FRAMES) {
+        console.warn(
+          `extractGifAnimations: too many frames (${gif.frames.length}), skipping`,
+        );
+        return null;
+      }
+
+      const rawFrames = decompressFrames(gif, true);
+      if (rawFrames.length <= 1) return null; // Static GIF, skip
+
+      return {
+        element,
+        pixelRect,
+        rawFrames,
+        gifWidth,
+        gifHeight,
+      } satisfies AnimatedGifCandidate;
+    } catch (e) {
+      console.warn("Failed to extract GIF animation:", e);
+      return null;
+    }
+  };
+
+  // Process in batches to cap concurrency and avoid saturating the proxy or
+  // triggering Google-side rate limits on slides with many embedded images.
+  const GIF_FETCH_CONCURRENCY = 4;
+  const animatedGifCandidatesRaw: Array<AnimatedGifCandidate | null> = [];
+  for (let i = 0; i < imageElements.length; i += GIF_FETCH_CONCURRENCY) {
+    const batch = imageElements.slice(i, i + GIF_FETCH_CONCURRENCY);
+    const batchResults = await Promise.all(batch.map(fetchGifCandidate));
+    animatedGifCandidatesRaw.push(...batchResults);
+  }
 
   const animatedGifCandidates = animatedGifCandidatesRaw.filter(
     (candidate): candidate is AnimatedGifCandidate => candidate !== null,
