@@ -439,6 +439,9 @@ export const extractGifAnimations = async (
         gifHeight,
       } satisfies AnimatedGifCandidate;
     } catch (e) {
+      // Re-throw on abort so the batch loop exits immediately instead of
+      // continuing to fetch remaining batches after the caller cancelled.
+      if (signal?.aborted) throw e;
       console.warn("Failed to extract GIF animation:", e);
       return null;
     }
@@ -449,6 +452,7 @@ export const extractGifAnimations = async (
   const GIF_FETCH_CONCURRENCY = 4;
   const animatedGifCandidatesRaw: Array<AnimatedGifCandidate | null> = [];
   for (let i = 0; i < imageElements.length; i += GIF_FETCH_CONCURRENCY) {
+    signal?.throwIfAborted();
     const batch = imageElements.slice(i, i + GIF_FETCH_CONCURRENCY);
     const batchResults = await Promise.all(batch.map(fetchGifCandidate));
     animatedGifCandidatesRaw.push(...batchResults);
