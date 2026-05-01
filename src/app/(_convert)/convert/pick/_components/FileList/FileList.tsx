@@ -31,9 +31,6 @@ const Logo = () => (
   <Link href={"/"}>
     <div className={"flex items-center gap-2"}>
       <Image src={"/icon.png"} alt={"logo"} width={24} height={24} />
-      <span className={"font-semibold text-sm hidden sm:block text-primary"}>
-        ImageSlide Converter
-      </span>
     </div>
   </Link>
 );
@@ -68,6 +65,22 @@ export const FileList = () => {
 
   const handleNoteChange = (id: string, note: string) => {
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, note } : f)));
+  };
+
+  const handleAnimationFpsChange = (
+    id: string,
+    animIndex: number,
+    fps: number,
+  ) => {
+    setFiles((prev) =>
+      prev.map((f) => {
+        if (f.id !== id) return f;
+        const animations = f.animations?.map((anim, i) =>
+          i === animIndex ? { ...anim, fpsOverride: fps } : anim,
+        );
+        return { ...f, animations };
+      }),
+    );
   };
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {
@@ -163,6 +176,7 @@ export const FileList = () => {
                     <MainPreviewArea
                       file={files[selectedIndex]}
                       onNoteChange={handleNoteChange}
+                      onAnimationFpsChange={handleAnimationFpsChange}
                     />
                   </div>
                 </div>

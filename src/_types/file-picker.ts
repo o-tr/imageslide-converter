@@ -4,6 +4,7 @@ export type SelectedFileAnimation = {
   w: number;
   h: number;
   fps: number;
+  fpsOverride?: number;
   frames: OffscreenCanvas[];
 };
 

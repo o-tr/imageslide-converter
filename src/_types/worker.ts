@@ -9,6 +9,7 @@ export type WorkerAnimationBitmap = {
   w: number;
   h: number;
   fps: number;
+  fpsOverride?: number;
   frames: ImageBitmap[];
 };
 

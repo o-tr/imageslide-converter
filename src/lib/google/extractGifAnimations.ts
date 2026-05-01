@@ -610,6 +610,7 @@ export const extractGifAnimations = async (
           w: pixelRect.w,
           h: pixelRect.h,
           fps: previewFps,
+          fpsOverride: Math.min(5, previewFps),
           frames,
         } satisfies SelectedFileAnimation;
       } catch (e) {

@@ -79,13 +79,9 @@ worker.addEventListener(
           // Convert animation bitmaps to OffscreenCanvas with scaling applied
           let animations: SelectedFileAnimation[] | undefined;
           if (file.animations && file.animations.length > 0) {
-            animations = file.animations.map((anim) => ({
-              x: Math.round(anim.x * effectiveScaleX),
-              y: Math.round(anim.y * effectiveScaleY),
-              w: Math.max(1, Math.round(anim.w * effectiveScaleX)),
-              h: Math.max(1, Math.round(anim.h * effectiveScaleY)),
-              fps: anim.fps,
-              frames: anim.frames.map((bm) => {
+            animations = file.animations.map((anim) => {
+              // Scale all frames first, closing source bitmaps
+              const scaledFrames = anim.frames.map((bm) => {
                 const scaledW = Math.max(
                   1,
                   Math.round(bm.width * effectiveScaleX),
@@ -101,8 +97,42 @@ worker.addEventListener(
                 ctx.drawImage(bm, 0, 0, scaledW, scaledH);
                 bm.close();
                 return c;
-              }),
-            }));
+              });
+
+              const storedFps = anim.fps;
+              const targetFps = anim.fpsOverride ?? storedFps;
+
+              // Sub-sample frames when targetFps < storedFps to reduce frame count
+              // while keeping total playback duration unchanged
+              let outputFrames = scaledFrames;
+              if (
+                anim.fpsOverride !== undefined &&
+                anim.fpsOverride < storedFps &&
+                storedFps > 0
+              ) {
+                const totalFrames = scaledFrames.length;
+                const targetCount = Math.max(
+                  1,
+                  Math.round((totalFrames / storedFps) * targetFps),
+                );
+                outputFrames = Array.from({ length: targetCount }, (_, i) => {
+                  const srcIndex = Math.min(
+                    Math.round((i * storedFps) / targetFps),
+                    totalFrames - 1,
+                  );
+                  return scaledFrames[srcIndex];
+                });
+              }
+
+              return {
+                x: Math.round(anim.x * effectiveScaleX),
+                y: Math.round(anim.y * effectiveScaleY),
+                w: Math.max(1, Math.round(anim.w * effectiveScaleX)),
+                h: Math.max(1, Math.round(anim.h * effectiveScaleY)),
+                fps: targetFps,
+                frames: outputFrames,
+              };
+            });
           }
 
           return { ...file, canvas, animations };
