@@ -322,7 +322,15 @@ export const extractGifAnimations = async (
       const contentUrl = element.image?.contentUrl;
       if (!contentUrl) return null;
       const pixelRect = toPixelRect(element, pageSize, canvasSize);
-      if (!pixelRect) return null;
+      if (!pixelRect) {
+        // Sheared or unsupported-transform image elements cannot be projected to
+        // a pixel rect and are not checked for GIF candidacy.
+        console.warn(
+          "extractGifAnimations: skipping image element with unsupported transform (shear/non-positive scale)",
+          element.transform,
+        );
+        return null;
+      }
 
       return { element, pixelRect };
     })

@@ -6,8 +6,6 @@ import type {
   EIAManifestV1,
 } from "@/_types/eia/v1";
 import type {
-  AnimationFrame,
-  AnimationSequence,
   DecodeResult,
   RawSignageItem,
   SlideAnimation,
@@ -124,7 +122,6 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
   );
   const frameBuffers = new Map<string, Uint8Array>();
   const frames: SlideFrame[] = [];
-  const nameToIndex = new Map<string, number>();
 
   for (const item of manifest.i) {
     let decompressed: Uint8Array;
@@ -303,12 +300,6 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
 
   const sortedFrames = frames.sort((a, b) => a.index - b.index);
 
-  // Build nameToIndex after sorting so positions reflect sorted order
-  for (let i = 0; i < sortedFrames.length; i++) {
-    nameToIndex.set(String(sortedFrames[i].index), i);
-  }
-
-  let animation: AnimationSequence | null = null;
   let rawSignageItems: RawSignageItem[] | undefined;
   if (manifest.m) {
     const deviceKeys = Object.keys(manifest.m);
@@ -327,15 +318,8 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
         frameName: item.f,
         duration: item.d,
       }));
-      const seq: AnimationFrame[] = [];
-      for (const item of items) {
-        const arrayPos = nameToIndex.get(item.f);
-        if (arrayPos === undefined) continue;
-        seq.push({ frameIndex: arrayPos, duration: item.d });
-      }
-      if (seq.length > 0) animation = seq;
     }
   }
 
-  return { frames: sortedFrames, animation, rawSignageItems };
+  return { frames: sortedFrames, animation: null, rawSignageItems };
 };
