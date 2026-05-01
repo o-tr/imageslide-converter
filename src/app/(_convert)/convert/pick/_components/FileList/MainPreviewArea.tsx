@@ -112,26 +112,35 @@ const AnimatedPreview: FC<AnimatedPreviewProps> = ({
   };
 
   return (
-    <div className="relative w-full h-full">
-      <canvas ref={canvasRef} className="w-full h-full object-contain" />
-      {file.animations?.map((anim, i) => (
-        <Dropdown
-          key={`${i}-${anim.x}-${anim.y}-${anim.w}-${anim.h}`}
-          trigger={["contextMenu"]}
-          menu={{ items: buildFpsMenuItems(i, anim) }}
-        >
-          <div
-            className="absolute cursor-context-menu transition-all duration-150 hover:ring-2 hover:ring-inset hover:ring-blue-500/70 hover:bg-blue-500/10"
-            title="右クリックでFPS・解像度を変更"
-            style={{
-              left: `${(anim.x / file.canvas.width) * 100}%`,
-              top: `${(anim.y / file.canvas.height) * 100}%`,
-              width: `${(anim.w / file.canvas.width) * 100}%`,
-              height: `${(anim.h / file.canvas.height) * 100}%`,
-            }}
-          />
-        </Dropdown>
-      ))}
+    <div className="w-full h-full flex items-center justify-center">
+      <div
+        className="relative"
+        style={{
+          aspectRatio: `${file.canvas.width} / ${file.canvas.height}`,
+          maxWidth: "100%",
+          maxHeight: "100%",
+        }}
+      >
+        <canvas ref={canvasRef} className="w-full h-full" />
+        {file.animations?.map((anim, i) => (
+          <Dropdown
+            key={`${i}-${anim.x}-${anim.y}-${anim.w}-${anim.h}`}
+            trigger={["contextMenu"]}
+            menu={{ items: buildFpsMenuItems(i, anim) }}
+          >
+            <div
+              className="absolute cursor-context-menu transition-all duration-150 hover:ring-2 hover:ring-inset hover:ring-blue-500/70 hover:bg-blue-500/10"
+              title="右クリックでFPS・解像度を変更"
+              style={{
+                left: `${(anim.x / file.canvas.width) * 100}%`,
+                top: `${(anim.y / file.canvas.height) * 100}%`,
+                width: `${(anim.w / file.canvas.width) * 100}%`,
+                height: `${(anim.h / file.canvas.height) * 100}%`,
+              }}
+            />
+          </Dropdown>
+        ))}
+      </div>
     </div>
   );
 };

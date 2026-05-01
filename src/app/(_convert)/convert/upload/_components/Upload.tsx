@@ -77,9 +77,7 @@ export const Upload: FC = () => {
         result.version,
       );
 
-      setTimeout(() => {
-        router.push(`/files/${fileId}`);
-      }, 100);
+      router.push(`/files/${fileId}`);
     })();
   }, [result, files, router, outputFileName]);
 
