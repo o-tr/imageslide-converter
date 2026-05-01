@@ -10,6 +10,7 @@ export const Preview: FC<{ canvas: OffscreenCanvas; className?: string }> = ({
   useEffect(() => {
     let cancelled = false;
     let objectUrl: string;
+    setUrl(undefined);
     canvas.convertToBlob().then((blob) => {
       if (cancelled) return;
       objectUrl = URL.createObjectURL(blob);
