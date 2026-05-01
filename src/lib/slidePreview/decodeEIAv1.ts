@@ -127,9 +127,21 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
     let decompressed: Uint8Array;
 
     if (binarySection !== null) {
+      if (item.s < 0 || item.l < 0 || item.s + item.l > binarySection.length) {
+        throw new Error(
+          `Frame "${item.n}" data out of bounds: offset ${item.s} + length ${item.l} ` +
+            `exceeds binary section size ${binarySection.length}`,
+        );
+      }
       const compressed = binarySection.subarray(item.s, item.s + item.l);
       decompressed = lz4Decompress(compressed, item.u, item.n);
     } else if (textSection !== null) {
+      if (item.s < 0 || item.l < 0 || item.s + item.l > textSection.length) {
+        throw new Error(
+          `Frame "${item.n}" data out of bounds: offset ${item.s} + length ${item.l} ` +
+            `exceeds text section size ${textSection.length}`,
+        );
+      }
       const b64 = textSection.substring(item.s, item.s + item.l);
       const compressed = base64ToUint8Array(b64);
       decompressed = lz4Decompress(compressed, item.u, item.n);
@@ -211,7 +223,11 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
 
               for (let fi = 0; fi < meta.frames.length; fi++) {
                 const frameRef = meta.frames[fi];
-                if (frameRef.s + frameRef.l > binarySection.length) {
+                if (
+                  frameRef.s < 0 ||
+                  frameRef.l < 0 ||
+                  frameRef.s + frameRef.l > binarySection.length
+                ) {
                   throw new Error(
                     `Animation frame ref out of bounds: offset ${frameRef.s} + length ${frameRef.l} ` +
                       `exceeds binary section size ${binarySection.length}`,

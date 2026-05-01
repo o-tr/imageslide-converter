@@ -388,6 +388,11 @@ export const extractGifAnimations = async (
       }
 
       // Read body in chunks so we can abort early without buffering everything.
+      // The size cap is also enforced server-side by /api/proxy-google-image (which
+      // returns 413, caught by the !ok check above), so this client-side guard is
+      // redundant in normal operation. Kept as defense-in-depth: if the proxy's cap
+      // is ever bypassed, raised, or the response is served from a different path,
+      // we still won't buffer arbitrarily large payloads into memory.
       const reader = fullResponse.body?.getReader();
       if (!reader) return null;
       const chunks: Uint8Array[] = [];

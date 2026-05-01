@@ -56,6 +56,11 @@ export async function GET(request: Request): Promise<Response> {
       return new Response("Forbidden", { status: 403 });
     }
 
+    // GIF_SIZE_CAP doubles as a generic per-asset cap for every allowed content type
+    // here, not just GIFs — the name is historical (the GIF reader was the first caller
+    // to need a shared limit). 20 MB is generous for Google-served thumbnails of any
+    // raster format we proxy.
+    //
     // Buffer the body so we can enforce the cap before committing to a 200 response.
     // Streaming would send 200 before we know the total size, making a 413 impossible.
     const reader = upstream.body?.getReader();
