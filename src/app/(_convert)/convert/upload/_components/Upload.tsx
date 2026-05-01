@@ -70,7 +70,7 @@ export const Upload: FC = () => {
       );
       await postRegisterFile(
         fileId,
-        outputFileName || files[0].fileName,
+        outputFileName || files[0]?.fileName || "untitled",
         data.length,
         data.reduce((acc, { fileSize }) => acc + fileSize, 0),
         result.format,

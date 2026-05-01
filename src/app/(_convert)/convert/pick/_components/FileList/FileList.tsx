@@ -40,7 +40,7 @@ export const FileList = () => {
   const [fileName, setFileName] = useAtom(OutputFileNameAtom);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const selectedIdRef = useRef<string>(files[0]?.id);
+  const selectedIdRef = useRef<string | undefined>(files[0]?.id);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
