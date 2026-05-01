@@ -30,8 +30,14 @@ const SlideItem: FC<SlideItemProps> = ({
   onSelect,
   onDelete,
 }) => {
-  const { attributes, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: file.id });
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: file.id });
 
   const style: CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -55,6 +61,7 @@ const SlideItem: FC<SlideItemProps> = ({
         ref={setNodeRef}
         style={style}
         {...attributes}
+        {...listeners}
         className="col-span-full grid grid-cols-subgrid cursor-pointer shrink-0"
         onClick={() => onSelect(index)}
       >
