@@ -1,5 +1,6 @@
 "use client";
 import type { SelectedFile, SelectedFileAnimation } from "@/_types/file-picker";
+import { getAnimationFrameScale } from "@/utils/getAnimationFrameScale";
 import { Dropdown, Flex } from "antd";
 import TextArea from "antd/es/input/TextArea";
 import { type ChangeEvent, type FC, useEffect, useRef } from "react";
@@ -82,13 +83,24 @@ const AnimatedPreview: FC<AnimatedPreviewProps> = ({
   }, [file.canvas, file.animations]);
 
   const buildFpsMenuItems = (animIndex: number, anim: SelectedFileAnimation) =>
-    FPS_OPTIONS.filter((fps) => fps <= anim.fps).map((fps) => ({
-      key: String(fps),
-      label: fps === anim.fps ? `${fps} fps (オリジナル)` : `${fps} fps`,
-      onClick: () => onAnimationFpsChange(animIndex, fps),
-      style:
-        fps === (anim.fpsOverride ?? null) ? { fontWeight: "bold" } : undefined,
-    }));
+    FPS_OPTIONS.filter((fps) => fps <= anim.fps).map((fps) => {
+      const scale = getAnimationFrameScale(fps);
+      const scaleLabel = scale < 1 ? ` (解像度 ${scale * 100}%)` : "";
+      return {
+        key: String(fps),
+        label:
+          fps === anim.fps
+            ? `${fps} fps (オリジナル)${scaleLabel}`
+            : fps === 5
+              ? `${fps} fps (auto)${scaleLabel}`
+              : `${fps} fps${scaleLabel}`,
+        onClick: () => onAnimationFpsChange(animIndex, fps),
+        style:
+          fps === (anim.fpsOverride ?? null)
+            ? { fontWeight: "bold" }
+            : undefined,
+      };
+    });
 
   return (
     <div className="relative w-full h-full">
@@ -100,7 +112,8 @@ const AnimatedPreview: FC<AnimatedPreviewProps> = ({
           menu={{ items: buildFpsMenuItems(i, anim) }}
         >
           <div
-            className="absolute cursor-context-menu"
+            className="absolute cursor-context-menu transition-all duration-150 hover:ring-2 hover:ring-inset hover:ring-blue-500/70 hover:bg-blue-500/10"
+            title="右クリックでFPS・解像度を変更"
             style={{
               left: `${(anim.x / file.canvas.width) * 100}%`,
               top: `${(anim.y / file.canvas.height) * 100}%`,

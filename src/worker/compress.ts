@@ -1,6 +1,7 @@
 import type { SelectedFileAnimation } from "@/_types/file-picker";
 import type { WorkerMessage, WorkerResponse } from "@/_types/worker";
 import { TargetFormats } from "@/const/convert";
+import { getAnimationFrameScale } from "@/utils/getAnimationFrameScale";
 import { getResolutionScale } from "@/utils/getResolutionScale";
 
 const worker = self as unknown as Worker;
@@ -80,15 +81,19 @@ worker.addEventListener(
           let animations: SelectedFileAnimation[] | undefined;
           if (file.animations && file.animations.length > 0) {
             animations = file.animations.map((anim) => {
+              const storedFps = anim.fps;
+              const targetFps = anim.fpsOverride ?? storedFps;
+              const frameScale = getAnimationFrameScale(targetFps);
+
               // Scale all frames first, closing source bitmaps
               const scaledFrames = anim.frames.map((bm) => {
                 const scaledW = Math.max(
                   1,
-                  Math.round(bm.width * effectiveScaleX),
+                  Math.round(bm.width * effectiveScaleX * frameScale),
                 );
                 const scaledH = Math.max(
                   1,
-                  Math.round(bm.height * effectiveScaleY),
+                  Math.round(bm.height * effectiveScaleY * frameScale),
                 );
                 const c = new OffscreenCanvas(scaledW, scaledH);
                 const ctx = c.getContext("2d");
@@ -98,9 +103,6 @@ worker.addEventListener(
                 bm.close();
                 return c;
               });
-
-              const storedFps = anim.fps;
-              const targetFps = anim.fpsOverride ?? storedFps;
 
               // Sub-sample frames when targetFps < storedFps to reduce frame count
               // while keeping total playback duration unchanged
