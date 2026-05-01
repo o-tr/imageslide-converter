@@ -446,6 +446,26 @@ export const extractGifAnimations = async (
       const rawFrames = decompressFrames(gif, true);
       if (rawFrames.length <= 1) return null; // Static GIF, skip
 
+      // Spec-compliant GIF frames stay within the logical screen. Reject
+      // malformed frames upfront because the canvas API silently clips
+      // out-of-bounds get/putImageData regions, which corrupts blending and
+      // disposal-3 snapshots in subtle ways.
+      const framesInBounds = rawFrames.every(
+        (f) =>
+          f.dims.width > 0 &&
+          f.dims.height > 0 &&
+          f.dims.left >= 0 &&
+          f.dims.top >= 0 &&
+          f.dims.left + f.dims.width <= gifWidth &&
+          f.dims.top + f.dims.height <= gifHeight,
+      );
+      if (!framesInBounds) {
+        console.warn(
+          "extractGifAnimations: GIF has frame(s) outside logical canvas, skipping",
+        );
+        return null;
+      }
+
       return {
         element,
         pixelRect,
