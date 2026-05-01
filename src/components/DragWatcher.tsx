@@ -11,6 +11,7 @@ export const DragWatcher: FC = () => {
   const setSelectedFiles = useSetAtom(SelectedFilesAtom);
   useEffect(() => {
     const onDragOver = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes("Files")) return;
       e.preventDefault();
       setIsDragOver(true);
     };

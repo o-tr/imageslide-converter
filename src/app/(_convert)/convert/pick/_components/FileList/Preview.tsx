@@ -25,6 +25,7 @@ export const Preview: FC<{ canvas: OffscreenCanvas; className?: string }> = ({
           className={"object-contain w-full h-full"}
           src={url}
           alt={"preview"}
+          draggable={false}
         />
       ) : (
         <Spin />
