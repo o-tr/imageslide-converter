@@ -130,7 +130,9 @@ const derivePreviewFps = (frames: ParsedFrame[]): number => {
   // gifuct-js converts GCE delay (centiseconds) to ms via × 10; fall back to 100 ms
   // (matching sampleFrameIndices) when the field is missing or zero.
   const delays = frames.map((f) => f.delay || 100).sort((a, b) => a - b);
-  const medianDelay = delays[Math.floor(delays.length / 2)];
+  // Use lower-median index so even-length arrays don't pick the slower half.
+  // e.g. [100ms, 500ms] → lower median 100ms → 10fps, not upper median 500ms → 2fps.
+  const medianDelay = delays[Math.floor((delays.length - 1) / 2)];
   return Math.min(MAX_PREVIEW_FPS, Math.max(1, Math.round(1000 / medianDelay)));
 };
 
@@ -393,7 +395,9 @@ export const extractGifAnimations = async (
           chunks.push(value);
         }
       } finally {
-        await reader.cancel();
+        // Swallow cancel() rejection (stream may already be errored) so it does
+        // not replace the original read error that triggered this finally block.
+        reader.cancel().catch(() => {});
       }
       if (oversized) return null;
 

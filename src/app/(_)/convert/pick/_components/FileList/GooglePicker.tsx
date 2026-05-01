@@ -140,7 +140,10 @@ export const GooglePicker = () => {
   );
 };
 
-const slide2canvas = async (slideId: string): Promise<SelectedFile[]> => {
+const slide2canvas = async (
+  slideId: string,
+  signal?: AbortSignal,
+): Promise<SelectedFile[]> => {
   const [{ canvases, buffer }, metadata] = await Promise.all([
     (async () => {
       const buffer = await fetchSlideAsPdf(slideId);
@@ -183,6 +186,7 @@ const slide2canvas = async (slideId: string): Promise<SelectedFile[]> => {
       metadata.pageSize,
       { width: canvas.width, height: canvas.height },
       canvas,
+      signal,
     );
     results.push({
       id: crypto.randomUUID(),
