@@ -175,35 +175,28 @@ const slide2canvas = async (slideId: string): Promise<SelectedFile[]> => {
   // Process slides sequentially so the per-slide GIF_FETCH_CONCURRENCY cap in
   // extractGifAnimations actually bounds total proxy load (parallel Promise.all
   // across 30 slides would multiply that cap by the slide count).
-  const controller = new AbortController();
   const results: SelectedFile[] = [];
-  try {
-    for (const [outputIndex, slide] of filteredSlides.entries()) {
-      const { canvas, index, speakerNote, pageElements } = slide;
-      const animations = await extractGifAnimations(
-        pageElements,
-        metadata.pageSize,
-        { width: canvas.width, height: canvas.height },
-        canvas,
-        controller.signal,
-      );
-      results.push({
-        id: crypto.randomUUID(),
-        fileName: `${metadata.title}-${outputIndex + 1}`,
-        canvas,
-        note: speakerNote,
-        animations: animations.length > 0 ? animations : undefined,
-        metadata: {
-          fileType: "pdf" as const,
-          file,
-          index,
-          scale: 1,
-        },
-      });
-    }
-  } catch (e) {
-    controller.abort();
-    throw e;
+  for (const [outputIndex, slide] of filteredSlides.entries()) {
+    const { canvas, index, speakerNote, pageElements } = slide;
+    const animations = await extractGifAnimations(
+      pageElements,
+      metadata.pageSize,
+      { width: canvas.width, height: canvas.height },
+      canvas,
+    );
+    results.push({
+      id: crypto.randomUUID(),
+      fileName: `${metadata.title}-${outputIndex + 1}`,
+      canvas,
+      note: speakerNote,
+      animations: animations.length > 0 ? animations : undefined,
+      metadata: {
+        fileType: "pdf" as const,
+        file,
+        index,
+        scale: 1,
+      },
+    });
   }
   return results;
 };
