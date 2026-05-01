@@ -1,7 +1,21 @@
 import { auth } from "@/auth";
+import { GIF_SIZE_CAP } from "@/const/config";
 import { isTrustedOrigin } from "@/lib/google/trustedOrigins";
 
-const PROXY_SIZE_CAP = 20 * 1024 * 1024; // 20 MB — matches client-side GIF_SIZE_CAP
+// Allow only known non-scriptable raster/binary types.
+// image/svg+xml is intentionally excluded: SVG is executable XML (inline <script>,
+// event handlers) and would enable XSS from attacker-controlled Google-hosted content.
+const ALLOWED_CONTENT_TYPES = new Set([
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/bmp",
+  "image/tiff",
+  "image/x-icon",
+  "image/vnd.microsoft.icon",
+  "application/octet-stream",
+]);
 
 export async function GET(request: Request): Promise<Response> {
   const session = await auth();
@@ -22,37 +36,27 @@ export async function GET(request: Request): Promise<Response> {
       signal: AbortSignal.timeout(15_000),
     });
     if (upstream.status >= 300 && upstream.status < 400) {
+      await upstream.body?.cancel();
       return new Response("Forbidden", { status: 403 });
     }
     if (!upstream.ok) {
+      await upstream.body?.cancel();
       return new Response(null, { status: upstream.status });
     }
 
     const contentType =
       upstream.headers.get("Content-Type") ?? "application/octet-stream";
 
-    // Allow only known non-scriptable raster/binary types.
-    // image/svg+xml is intentionally excluded: SVG is executable XML (inline <script>,
-    // event handlers) and would enable XSS from attacker-controlled Google-hosted content.
-    const ALLOWED_CONTENT_TYPES = new Set([
-      "image/gif",
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-      "image/bmp",
-      "image/tiff",
-      "image/x-icon",
-      "image/vnd.microsoft.icon",
-      "application/octet-stream",
-    ]);
     const baseContentType = contentType.split(";")[0].trim();
     if (!ALLOWED_CONTENT_TYPES.has(baseContentType)) {
+      await upstream.body?.cancel();
       return new Response("Forbidden", { status: 403 });
     }
 
     // Reject early when Content-Length exceeds cap (not always present).
     const cl = Number(upstream.headers.get("Content-Length"));
-    if (Number.isFinite(cl) && cl > PROXY_SIZE_CAP) {
+    if (Number.isFinite(cl) && cl > GIF_SIZE_CAP) {
+      await upstream.body?.cancel();
       return new Response("Content Too Large", { status: 413 });
     }
 
@@ -67,7 +71,7 @@ export async function GET(request: Request): Promise<Response> {
           const { done, value } = await reader.read();
           if (done) break;
           totalBytes += value.byteLength;
-          if (totalBytes > PROXY_SIZE_CAP) {
+          if (totalBytes > GIF_SIZE_CAP) {
             return new Response("Content Too Large", { status: 413 });
           }
           chunks.push(value);

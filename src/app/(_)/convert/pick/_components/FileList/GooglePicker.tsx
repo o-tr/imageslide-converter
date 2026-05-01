@@ -58,13 +58,10 @@ export const GooglePicker = () => {
       await showPicker(null);
       return;
     }
-    void showFilePicker(_token, (data) => onFilePicked(data, _token));
+    void showFilePicker(_token, (data) => onFilePicked(data));
   };
 
-  const onFilePicked = async (
-    data: GoogleFilePickerCallbackData,
-    currentToken: string,
-  ) => {
+  const onFilePicked = async (data: GoogleFilePickerCallbackData) => {
     if (data.action !== "picked" || !data.docs) return;
     const file = data.docs[0];
     setIsLoading(true);
@@ -81,7 +78,7 @@ export const GooglePicker = () => {
         setFiles((pv) => [...pv, ...selectedFiles]);
       }
       if (file.mimeType === "application/vnd.google-apps.presentation") {
-        const files = await slide2canvas(file.id, currentToken);
+        const files = await slide2canvas(file.id);
         setFiles((pv) => [...pv, ...files]);
       }
       if (file.mimeType?.startsWith("image/")) {
@@ -143,10 +140,7 @@ export const GooglePicker = () => {
   );
 };
 
-const slide2canvas = async (
-  slideId: string,
-  token: string,
-): Promise<SelectedFile[]> => {
+const slide2canvas = async (slideId: string): Promise<SelectedFile[]> => {
   const [{ canvases, buffer }, metadata] = await Promise.all([
     (async () => {
       const buffer = await fetchSlideAsPdf(slideId);
@@ -186,7 +180,6 @@ const slide2canvas = async (
         metadata.pageSize,
         { width: canvas.width, height: canvas.height },
         canvas,
-        token,
       );
       return {
         id: crypto.randomUUID(),

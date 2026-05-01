@@ -6,6 +6,7 @@ import type {
   PageSize,
   PixelRect,
 } from "@/_types/lib/google/slideGeometry";
+import { GIF_SIZE_CAP } from "@/const/config";
 import { type ParsedFrame, decompressFrames, parseGIF } from "gifuct-js";
 import { emuToPixelRect } from "./emuToPixel";
 import { isTrustedOrigin } from "./trustedOrigins";
@@ -16,7 +17,6 @@ const MAX_STORED_FRAME_DIMENSION = 512;
 const MAX_FRAMES = 60;
 const MAX_SOURCE_FRAMES = 500;
 const MAX_PREVIEW_FPS = 15;
-const GIF_SIZE_CAP = 20 * 1024 * 1024; // 20 MB
 
 const isGif = (buffer: ArrayBuffer): boolean => {
   if (buffer.byteLength < 6) return false;
@@ -313,12 +313,8 @@ export const extractGifAnimations = async (
   pageSize: PageSize,
   canvasSize: CanvasSize,
   baseSlideCanvas: OffscreenCanvas,
-  token: string,
+  signal?: AbortSignal,
 ): Promise<SelectedFileAnimation[]> => {
-  if (!token) {
-    return [];
-  }
-
   const imageElements = pageElements
     .map((element) => {
       const contentUrl = element.image?.contentUrl;
@@ -362,7 +358,7 @@ export const extractGifAnimations = async (
         try {
           // lh7-rt.googleusercontent.com does not return CORS headers, so proxy through our own server.
           const proxyUrl = `/api/proxy-google-image?url=${encodeURIComponent(contentUrl)}`;
-          const fullResponse = await fetch(proxyUrl);
+          const fullResponse = await fetch(proxyUrl, { signal });
           if (!fullResponse.ok) return null;
 
           // Skip non-GIF content early if Content-Type indicates it's not a GIF.
@@ -385,6 +381,7 @@ export const extractGifAnimations = async (
           let oversized = false;
           try {
             while (true) {
+              signal?.throwIfAborted();
               const { done, value } = await reader.read();
               if (done) break;
               totalSize += value.byteLength;
@@ -484,6 +481,9 @@ export const extractGifAnimations = async (
   // Only GIFs that survived GIF-to-GIF intersection are still animated at render time.
   // GIFs removed by that filter are now static pixels in the base canvas and must be
   // treated as potential non-animated foreground blockers for surviving candidates.
+  // Invariant: survivors are pairwise non-overlapping (the pairwise check above marks
+  // BOTH i and j when their rects intersect), so survivingAnimatedElements.has() in the
+  // Z-order loop below can safely skip other survivors without missing any occlusion.
   const survivingAnimatedElements = new Set(
     animatedGifCandidates
       .filter((_, i) => !intersectingElementIndices.has(i))
