@@ -53,12 +53,14 @@ export const FileList = () => {
   }, [files]);
 
   const handleDelete = (id: string) => {
+    const idx = files.findIndex((f) => f.id === id);
     if (selectedIdRef.current === id) {
-      const idx = files.findIndex((f) => f.id === id);
       const newFiles = files.filter((f) => f.id !== id);
       const newIdx = Math.min(idx, newFiles.length - 1);
       selectedIdRef.current = newFiles[newIdx]?.id ?? "";
       setSelectedIndex(Math.max(0, newIdx));
+    } else if (idx !== -1 && idx < selectedIndex) {
+      setSelectedIndex(selectedIndex - 1);
     }
     setFiles((prev) => prev.filter((f) => f.id !== id));
   };
@@ -174,7 +176,7 @@ export const FileList = () => {
                   {/* Center: main preview + notes */}
                   <div className={"flex-1 overflow-y-auto p-4 min-w-0"}>
                     <MainPreviewArea
-                      file={files[selectedIndex]}
+                      file={files[Math.min(selectedIndex, files.length - 1)]}
                       onNoteChange={handleNoteChange}
                       onAnimationFpsChange={handleAnimationFpsChange}
                     />
