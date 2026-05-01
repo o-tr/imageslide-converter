@@ -2,6 +2,8 @@
 import type { SelectedFile } from "@/_types/file-picker";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { Dropdown } from "antd";
+import type { MenuProps } from "antd";
 import type { CSSProperties, FC } from "react";
 import { MdDeleteOutline } from "react-icons/md";
 import { Preview } from "./Preview";
@@ -37,26 +39,26 @@ const SlideItem: FC<SlideItemProps> = ({
     ...(isDragging ? { opacity: 0.5, zIndex: 9999 } : {}),
   };
 
+  const menuItems: MenuProps["items"] = [
+    {
+      key: "delete",
+      label: "削除",
+      danger: true,
+      icon: <MdDeleteOutline />,
+      onClick: () => onDelete(file.id),
+    },
+  ];
+
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      className="col-span-full grid grid-cols-subgrid cursor-pointer shrink-0"
-      onClick={() => onSelect(index)}
-    >
-      <span className={"text-xs text-gray-500 text-right"}>{index + 1}</span>
-      <div>
-        {/* <div
-          ref={setActivatorNodeRef}
-          {...listeners}
-          className={
-            "absolute top-1 left-1 z-10 cursor-move text-gray-400 hover:text-gray-600 bg-white/70 rounded p-0.5"
-          }
-          onClick={(e) => e.stopPropagation()}
-        >
-          <HolderOutlined />
-        </div> */}
+    <Dropdown menu={{ items: menuItems }} trigger={["contextMenu"]}>
+      <div
+        ref={setNodeRef}
+        style={style}
+        {...attributes}
+        className="col-span-full grid grid-cols-subgrid cursor-pointer shrink-0"
+        onClick={() => onSelect(index)}
+      >
+        <span className={"text-xs text-gray-500 text-right"}>{index + 1}</span>
         <Preview
           canvas={file.canvas}
           className={`w-full border-2 rounded overflow-hidden ${
@@ -65,22 +67,8 @@ const SlideItem: FC<SlideItemProps> = ({
               : "border-transparent hover:border-gray-300"
           }`}
         />
-        <div className={"flex items-center justify-between px-1 gap-1 min-w-0"}>
-          <button
-            type="button"
-            className={
-              "shrink-0 text-gray-400 hover:text-red-500 transition-colors"
-            }
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(file.id);
-            }}
-          >
-            <MdDeleteOutline />
-          </button>
-        </div>
       </div>
-    </div>
+    </Dropdown>
   );
 };
 
