@@ -98,7 +98,7 @@ const AnimatedPreview: FC<AnimatedPreviewProps> = ({
             : `${fps} fps${scaleLabel}`,
         onClick: () => onAnimationFpsChange(animIndex, fps),
         style:
-          fps === (anim.fpsOverride ?? null)
+          fps === (anim.fpsOverride ?? anim.fps)
             ? { fontWeight: "bold" }
             : undefined,
       };
