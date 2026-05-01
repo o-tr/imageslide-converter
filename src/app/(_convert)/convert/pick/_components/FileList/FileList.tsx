@@ -1,6 +1,6 @@
 "use client";
 import { HeaderLogo } from "@/app/(_)/_components/HeaderLogo";
-import { SelectedFilesAtom } from "@/atoms/file-drop";
+import { OutputFileNameAtom, SelectedFilesAtom } from "@/atoms/file-drop";
 import { SettingOutlined } from "@ant-design/icons";
 import {
   DndContext,
@@ -15,7 +15,7 @@ import {
   arrayMove,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Button, Flex, Modal } from "antd";
+import { Button, Flex, Input, Modal } from "antd";
 import { useAtom } from "jotai";
 import Image from "next/image";
 import Link from "next/link";
@@ -40,6 +40,7 @@ const Logo = () => (
 
 export const FileList = () => {
   const [files, setFiles] = useAtom(SelectedFilesAtom);
+  const [fileName, setFileName] = useAtom(OutputFileNameAtom);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const selectedIdRef = useRef<string>(files[0]?.id);
@@ -114,18 +115,19 @@ export const FileList = () => {
               </>
             ) : (
               <>
-                <div
-                  className={
-                    "flex items-center justify-between px-3 py-2 shrink-0"
-                  }
-                >
-                  <div className={"flex items-center gap-3"}>
+                <div className={"flex items-center gap-3 px-3 py-2 shrink-0"}>
+                  <div className={"flex items-center gap-3 shrink-0"}>
                     <Logo />
-
                     <LocalFilePicker />
                     <GooglePicker />
                   </div>
-                  <div className={"flex gap-2"}>
+                  <Input
+                    className={"flex-1"}
+                    value={fileName}
+                    onChange={(e) => setFileName(e.target.value)}
+                    placeholder={"ファイル名"}
+                  />
+                  <div className={"flex gap-2 shrink-0"}>
                     <Button
                       icon={<SettingOutlined />}
                       onClick={() => setSettingsOpen(true)}
