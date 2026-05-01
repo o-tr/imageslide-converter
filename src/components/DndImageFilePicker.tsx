@@ -1,5 +1,5 @@
 import type { SelectedFile } from "@/_types/file-picker";
-import { Preview } from "@/app/(_)/convert/pick/_components/FileList/Preview";
+import { Preview } from "@/app/(_convert)/convert/pick/_components/FileList/Preview";
 import { type FC, useId, useState } from "react";
 
 type Props = {
