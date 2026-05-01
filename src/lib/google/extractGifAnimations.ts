@@ -374,7 +374,10 @@ export const extractGifAnimations = async (
 
       // Skip non-GIF content early if Content-Type indicates it's not a GIF.
       // Fall through for octet-stream/missing headers and let isGif() verify the bytes.
-      const contentType = fullResponse.headers.get("Content-Type") ?? "";
+      // Normalize casing because servers may respond with e.g. "Image/GIF".
+      const contentType = (fullResponse.headers.get("Content-Type") ?? "")
+        .trim()
+        .toLowerCase();
       if (
         contentType.length > 0 &&
         !contentType.includes("gif") &&
