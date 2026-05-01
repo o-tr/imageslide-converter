@@ -1,4 +1,10 @@
-import type { SlideFrame } from "@/_types/slide-preview";
+import type {
+  AnimationFrame,
+  AnimationSequence,
+  DecodeResult,
+  RawSignageItem,
+  SlideFrame,
+} from "@/_types/slide-preview";
 import type { ManifestV0 } from "@/_types/text-zip/v0";
 import type { ManifestV1 } from "@/_types/text-zip/v1";
 import JSZip from "jszip";
@@ -15,7 +21,7 @@ const isEIA = (uint8: Uint8Array): boolean =>
 const decodePart = async (
   url: string,
   signal: AbortSignal,
-): Promise<SlideFrame[]> => {
+): Promise<DecodeResult> => {
   const response = await fetch(url, { signal });
   if (!response.ok)
     throw new Error(
@@ -49,15 +55,41 @@ const decodePart = async (
 export const decodeSlides = async (
   urls: string[],
   signal: AbortSignal,
-): Promise<SlideFrame[]> => {
+): Promise<DecodeResult> => {
   const allFrames: SlideFrame[] = [];
+  // Maps original EIA frame index (Number(item.n)) to global allFrames position
+  const eiaIndexToGlobalPos = new Map<number, number>();
+  let globalRawSignageItems: RawSignageItem[] | undefined;
+
   for (const url of urls) {
-    const partFrames = await decodePart(url, signal);
+    const partResult = await decodePart(url, signal);
     const offset = allFrames.length;
-    const sorted = [...partFrames].sort((a, b) => a.index - b.index);
+    const sorted = [...partResult.frames].sort((a, b) => a.index - b.index);
     for (let i = 0; i < sorted.length; i++) {
+      // sorted[i].index == Number(item.n) in the EIA manifest (original global slide index)
+      eiaIndexToGlobalPos.set(sorted[i].index, offset + i);
       allFrames.push({ ...sorted[i], index: offset + i });
     }
+
+    // Take signage items from the first part that has them; all EIA parts carry
+    // the same full signage manifest so any part is sufficient.
+    if (!globalRawSignageItems && partResult.rawSignageItems) {
+      globalRawSignageItems = partResult.rawSignageItems;
+    }
   }
-  return allFrames;
+
+  // Resolve the signage sequence globally so the original playback order is
+  // preserved even when slides are interleaved across part boundaries.
+  let mergedAnimation: AnimationSequence | null = null;
+  if (globalRawSignageItems) {
+    const seq: AnimationFrame[] = [];
+    for (const item of globalRawSignageItems) {
+      const globalPos = eiaIndexToGlobalPos.get(Number(item.frameName));
+      if (globalPos === undefined) continue;
+      seq.push({ frameIndex: globalPos, duration: item.duration });
+    }
+    if (seq.length > 0) mergedAnimation = seq;
+  }
+
+  return { frames: allFrames, animation: mergedAnimation };
 };

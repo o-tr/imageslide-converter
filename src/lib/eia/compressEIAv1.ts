@@ -183,9 +183,10 @@ const compressEIAv1Part = async (
       for (const [animIndex, anim] of anims.entries()) {
         const frameRefs: EIAAnimationFrameRef[] = [];
         let hasCroppedFrames = false;
+        if (anim.frames.length === 0) continue;
         usedFormats.add(anim.format);
-        const frameWidth = anim.frames[0]?.rect.width ?? anim.w;
-        const frameHeight = anim.frames[0]?.rect.height ?? anim.h;
+        const frameWidth = anim.frames[0].rect.width;
+        const frameHeight = anim.frames[0].rect.height;
         for (const [frameIndex, frame] of anim.frames.entries()) {
           if (frame.format !== anim.format) {
             throw new Error(
@@ -289,7 +290,10 @@ const compressEIAv1Part = async (
     c: "lz4",
     v: usesAnimationFrameSizeV2 ? 2 : 1,
     f: features,
-    e: ["note", ...(usedFeatures.has("Feature:animation") ? ["a"] : [])],
+    e: [
+      "note",
+      ...(usedFeatures.has("Feature:animation") ? (["a"] as const) : []),
+    ],
     i: files,
     m: signage,
   };

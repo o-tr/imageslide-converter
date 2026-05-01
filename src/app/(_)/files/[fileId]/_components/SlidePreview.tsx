@@ -1,9 +1,21 @@
 "use client";
-import type { SlideFrameMeta } from "@/_types/slide-preview";
+import type { AnimationSequence, SlideFrameMeta } from "@/_types/slide-preview";
 import { decodeSlides } from "@/lib/slidePreview/decodeSlides";
 import { Button, Spin } from "antd";
-import { type FC, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { TbChevronLeft, TbChevronRight } from "react-icons/tb";
+import {
+  type FC,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  TbChevronLeft,
+  TbChevronRight,
+  TbPlayerPause,
+  TbPlayerPlay,
+} from "react-icons/tb";
 
 type DecodedAnimation = {
   x: number;
@@ -108,14 +120,19 @@ const MainSlideDisplay: FC<{
         const anim = animations[i];
         if (anim.frames.length === 0) continue;
 
+        if (!Number.isFinite(anim.fps) || anim.fps <= 0) continue;
+
         if (lastTimes[i] < 0) {
           // First draw: initialize this animation's timer
           lastTimes[i] = time;
         } else {
           const interval = 1000 / anim.fps;
-          if (time - lastTimes[i] >= interval) {
+          const elapsed = time - lastTimes[i];
+          if (elapsed >= interval) {
             frameIndices[i] = (frameIndices[i] + 1) % anim.frames.length;
-            lastTimes[i] += interval;
+            // Absorb all accumulated lag (e.g. after tab hide/show) into a single
+            // frame advance, preserving only the sub-interval remainder.
+            lastTimes[i] = time - (elapsed % interval);
           }
         }
 
@@ -210,15 +227,23 @@ const MainView: FC<{
   bitmapMap: { current: Map<number, ImageBitmap> };
   animationMap: { current: Map<number, DecodedAnimation[]> };
   selectedIndex: number;
+  animation: AnimationSequence | null;
+  isPlaying: boolean;
   onPrevious: () => void;
   onNext: () => void;
+  startAnimation: () => void;
+  stopAnimation: () => void;
 }> = ({
   frames,
   bitmapMap,
   animationMap,
   selectedIndex,
+  animation,
+  isPlaying,
   onPrevious,
   onNext,
+  startAnimation,
+  stopAnimation,
 }) => {
   const selectedFrame = frames[selectedIndex];
 
@@ -241,9 +266,31 @@ const MainView: FC<{
           disabled={selectedIndex <= 0}
         />
 
-        <div className="text-sm text-center text-primary">
-          スライド {selectedIndex + 1} / {frames.length}
+        <div className="flex items-center gap-2">
+          <div className="text-sm text-center text-primary">
+            スライド {selectedIndex + 1} / {frames.length}
+          </div>
+          {animation && (
+            <Button
+              type="default"
+              icon={
+                isPlaying ? (
+                  <TbPlayerPause size={16} />
+                ) : (
+                  <TbPlayerPlay size={16} />
+                )
+              }
+              onClick={isPlaying ? stopAnimation : startAnimation}
+              aria-label={
+                isPlaying ? "アニメーションを一時停止" : "アニメーションを再生"
+              }
+              title={
+                isPlaying ? "アニメーションを一時停止" : "アニメーションを再生"
+              }
+            />
+          )}
         </div>
+
         {/* Next Button */}
         <Button
           type="primary"
@@ -261,17 +308,25 @@ const SlidePreviewContainer: FC<{
   bitmapMap: { current: Map<number, ImageBitmap> };
   animationMap: { current: Map<number, DecodedAnimation[]> };
   selectedIndex: number;
+  animation: AnimationSequence | null;
+  isPlaying: boolean;
   onSelectFrame: (index: number) => void;
   onPrevious: () => void;
   onNext: () => void;
+  startAnimation: () => void;
+  stopAnimation: () => void;
 }> = ({
   frames,
   bitmapMap,
   animationMap,
   selectedIndex,
+  animation,
+  isPlaying,
   onSelectFrame,
   onPrevious,
   onNext,
+  startAnimation,
+  stopAnimation,
 }) => {
   return (
     <div className="flex flex-col-reverse md:flex-row gap-2 h-auto aspect-video rounded bg-secondary p-2">
@@ -286,8 +341,12 @@ const SlidePreviewContainer: FC<{
         bitmapMap={bitmapMap}
         animationMap={animationMap}
         selectedIndex={selectedIndex}
+        animation={animation}
+        isPlaying={isPlaying}
         onPrevious={onPrevious}
         onNext={onNext}
+        startAnimation={startAnimation}
+        stopAnimation={stopAnimation}
       />
     </div>
   );
@@ -309,13 +368,110 @@ const imageDataToBitmap = async (data: ImageData): Promise<ImageBitmap> => {
 
 export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
   const [frames, setFrames] = useState<SlideFrameMeta[] | null>(null);
+  const [animation, setAnimation] = useState<AnimationSequence | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
   const bitmapMap = useRef<Map<number, ImageBitmap>>(new Map());
   const animationMap = useRef<Map<number, DecodedAnimation[]>>(new Map());
+  const animationRef = useRef<AnimationSequence | null>(null);
+  const animationPosRef = useRef(0);
+  const selectedIndexRef = useRef(0);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const framesRef = useRef<SlideFrameMeta[] | null>(null);
+
+  // Keep refs in sync so callbacks always see the latest values without stale closures.
+  // useLayoutEffect runs after every commit, before paint, so refs are updated before
+  // any timer callback or event handler fires — avoiding the concurrent-mode hazard of
+  // mutating refs directly in the render body.
+  useLayoutEffect(() => {
+    animationRef.current = animation;
+    selectedIndexRef.current = selectedIndex;
+    framesRef.current = frames;
+  }, [animation, selectedIndex, frames]);
+
+  const stopAnimation = useCallback(() => {
+    if (timeoutRef.current !== null) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    setIsPlaying(false);
+  }, []);
+
+  // Empty deps intentional: scheduleNext must have a stable identity so the recursive
+  // chain inside the timeout callback always refers to the same function instance.
+  // All mutable state is accessed through refs (animationRef), not captured variables.
+  const scheduleNext = useCallback((pos: number) => {
+    const anim = animationRef.current;
+    if (!anim) return;
+    const current = anim[pos];
+    const duration =
+      Number.isFinite(current.duration) && current.duration > 0
+        ? current.duration
+        : 100;
+    timeoutRef.current = setTimeout(() => {
+      const latestAnim = animationRef.current;
+      if (!latestAnim) return;
+      const nextPos = (pos + 1) % latestAnim.length;
+      animationPosRef.current = nextPos;
+      setSelectedIndex(latestAnim[nextPos].frameIndex);
+      scheduleNext(nextPos);
+    }, duration);
+  }, []);
+
+  const startAnimation = useCallback(() => {
+    stopAnimation(); // clear any orphaned timer before starting a new chain
+    const anim = animationRef.current;
+    if (!anim || anim.length === 0) return;
+    // Sync start position to the currently displayed slide via ref (avoids side effects in state updater)
+    const matchPos = anim.findIndex(
+      (f) => f.frameIndex === selectedIndexRef.current,
+    );
+    const startPos = matchPos >= 0 ? matchPos : 0;
+    animationPosRef.current = startPos;
+    setSelectedIndex(anim[startPos].frameIndex);
+    setIsPlaying(true);
+    scheduleNext(startPos);
+  }, [scheduleNext, stopAnimation]);
+
+  // Stop animation and reset position when the animation sequence changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: animation change triggers position reset
+  useEffect(() => {
+    stopAnimation();
+    animationPosRef.current = 0;
+  }, [animation, stopAnimation]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  const handlePrevious = useCallback(() => {
+    stopAnimation();
+    setSelectedIndex((prev) => Math.max(0, prev - 1));
+  }, [stopAnimation]);
+
+  const handleNext = useCallback(() => {
+    stopAnimation();
+    setSelectedIndex((prev) =>
+      Math.min((framesRef.current?.length ?? 1) - 1, prev + 1),
+    );
+  }, [stopAnimation]);
+
+  const handleSelectFrame = useCallback(
+    (index: number) => {
+      stopAnimation();
+      setSelectedIndex(index);
+    },
+    [stopAnimation],
+  );
 
   useEffect(() => {
+    stopAnimation();
     setFrames(null);
+    setAnimation(null);
     setError(null);
     setSelectedIndex(0);
     for (const bitmap of bitmapMap.current.values()) bitmap.close();
@@ -336,9 +492,10 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
           const map = new Map<number, ImageBitmap>();
           const meta: SlideFrameMeta[] = [];
           nextMap = map;
+          const remainingFrames = [...result.frames];
 
-          while (result.length > 0) {
-            const f = result.shift();
+          while (remainingFrames.length > 0) {
+            const f = remainingFrames.shift();
             if (!f) break;
             if (controller.signal.aborted) break;
 
@@ -379,6 +536,7 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
             animationMap.current = nextAnimMap;
             nextMap = null;
             setFrames(meta);
+            setAnimation(result.animation);
           }
         }
       } catch (e: unknown) {
@@ -409,15 +567,7 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
       }
       animationMap.current.clear();
     };
-  }, [urls]);
-
-  const handlePrevious = () => {
-    setSelectedIndex((prev) => Math.max(0, prev - 1));
-  };
-
-  const handleNext = () => {
-    setSelectedIndex((prev) => Math.min((frames?.length ?? 0) - 1, prev + 1));
-  };
+  }, [urls, stopAnimation]);
 
   if (error) {
     return <p className="text-sm text-gray-400">{error}</p>;
@@ -445,9 +595,13 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
       bitmapMap={bitmapMap}
       animationMap={animationMap}
       selectedIndex={selectedIndex}
-      onSelectFrame={setSelectedIndex}
+      animation={animation}
+      isPlaying={isPlaying}
+      onSelectFrame={handleSelectFrame}
       onPrevious={handlePrevious}
       onNext={handleNext}
+      startAnimation={startAnimation}
+      stopAnimation={stopAnimation}
     />
   );
 };

@@ -18,7 +18,7 @@ import { extractGifAnimations } from "@/lib/google/extractGifAnimations";
 import { LoadingOutlined } from "@ant-design/icons";
 import { Button, Flex, Spin, message } from "antd";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { TbBrandGoogleDrive } from "react-icons/tb";
 
 export const GooglePicker = () => {
@@ -28,6 +28,13 @@ export const GooglePicker = () => {
   const setFiles = useSetAtom(SelectedFilesAtom);
   const [validating, setValidating] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   const showPicker = async (__token = token) => {
     const _token =
@@ -58,16 +65,21 @@ export const GooglePicker = () => {
       await showPicker(null);
       return;
     }
-    void showFilePicker(_token, (data) => onFilePicked(data, _token));
+    void showFilePicker(_token, (data) => onFilePicked(data));
   };
 
-  const onFilePicked = async (
-    data: GoogleFilePickerCallbackData,
-    currentToken: string,
-  ) => {
+  const onFilePicked = async (data: GoogleFilePickerCallbackData) => {
     if (data.action !== "picked" || !data.docs) return;
     const file = data.docs[0];
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setIsLoading(true);
+    // True iff this invocation's controller is still the active one.
+    // Guards against appending stale results when a newer pick has aborted us
+    // while async work (which may not honor the signal) was still in flight.
+    const isStillActive = () =>
+      abortControllerRef.current === controller && !controller.signal.aborted;
     try {
       if (file.mimeType === "application/pdf") {
         const fileObj = new File(
@@ -78,10 +90,12 @@ export const GooglePicker = () => {
           },
         );
         const selectedFiles = await file2selectedFiles(fileObj);
+        if (!isStillActive()) return;
         setFiles((pv) => [...pv, ...selectedFiles]);
       }
       if (file.mimeType === "application/vnd.google-apps.presentation") {
-        const files = await slide2canvas(file.id, currentToken);
+        const files = await slide2canvas(file.id, controller.signal);
+        if (!isStillActive()) return;
         setFiles((pv) => [...pv, ...files]);
       }
       if (file.mimeType?.startsWith("image/")) {
@@ -90,9 +104,11 @@ export const GooglePicker = () => {
           type: file.mimeType,
         });
         const canvas = await file2selectedFiles(fileObject);
+        if (!isStillActive()) return;
         setFiles((pv) => [...pv, ...canvas]);
       }
     } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
       console.error(e);
       void messageApi.error(
         e instanceof Error
@@ -100,7 +116,9 @@ export const GooglePicker = () => {
           : "Failed to load file from Google Drive",
       );
     } finally {
-      setIsLoading(false);
+      if (abortControllerRef.current === controller) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -143,20 +161,49 @@ export const GooglePicker = () => {
   );
 };
 
+// Wrap a non-cancellable promise so it rejects as soon as `signal` aborts.
+// Underlying work (e.g. gapi calls) keeps running in the background, but
+// awaiters bail out immediately rather than waiting for it to finish.
+const raceWithAbort = <T,>(p: Promise<T>, signal?: AbortSignal): Promise<T> => {
+  if (!signal) return p;
+  // signal.reason is undefined per spec when abort() is called without an
+  // argument; fall back so `onFilePicked`'s `e instanceof DOMException` catch
+  // still recognizes the rejection.
+  const abortReason = () =>
+    signal.reason ?? new DOMException("Aborted", "AbortError");
+  if (signal.aborted) return Promise.reject(abortReason());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(abortReason());
+    signal.addEventListener("abort", onAbort, { once: true });
+    p.then(
+      (v) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(v);
+      },
+      (e) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(e);
+      },
+    );
+  });
+};
+
 const slide2canvas = async (
   slideId: string,
-  token: string,
+  signal?: AbortSignal,
 ): Promise<SelectedFile[]> => {
   const [{ canvases, buffer }, metadata] = await Promise.all([
     (async () => {
-      const buffer = await fetchSlideAsPdf(slideId);
+      const buffer = await raceWithAbort(fetchSlideAsPdf(slideId), signal);
+      signal?.throwIfAborted();
       return {
-        canvases: await pdf2canvases(buffer),
+        canvases: await raceWithAbort(pdf2canvases(buffer), signal),
         buffer,
       };
     })(),
-    fetchSlideMetadata(slideId),
+    raceWithAbort(fetchSlideMetadata(slideId), signal),
   ]);
+  signal?.throwIfAborted();
 
   const file = new File([buffer], metadata.title, {
     type: "application/pdf",
@@ -178,30 +225,33 @@ const slide2canvas = async (
     }))
     .filter(({ isSkipped }) => !isSkipped);
 
-  const results: SelectedFile[] = await Promise.all(
-    filteredSlides.map(async (slide, outputIndex) => {
-      const { canvas, index, speakerNote, pageElements } = slide;
-      const animations = await extractGifAnimations(
-        pageElements,
-        metadata.pageSize,
-        { width: canvas.width, height: canvas.height },
-        canvas,
-        token,
-      );
-      return {
-        id: crypto.randomUUID(),
-        fileName: `${metadata.title}-${outputIndex + 1}`,
-        canvas,
-        note: speakerNote,
-        animations: animations.length > 0 ? animations : undefined,
-        metadata: {
-          fileType: "pdf" as const,
-          file,
-          index,
-          scale: 1,
-        },
-      };
-    }),
-  );
+  // Process slides sequentially so the per-slide GIF_FETCH_CONCURRENCY cap in
+  // extractGifAnimations actually bounds total proxy load (parallel Promise.all
+  // across 30 slides would multiply that cap by the slide count).
+  const results: SelectedFile[] = [];
+  for (const [outputIndex, slide] of filteredSlides.entries()) {
+    signal?.throwIfAborted();
+    const { canvas, index, speakerNote, pageElements } = slide;
+    const animations = await extractGifAnimations(
+      pageElements,
+      metadata.pageSize,
+      { width: canvas.width, height: canvas.height },
+      canvas,
+      signal,
+    );
+    results.push({
+      id: crypto.randomUUID(),
+      fileName: `${metadata.title}-${outputIndex + 1}`,
+      canvas,
+      note: speakerNote,
+      animations: animations.length > 0 ? animations : undefined,
+      metadata: {
+        fileType: "pdf" as const,
+        file,
+        index,
+        scale: 1,
+      },
+    });
+  }
   return results;
 };

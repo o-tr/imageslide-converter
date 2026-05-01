@@ -5,7 +5,12 @@ import type {
   EIAFileV1CroppedPart,
   EIAManifestV1,
 } from "@/_types/eia/v1";
-import type { SlideAnimation, SlideFrame } from "@/_types/slide-preview";
+import type {
+  DecodeResult,
+  RawSignageItem,
+  SlideAnimation,
+  SlideFrame,
+} from "@/_types/slide-preview";
 import lz4 from "lz4js";
 import { rgb24ToImageData, rgba32ToImageData } from "./rawImage2ImageData";
 
@@ -82,7 +87,7 @@ const applyRects = (
   return result;
 };
 
-export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
+export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
   const uint8 = new Uint8Array(buffer);
   const textDecoder = new TextDecoder();
 
@@ -122,9 +127,21 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
     let decompressed: Uint8Array;
 
     if (binarySection !== null) {
+      if (item.s < 0 || item.l < 0 || item.s + item.l > binarySection.length) {
+        throw new Error(
+          `Frame "${item.n}" data out of bounds: offset ${item.s} + length ${item.l} ` +
+            `exceeds binary section size ${binarySection.length}`,
+        );
+      }
       const compressed = binarySection.subarray(item.s, item.s + item.l);
       decompressed = lz4Decompress(compressed, item.u, item.n);
     } else if (textSection !== null) {
+      if (item.s < 0 || item.l < 0 || item.s + item.l > textSection.length) {
+        throw new Error(
+          `Frame "${item.n}" data out of bounds: offset ${item.s} + length ${item.l} ` +
+            `exceeds text section size ${textSection.length}`,
+        );
+      }
       const b64 = textSection.substring(item.s, item.s + item.l);
       const compressed = base64ToUint8Array(b64);
       decompressed = lz4Decompress(compressed, item.u, item.n);
@@ -206,7 +223,11 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
 
               for (let fi = 0; fi < meta.frames.length; fi++) {
                 const frameRef = meta.frames[fi];
-                if (frameRef.s + frameRef.l > binarySection.length) {
+                if (
+                  frameRef.s < 0 ||
+                  frameRef.l < 0 ||
+                  frameRef.s + frameRef.l > binarySection.length
+                ) {
                   throw new Error(
                     `Animation frame ref out of bounds: offset ${frameRef.s} + length ${frameRef.l} ` +
                       `exceeds binary section size ${binarySection.length}`,
@@ -293,5 +314,28 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): SlideFrame[] => {
     }
   }
 
-  return frames.sort((a, b) => a.index - b.index);
+  const sortedFrames = frames.sort((a, b) => a.index - b.index);
+
+  let rawSignageItems: RawSignageItem[] | undefined;
+  if (manifest.m) {
+    const deviceKeys = Object.keys(manifest.m);
+    // Preview uses only the first device key. Multi-device EIA files carry separate
+    // sequences per display profile; selecting one is intentional here.
+    if (deviceKeys.length > 1) {
+      console.warn(
+        `EIA manifest has ${deviceKeys.length} device keys; preview uses only "${deviceKeys[0]}"`,
+      );
+    }
+    const firstDeviceKey = deviceKeys[0];
+    if (firstDeviceKey !== undefined) {
+      const items = manifest.m[firstDeviceKey];
+      // Preserve raw frame names so decodeSlides can do cross-part global resolution
+      rawSignageItems = items.map((item) => ({
+        frameName: item.f,
+        duration: item.d,
+      }));
+    }
+  }
+
+  return { frames: sortedFrames, animation: null, rawSignageItems };
 };

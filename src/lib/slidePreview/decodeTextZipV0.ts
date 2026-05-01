@@ -1,4 +1,4 @@
-import type { SlideFrame } from "@/_types/slide-preview";
+import type { DecodeResult, SlideFrame } from "@/_types/slide-preview";
 import type { ManifestV0 } from "@/_types/text-zip/v0";
 import type JSZip from "jszip";
 import { rgba32ToImageData } from "./rawImage2ImageData";
@@ -6,7 +6,7 @@ import { rgba32ToImageData } from "./rawImage2ImageData";
 export const decodeTextZipV0 = async (
   zip: JSZip,
   manifest: ManifestV0,
-): Promise<SlideFrame[]> => {
+): Promise<DecodeResult> => {
   const frames: SlideFrame[] = [];
   for (let i = 0; i < manifest.length; i++) {
     const item = manifest[i];
@@ -21,5 +21,5 @@ export const decodeTextZipV0 = async (
     });
   }
 
-  return frames;
+  return { frames, animation: null };
 };

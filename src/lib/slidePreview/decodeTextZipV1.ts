@@ -1,4 +1,4 @@
-import type { SlideFrame } from "@/_types/slide-preview";
+import type { DecodeResult, SlideFrame } from "@/_types/slide-preview";
 import type {
   ManifestV1,
   ManifestV1ExtensionCropped,
@@ -65,7 +65,7 @@ const applyRects = async (
 export const decodeTextZipV1 = async (
   zip: JSZip,
   manifest: ManifestV1,
-): Promise<SlideFrame[]> => {
+): Promise<DecodeResult> => {
   const basePaths = new Set(
     manifest.files
       .filter((f) => f.extensions?.cropped)
@@ -126,5 +126,5 @@ export const decodeTextZipV1 = async (
     }
   }
 
-  return frames;
+  return { frames, animation: null };
 };
