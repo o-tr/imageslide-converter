@@ -398,10 +398,9 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
     setIsPlaying(false);
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: empty deps intentional —
-  // scheduleNext must have a stable identity so the recursive chain inside the timeout
-  // callback always refers to the same function instance. All mutable state is accessed
-  // through refs (animationRef), not captured variables.
+  // Empty deps intentional: scheduleNext must have a stable identity so the recursive
+  // chain inside the timeout callback always refers to the same function instance.
+  // All mutable state is accessed through refs (animationRef), not captured variables.
   const scheduleNext = useCallback((pos: number) => {
     const anim = animationRef.current;
     if (!anim) return;
