@@ -82,25 +82,34 @@ const AnimatedPreview: FC<AnimatedPreviewProps> = ({
     return () => cancelAnimationFrame(rafId);
   }, [file.canvas, file.animations]);
 
-  const buildFpsMenuItems = (animIndex: number, anim: SelectedFileAnimation) =>
-    FPS_OPTIONS.filter((fps) => fps <= anim.fps).map((fps) => {
+  const buildFpsMenuItems = (
+    animIndex: number,
+    anim: SelectedFileAnimation,
+  ) => {
+    const makeItem = (fps: number, isOriginal: boolean) => {
       const scale = getAnimationFrameScale(fps);
       const scaleLabel = scale < 1 ? ` (解像度 ${scale * 100}%)` : "";
       return {
         key: String(fps),
-        label:
-          fps === anim.fps
-            ? `${fps} fps (オリジナル)${scaleLabel}`
-            : fps === 5
-              ? `${fps} fps (auto)${scaleLabel}`
-              : `${fps} fps${scaleLabel}`,
+        label: isOriginal
+          ? `${fps} fps (オリジナル)${scaleLabel}`
+          : fps === 5
+            ? `${fps} fps (auto)${scaleLabel}`
+            : `${fps} fps${scaleLabel}`,
         onClick: () => onAnimationFpsChange(animIndex, fps),
         style:
           fps === (anim.fpsOverride ?? null)
             ? { fontWeight: "bold" }
             : undefined,
       };
-    });
+    };
+
+    const items = FPS_OPTIONS.filter(
+      (fps) => fps <= anim.fps && fps !== anim.fps,
+    ).map((fps) => makeItem(fps, false));
+    items.push(makeItem(anim.fps, true));
+    return items;
+  };
 
   return (
     <div className="relative w-full h-full">
