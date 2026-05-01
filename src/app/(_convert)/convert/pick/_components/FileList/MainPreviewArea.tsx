@@ -104,11 +104,10 @@ const AnimatedPreview: FC<AnimatedPreviewProps> = ({
       };
     };
 
-    const effectiveFps = Math.min(anim.fps, 15);
-    const items = FPS_OPTIONS.filter(
-      (fps) => fps <= effectiveFps && fps !== effectiveFps,
-    ).map((fps) => makeItem(fps, false));
-    items.push(makeItem(effectiveFps, true));
+    const items = FPS_OPTIONS.filter((fps) => fps < anim.fps && fps <= 15).map(
+      (fps) => makeItem(fps, false),
+    );
+    items.push(makeItem(anim.fps, true));
     return items;
   };
 
