@@ -80,7 +80,9 @@ export async function GET(request: Request): Promise<Response> {
           chunks.push(value);
         }
       } finally {
-        await reader.cancel();
+        // Ignore cancel() rejection (stream may already be closed/errored) so
+        // it does not override a 413 return already issued from inside the loop.
+        reader.cancel().catch(() => {});
       }
     }
 

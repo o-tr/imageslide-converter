@@ -172,16 +172,22 @@ const slide2canvas = async (slideId: string): Promise<SelectedFile[]> => {
     }))
     .filter(({ isSkipped }) => !isSkipped);
 
-  const results: SelectedFile[] = await Promise.all(
-    filteredSlides.map(async (slide, outputIndex) => {
+  // Process slides sequentially so the per-slide GIF_FETCH_CONCURRENCY cap in
+  // extractGifAnimations actually bounds total proxy load (parallel Promise.all
+  // across 30 slides would multiply that cap by the slide count).
+  const controller = new AbortController();
+  const results: SelectedFile[] = [];
+  try {
+    for (const [outputIndex, slide] of filteredSlides.entries()) {
       const { canvas, index, speakerNote, pageElements } = slide;
       const animations = await extractGifAnimations(
         pageElements,
         metadata.pageSize,
         { width: canvas.width, height: canvas.height },
         canvas,
+        controller.signal,
       );
-      return {
+      results.push({
         id: crypto.randomUUID(),
         fileName: `${metadata.title}-${outputIndex + 1}`,
         canvas,
@@ -193,8 +199,11 @@ const slide2canvas = async (slideId: string): Promise<SelectedFile[]> => {
           index,
           scale: 1,
         },
-      };
-    }),
-  );
+      });
+    }
+  } catch (e) {
+    controller.abort();
+    throw e;
+  }
   return results;
 };
