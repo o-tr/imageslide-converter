@@ -18,7 +18,7 @@ import { extractGifAnimations } from "@/lib/google/extractGifAnimations";
 import { LoadingOutlined } from "@ant-design/icons";
 import { Button, Flex, Spin, message } from "antd";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { TbBrandGoogleDrive } from "react-icons/tb";
 
 export const GooglePicker = () => {
@@ -28,6 +28,13 @@ export const GooglePicker = () => {
   const setFiles = useSetAtom(SelectedFilesAtom);
   const [validating, setValidating] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   const showPicker = async (__token = token) => {
     const _token =
@@ -64,6 +71,9 @@ export const GooglePicker = () => {
   const onFilePicked = async (data: GoogleFilePickerCallbackData) => {
     if (data.action !== "picked" || !data.docs) return;
     const file = data.docs[0];
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setIsLoading(true);
     try {
       if (file.mimeType === "application/pdf") {
@@ -78,7 +88,7 @@ export const GooglePicker = () => {
         setFiles((pv) => [...pv, ...selectedFiles]);
       }
       if (file.mimeType === "application/vnd.google-apps.presentation") {
-        const files = await slide2canvas(file.id);
+        const files = await slide2canvas(file.id, controller.signal);
         setFiles((pv) => [...pv, ...files]);
       }
       if (file.mimeType?.startsWith("image/")) {
@@ -90,6 +100,7 @@ export const GooglePicker = () => {
         setFiles((pv) => [...pv, ...canvas]);
       }
     } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
       console.error(e);
       void messageApi.error(
         e instanceof Error
@@ -97,7 +108,9 @@ export const GooglePicker = () => {
           : "Failed to load file from Google Drive",
       );
     } finally {
-      setIsLoading(false);
+      if (abortControllerRef.current === controller) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -140,7 +153,10 @@ export const GooglePicker = () => {
   );
 };
 
-const slide2canvas = async (slideId: string): Promise<SelectedFile[]> => {
+const slide2canvas = async (
+  slideId: string,
+  signal?: AbortSignal,
+): Promise<SelectedFile[]> => {
   const [{ canvases, buffer }, metadata] = await Promise.all([
     (async () => {
       const buffer = await fetchSlideAsPdf(slideId);
@@ -183,6 +199,7 @@ const slide2canvas = async (slideId: string): Promise<SelectedFile[]> => {
       metadata.pageSize,
       { width: canvas.width, height: canvas.height },
       canvas,
+      signal,
     );
     results.push({
       id: crypto.randomUUID(),

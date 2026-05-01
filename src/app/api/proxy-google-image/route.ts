@@ -56,13 +56,6 @@ export async function GET(request: Request): Promise<Response> {
       return new Response("Forbidden", { status: 403 });
     }
 
-    // Reject early when Content-Length exceeds cap (not always present).
-    const cl = Number(upstream.headers.get("Content-Length"));
-    if (Number.isFinite(cl) && cl > GIF_SIZE_CAP) {
-      await upstream.body?.cancel();
-      return new Response("Content Too Large", { status: 413 });
-    }
-
     // Buffer the body so we can enforce the cap before committing to a 200 response.
     // Streaming would send 200 before we know the total size, making a 413 impossible.
     const reader = upstream.body?.getReader();
