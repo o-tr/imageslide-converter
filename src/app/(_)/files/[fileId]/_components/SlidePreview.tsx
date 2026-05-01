@@ -378,10 +378,17 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
   const animationPosRef = useRef(0);
   const selectedIndexRef = useRef(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const framesRef = useRef<SlideFrameMeta[] | null>(null);
 
-  // Keep refs in sync so callbacks always see the latest values without stale closures
-  animationRef.current = animation;
-  selectedIndexRef.current = selectedIndex;
+  // Keep refs in sync so callbacks always see the latest values without stale closures.
+  // useLayoutEffect runs after every commit, before paint, so refs are updated before
+  // any timer callback or event handler fires — avoiding the concurrent-mode hazard of
+  // mutating refs directly in the render body.
+  useLayoutEffect(() => {
+    animationRef.current = animation;
+    selectedIndexRef.current = selectedIndex;
+    framesRef.current = frames;
+  }, [animation, selectedIndex, frames]);
 
   const stopAnimation = useCallback(() => {
     if (timeoutRef.current !== null) {
@@ -391,6 +398,10 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
     setIsPlaying(false);
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: empty deps intentional —
+  // scheduleNext must have a stable identity so the recursive chain inside the timeout
+  // callback always refers to the same function instance. All mutable state is accessed
+  // through refs (animationRef), not captured variables.
   const scheduleNext = useCallback((pos: number) => {
     const anim = animationRef.current;
     if (!anim) return;
@@ -400,9 +411,11 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
         ? current.duration
         : 100;
     timeoutRef.current = setTimeout(() => {
-      const nextPos = (pos + 1) % anim.length;
+      const latestAnim = animationRef.current;
+      if (!latestAnim) return;
+      const nextPos = (pos + 1) % latestAnim.length;
       animationPosRef.current = nextPos;
-      setSelectedIndex(anim[nextPos].frameIndex);
+      setSelectedIndex(latestAnim[nextPos].frameIndex);
       scheduleNext(nextPos);
     }, duration);
   }, []);
@@ -443,8 +456,10 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
 
   const handleNext = useCallback(() => {
     stopAnimation();
-    setSelectedIndex((prev) => Math.min((frames?.length ?? 1) - 1, prev + 1));
-  }, [stopAnimation, frames]);
+    setSelectedIndex((prev) =>
+      Math.min((framesRef.current?.length ?? 1) - 1, prev + 1),
+    );
+  }, [stopAnimation]);
 
   const handleSelectFrame = useCallback(
     (index: number) => {
@@ -455,6 +470,7 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
   );
 
   useEffect(() => {
+    stopAnimation();
     setFrames(null);
     setAnimation(null);
     setError(null);
@@ -552,7 +568,7 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
       }
       animationMap.current.clear();
     };
-  }, [urls]);
+  }, [urls, stopAnimation]);
 
   if (error) {
     return <p className="text-sm text-gray-400">{error}</p>;

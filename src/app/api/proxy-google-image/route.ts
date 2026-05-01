@@ -1,6 +1,8 @@
 import { auth } from "@/auth";
 import { isTrustedOrigin } from "@/lib/google/trustedOrigins";
 
+const PROXY_SIZE_CAP = 20 * 1024 * 1024; // 20 MB — matches client-side GIF_SIZE_CAP
+
 export async function GET(request: Request): Promise<Response> {
   const session = await auth();
   if (!session?.user) {
@@ -15,7 +17,10 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   try {
-    const upstream = await fetch(targetUrl, { redirect: "manual" });
+    const upstream = await fetch(targetUrl, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(15_000),
+    });
     if (upstream.status >= 300 && upstream.status < 400) {
       return new Response("Forbidden", { status: 403 });
     }
@@ -26,6 +31,59 @@ export async function GET(request: Request): Promise<Response> {
     const contentType =
       upstream.headers.get("Content-Type") ?? "application/octet-stream";
 
+    // Allow only known non-scriptable raster/binary types.
+    // image/svg+xml is intentionally excluded: SVG is executable XML (inline <script>,
+    // event handlers) and would enable XSS from attacker-controlled Google-hosted content.
+    const ALLOWED_CONTENT_TYPES = new Set([
+      "image/gif",
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/bmp",
+      "image/tiff",
+      "image/x-icon",
+      "image/vnd.microsoft.icon",
+      "application/octet-stream",
+    ]);
+    const baseContentType = contentType.split(";")[0].trim();
+    if (!ALLOWED_CONTENT_TYPES.has(baseContentType)) {
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    // Reject early when Content-Length exceeds cap (not always present).
+    const cl = Number(upstream.headers.get("Content-Length"));
+    if (Number.isFinite(cl) && cl > PROXY_SIZE_CAP) {
+      return new Response("Content Too Large", { status: 413 });
+    }
+
+    // Buffer the body so we can enforce the cap before committing to a 200 response.
+    // Streaming would send 200 before we know the total size, making a 413 impossible.
+    const reader = upstream.body?.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    if (reader) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          totalBytes += value.byteLength;
+          if (totalBytes > PROXY_SIZE_CAP) {
+            return new Response("Content Too Large", { status: 413 });
+          }
+          chunks.push(value);
+        }
+      } finally {
+        await reader.cancel();
+      }
+    }
+
+    const body = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
     // Do not forward Content-Length: fetch() decompresses gzip/brotli transparently,
     // so the upstream value reflects the compressed size and would mismatch the body.
     const headers: Record<string, string> = {
@@ -34,8 +92,9 @@ export async function GET(request: Request): Promise<Response> {
       "X-Content-Type-Options": "nosniff",
     };
 
-    return new Response(upstream.body ?? new Uint8Array(0), { headers });
-  } catch {
+    return new Response(body, { headers });
+  } catch (e) {
+    console.error("proxy-google-image error:", e);
     return new Response("Internal Server Error", { status: 500 });
   }
 }

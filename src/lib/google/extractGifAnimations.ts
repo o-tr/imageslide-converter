@@ -127,6 +127,8 @@ const computeAABBFromTransformedCorners = (
  */
 const derivePreviewFps = (frames: ParsedFrame[]): number => {
   if (frames.length === 0) return MAX_PREVIEW_FPS;
+  // gifuct-js converts GCE delay (centiseconds) to ms via × 10; fall back to 100 ms
+  // (matching sampleFrameIndices) when the field is missing or zero.
   const delays = frames.map((f) => f.delay || 100).sort((a, b) => a - b);
   const medianDelay = delays[Math.floor(delays.length / 2)];
   return Math.min(MAX_PREVIEW_FPS, Math.max(1, Math.round(1000 / medianDelay)));
@@ -226,6 +228,12 @@ const buildComposedFrames = (
     );
     const dstData = imageData.data;
     const srcData = frame.patch;
+    const expectedLength = frame.dims.width * frame.dims.height * 4;
+    if (srcData.length < expectedLength) {
+      console.warn(
+        `GIF frame patch is smaller than expected: got ${srcData.length} bytes, expected ${expectedLength} (${frame.dims.width}×${frame.dims.height})`,
+      );
+    }
     const pixelCount = Math.min(srcData.length, dstData.length);
     for (let p = 0; p < pixelCount; p += 4) {
       const srcA = srcData[p + 3] / 255;
@@ -233,6 +241,9 @@ const buildComposedFrames = (
 
       const dstA = dstData[p + 3] / 255;
       const outA = srcA + dstA * (1 - srcA);
+      // outA === 0 is unreachable here (srcA > 0 guarantees outA > 0) but guards
+      // against division by zero if floating-point behaviour ever changes.
+      if (outA === 0) continue;
 
       dstData[p] = Math.round(
         (srcData[p] * srcA + dstData[p] * dstA * (1 - srcA)) / outA,
