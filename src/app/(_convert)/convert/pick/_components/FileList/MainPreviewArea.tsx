@@ -116,7 +116,7 @@ const AnimatedPreview: FC<AnimatedPreviewProps> = ({
       <canvas ref={canvasRef} className="w-full h-full object-contain" />
       {file.animations?.map((anim, i) => (
         <Dropdown
-          key={`${anim.x}-${anim.y}-${anim.w}-${anim.h}`}
+          key={`${i}-${anim.x}-${anim.y}-${anim.w}-${anim.h}`}
           trigger={["contextMenu"]}
           menu={{ items: buildFpsMenuItems(i, anim) }}
         >

@@ -87,11 +87,12 @@ export const FileList = () => {
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return;
-    setFiles((prev) => {
-      const from = prev.findIndex((f) => f.id === active.id);
-      const to = prev.findIndex((f) => f.id === over.id);
-      return arrayMove(prev, from, to);
-    });
+    const from = files.findIndex((f) => f.id === active.id);
+    const to = files.findIndex((f) => f.id === over.id);
+    const newFiles = arrayMove(files, from, to);
+    setFiles(newFiles);
+    const newIdx = newFiles.findIndex((f) => f.id === selectedIdRef.current);
+    if (newIdx !== -1) setSelectedIndex(newIdx);
   };
 
   const onSelect = (index: number) => {
