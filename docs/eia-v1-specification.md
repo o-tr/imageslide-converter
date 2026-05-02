@@ -340,7 +340,7 @@ type EIAAnimationRef = {
    - `t: "m"` はそのまま完全フレーム画像として使用する
    - `t: "c"` は `pool[b]` の画像データを**コピー**し、各パーツを適用して合成する。ベースフレームのバッファを直接変更してはならない（MUST NOT）
 2. `seq` に従って、対応するプールフレームを時系列に並べる
-3. `floor((Time.now - startTime) * fps) % seq.length` でフレームインデックスを計算する。ここで `startTime` は、このアニメーションを含むスライドが最初にレンダリングされた時刻とする
+3. `floor(Time.now * fps) % seq.length` でフレームインデックスを計算する
 4. 選択されたフレーム画像を表示スロット（`EIAAnimationRef.x`, `EIAAnimationRef.y`, `EIAAnimationRef.w`, `EIAAnimationRef.h`）に配置する。フレームのピクセルサイズ（`pool[seq[i]].w`, `pool[seq[i]].h`）と表示サイズ（`EIAAnimationRef.w`, `EIAAnimationRef.h`）が異なる場合、デコーダーはフレームを表示サイズにスケールしなければなりません（MUST）
 
 ## 8. 処理ガイドライン

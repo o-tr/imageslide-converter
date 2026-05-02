@@ -340,7 +340,7 @@ When a slide references an animation, the animation is rendered at position (`x`
    - `t: "m"` is used directly as a complete frame image
    - `t: "c"` **copies** the image data from `pool[b]`, then applies each part in `r`. The base frame buffer MUST NOT be modified in-place.
 2. Follow `seq` to assemble the frame sequence from the decoded pool frames
-3. Compute the current frame index: `floor((Time.now - startTime) * fps) % seq.length`, where `startTime` is the timestamp at which the slide containing this animation is first rendered
+3. Compute the current frame index: `floor(Time.now * fps) % seq.length`
 4. Render the selected frame image within the display slot (`EIAAnimationRef.x`, `EIAAnimationRef.y`, `EIAAnimationRef.w`, `EIAAnimationRef.h`). If the frame pixel size (`pool[seq[i]].w`, `pool[seq[i]].h`) differs from the display size (`EIAAnimationRef.w`, `EIAAnimationRef.h`), the decoder MUST scale the frame to the display size
 
 ## 8. Processing Guidelines
