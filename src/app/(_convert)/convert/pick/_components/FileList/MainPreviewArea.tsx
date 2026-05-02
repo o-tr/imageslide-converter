@@ -151,6 +151,27 @@ const AnimatedPreview: FC<AnimatedPreviewProps> = ({
             />
           </Dropdown>
         ))}
+        {file.skippedAnimations?.map((anim, i) => (
+          <div
+            key={`skipped-${i}-${anim.x}-${anim.y}-${anim.w}-${anim.h}`}
+            className="absolute group border-2 border-red-500 pointer-events-auto"
+            style={{
+              left: `${(anim.x / file.canvas.width) * 100}%`,
+              top: `${(anim.y / file.canvas.height) * 100}%`,
+              width: `${(anim.w / file.canvas.width) * 100}%`,
+              height: `${(anim.h / file.canvas.height) * 100}%`,
+            }}
+          >
+            <div className="absolute inset-0 bg-red-500/0 group-hover:bg-red-500/20 transition-colors duration-150" />
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none">
+              <span className="text-[10px] leading-tight text-red-700 bg-white/90 px-1.5 py-0.5 rounded shadow text-center">
+                アニメーションが無効化されました
+                <br />
+                （静的要素と重なっています）
+              </span>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

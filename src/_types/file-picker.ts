@@ -8,6 +8,13 @@ export type SelectedFileAnimation = {
   frames: OffscreenCanvas[];
 };
 
+export type SkippedAnimation = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
 export type SelectedFile = {
   id: string;
   fileName: string;
@@ -15,6 +22,7 @@ export type SelectedFile = {
   canvas: OffscreenCanvas;
   metadata: SelectedFileMetadata;
   animations?: SelectedFileAnimation[];
+  skippedAnimations?: SkippedAnimation[];
 };
 
 export type SelectedFileMetadataImage = {
