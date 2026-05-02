@@ -84,7 +84,7 @@ type EIAManifestV1 = {
 **Version number:**
 - `1`: EIA v1 (the only valid value)
 
-Animation slots that include the `ac` field are treated as a v1-compatible extension and do not require bumping `v`.
+Manifests that include the `ac` field are treated as a v1-compatible extension and do not require bumping `v`.
 
 #### 2.4.1 Features Array
 
@@ -177,7 +177,7 @@ The data section immediately follows the `$` terminator and contains independent
 
 When an animation container (`ac`) is present, the frame pool blocks (`ac.pool`) are appended after all slide data blocks (corresponding to the `i` array).
 
-```
+```text
 [slide data blocks ...][animation pool blocks ...]
 ```
 
@@ -275,25 +275,31 @@ type EIAAnimFramePoolItem =
   | EIAAnimFramePoolItemCropped;
 
 type EIAAnimFramePoolItemMaster = {
-  t: "m";    // Type (master)
-  s: number; // Start offset in the data section (same coordinate space as §2.3)
-  l: number; // Byte length after LZ4 compression
-  u: number; // Byte length after LZ4 decompression (= w × h × bytes_per_pixel)
+  t: "m";            // Type (master)
+  f: TTextureFormat; // Texture format
+  w: number;         // Frame width in pixels
+  h: number;         // Frame height in pixels
+  s: number;         // Start offset in the data section (same coordinate space as §2.3)
+  l: number;         // Byte length after LZ4 compression
+  u: number;         // Byte length after LZ4 decompression (= w × h × bytes_per_pixel)
 }
 
 type EIAAnimFramePoolItemCropped = {
-  t: "c";    // Type (cropped)
-  b: number; // Base frame index within the same `pool` array
-  s: number; // Start offset in the data section (same coordinate space as §2.3)
-  l: number; // Byte length after LZ4 compression
-  u: number; // Byte length after LZ4 decompression (= sum of all parts' l values)
+  t: "c";            // Type (cropped)
+  f: TTextureFormat; // Texture format
+  w: number;         // Frame width in pixels
+  h: number;         // Frame height in pixels
+  b: number;         // Base frame index within the same `pool` array
+  s: number;         // Start offset in the data section (same coordinate space as §2.3)
+  l: number;         // Byte length after LZ4 compression
+  u: number;         // Byte length after LZ4 decompression (= sum of all parts' l values)
   r: EIAFileV1CroppedPart[]; // Changed rectangle parts array
 }
 ```
 
 > **Important**: `EIAAnimFramePoolItemCropped.b` refers to another entry within the same `pool` array by numeric index. This is different from slide-level cropped files (`EIAFileV1Cropped.b`), which use a string name.
 >
-> Reference chaining (where the base frame is itself `t: "c"`) is allowed, but encoders MUST NOT produce circular references. Decoders SHOULD enforce a depth limit when resolving references.
+> Reference chaining (where the base frame is itself `t: "c"`) is allowed, but encoders MUST NOT produce circular references. Decoders SHOULD enforce a depth limit when resolving references. `b` is not required to refer to a lower index; decoders SHOULD resolve dependencies when decoding.
 
 The `EIAFileV1CroppedPart.s` values within `r` are **decompressed-buffer offsets** (the first part always has `s = 0`), using the same coordinate space as file-level cropped parts (see §3.2.1). This is a different coordinate space from `EIAAnimFramePoolItemCropped.s` (which is a compressed-space offset).
 
@@ -314,7 +320,7 @@ type EIAAnimation = {
 }
 ```
 
-Each element of `seq` is an index into the `pool` array. By referencing the same frame data multiple times, back-and-forth GIFs and other repeating frame patterns can be represented without data duplication.
+Each element of `seq` is an index into the `pool` array. By referencing the same frame data multiple times, back-and-forth GIFs and other repeating frame patterns can be represented without data duplication. `seq` MUST NOT be empty.
 
 ### 7.4 Animation References from Slides
 
@@ -335,11 +341,11 @@ When a slide references an animation, the animation is rendered at position (`x`
 
 ### 7.5 Animation Decoding Steps
 
-1. If `manifest.ac` is present, decode each frame in `pool` sequentially:
+1. If `manifest.ac` is present, decode each frame in `pool` by resolving dependencies:
    - `t: "m"` is used directly as a complete frame image
    - `t: "c"` copies the image data from `pool[b]`, then applies each part in `r`
 2. Follow `seq` to assemble the frame sequence from the decoded pool frames
-3. Compute the current frame index: `floor((Time.now - startTime) * fps) % seq.length`
+3. Compute the current frame index: `floor((Time.now - startTime) * fps % seq.length)`
 4. Render the selected frame image within the display slot (`EIAAnimationRef.x`, `EIAAnimationRef.y`, `EIAAnimationRef.w ?? anim.w`, `EIAAnimationRef.h ?? anim.h`)
 
 ## 8. Processing Guidelines
@@ -509,9 +515,12 @@ An example placing an animation (`id: "intro"`) on slide 0:
     "pool": [
       {
         "t": "m",
+        "f": "RGB24",
+        "w": 400,
+        "h": 300,
         "s": 256000,
         "l": 15000,
-        "u": 480000
+        "u": 360000
       },
       {
         "t": "c",

@@ -177,7 +177,7 @@ type EIAFileV1CroppedPart = {
 
 アニメーションコンテナ（`ac`）が存在する場合、スライドデータ（`i` 配列に対応するブロック）の後に、フレームプール（`ac.pool`）の圧縮ブロックが続きます。
 
-```
+```text
 [スライドデータブロック ...][アニメーションプールブロック ...]
 ```
 
@@ -275,25 +275,31 @@ type EIAAnimFramePoolItem =
   | EIAAnimFramePoolItemCropped;
 
 type EIAAnimFramePoolItemMaster = {
-  t: "m";    // タイプ（マスター）
-  s: number; // データセクション内の圧縮ブロック開始オフセット（§2.3と同じ座標系）
-  l: number; // LZ4圧縮後のバイト長
-  u: number; // LZ4展開後のバイト長（= w × h × bytes_per_pixel）
+  t: "m";            // タイプ（マスター）
+  f: TTextureFormat; // テクスチャフォーマット
+  w: number;         // フレーム幅（ピクセル）
+  h: number;         // フレーム高さ（ピクセル）
+  s: number;         // データセクション内の圧縮ブロック開始オフセット（§2.3と同じ座標系）
+  l: number;         // LZ4圧縮後のバイト長
+  u: number;         // LZ4展開後のバイト長（= w × h × bytes_per_pixel）
 }
 
 type EIAAnimFramePoolItemCropped = {
-  t: "c";    // タイプ（クロップ）
-  b: number; // ベースフレームの pool 配列内インデックス
-  s: number; // データセクション内の圧縮ブロック開始オフセット（§2.3と同じ座標系）
-  l: number; // LZ4圧縮後のバイト長
-  u: number; // LZ4展開後のバイト長（= 全パーツの l の合計）
+  t: "c";            // タイプ（クロップ）
+  f: TTextureFormat; // テクスチャフォーマット
+  w: number;         // フレーム幅（ピクセル）
+  h: number;         // フレーム高さ（ピクセル）
+  b: number;         // ベースフレームの pool 配列内インデックス
+  s: number;         // データセクション内の圧縮ブロック開始オフセット（§2.3と同じ座標系）
+  l: number;         // LZ4圧縮後のバイト長
+  u: number;         // LZ4展開後のバイト長（= 全パーツの l の合計）
   r: EIAFileV1CroppedPart[]; // 変化した矩形パーツ配列
 }
 ```
 
 > **重要**: `EIAAnimFramePoolItemCropped.b` は、同一 `pool` 配列内の他のプールエントリを参照します。スライドのクロップファイル（`EIAFileV1Cropped.b`）とは異なり、ここでは**数値インデックス**（文字列ではなく）を使用します。
 >
-> 参照連鎖（参照先がさらに `t: "c"` であるケース）は許可されますが、エンコーダーは循環参照を生成してはなりません（MUST NOT）。デコーダーは参照を辿る際に深さ制限を設けるべきです（SHOULD）。
+> 参照連鎖（参照先がさらに `t: "c"` であるケース）は許可されますが、エンコーダーは循環参照を生成してはなりません（MUST NOT）。デコーダーは参照を辿る際に深さ制限を設けるべきです（SHOULD）。`b` は自身より前のインデックスを参照する必要はありません。デコーダーは依存関係を解決してデコードするべきです（SHOULD）。
 
 `r` 内の `EIAFileV1CroppedPart.s` は、クロップファイルと同様に **LZ4展開後バッファ内のバイトオフセット**（最初のパーツは常に `s = 0`）です。`EIAAnimFramePoolItemCropped.s`（圧縮空間）とは座標系が異なります（§3.2.1の注意事項を参照）。
 
@@ -314,7 +320,7 @@ type EIAAnimation = {
 }
 ```
 
-`seq` の各要素は `pool` 配列内のインデックスです。同一フレームデータを複数回参照することで、往復GIF等の繰り返しフレームをデータ重複なく表現できます。
+`seq` の各要素は `pool` 配列内のインデックスです。同一フレームデータを複数回参照することで、往復GIF等の繰り返しフレームをデータ重複なく表現できます。`seq` は空であってはなりません（MUST）。
 
 ### 7.4 スライドからのアニメーション参照
 
@@ -335,11 +341,11 @@ type EIAAnimationRef = {
 
 ### 7.5 アニメーションデコード手順
 
-1. `manifest.ac` が存在する場合、`pool` 内の各フレームを順にデコードする
+1. `manifest.ac` が存在する場合、`pool` 内の各フレームを依存関係を解決してデコードする
    - `t: "m"` はそのまま完全フレーム画像として使用する
    - `t: "c"` は `pool[b]` の画像データをコピーし、各パーツを適用して合成する
 2. `seq` に従って、対応するプールフレームを時系列に並べる
-3. `(Time.now - startTime) * fps % seq.length` でフレームインデックスを計算する
+3. `floor((Time.now - startTime) * fps % seq.length)` でフレームインデックスを計算する
 4. 選択されたフレーム画像を表示スロット（`EIAAnimationRef.x`, `EIAAnimationRef.y`, `EIAAnimationRef.w ?? anim.w`, `EIAAnimationRef.h ?? anim.h`）に配置する
 
 ## 8. 処理ガイドライン
@@ -509,9 +515,12 @@ type EIAAnimationRef = {
     "pool": [
       {
         "t": "m",
+        "f": "RGB24",
+        "w": 400,
+        "h": 300,
         "s": 256000,
         "l": 15000,
-        "u": 480000
+        "u": 360000
       },
       {
         "t": "c",
