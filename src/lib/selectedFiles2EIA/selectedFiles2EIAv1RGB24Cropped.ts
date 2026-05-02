@@ -8,33 +8,38 @@ import { compressEIAv1 } from "@/lib/eia/compressEIAv1";
 import { cropImages } from "../crop/cropImages";
 
 const keyframeInterval = 10;
-const FNV_OFFSET_BASIS_64 = 0xcbf29ce484222325n;
-const FNV_PRIME_64 = 0x100000001b3n;
-const FNV_MASK_64 = 0xffffffffffffffffn;
+const FNV_OFFSET_BASIS_32 = 0x811c9dc5;
+const FNV_PRIME_32 = 0x01000193;
 const textEncoder = new TextEncoder();
 
-const updateFNV1a64 = (hash: bigint, data: Uint8Array): bigint => {
-  let result = hash;
+const updateFNV1a32 = (hash: number, data: Uint8Array): number => {
+  let result = hash >>> 0;
   for (let i = 0; i < data.length; i++) {
-    result ^= BigInt(data[i]);
-    result = (result * FNV_PRIME_64) & FNV_MASK_64;
+    result ^= data[i];
+    result = Math.imul(result, FNV_PRIME_32) >>> 0;
   }
   return result;
 };
 
 const createAnimationCacheKey = (frames: RawImageObjV1[]): string => {
-  let hash = FNV_OFFSET_BASIS_64;
-  hash = updateFNV1a64(hash, textEncoder.encode(`${frames.length}|`));
+  // Dual 32-bit FNV-1a keeps full-content hashing deterministic while avoiding
+  // per-byte BigInt overhead on large animation buffers.
+  let hashA = FNV_OFFSET_BASIS_32;
+  let hashB = (FNV_OFFSET_BASIS_32 ^ 0x9e3779b9) >>> 0;
+  const updateBoth = (data: Uint8Array) => {
+    hashA = updateFNV1a32(hashA, data);
+    hashB = updateFNV1a32(hashB, data);
+  };
+  updateBoth(textEncoder.encode(`${frames.length}|`));
   for (const frame of frames) {
-    hash = updateFNV1a64(
-      hash,
+    updateBoth(
       textEncoder.encode(
         `${frame.rect.width}x${frame.rect.height}:${frame.format}:${frame.buffer.length}|`,
       ),
     );
-    hash = updateFNV1a64(hash, frame.buffer);
+    updateBoth(frame.buffer);
   }
-  return hash.toString(16).padStart(16, "0");
+  return `${hashA.toString(16).padStart(8, "0")}${hashB.toString(16).padStart(8, "0")}`;
 };
 
 export const selectedFiles2EIAv1RGB24Cropped = async (

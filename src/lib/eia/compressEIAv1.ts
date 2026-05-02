@@ -293,6 +293,8 @@ const compressEIAv1Part = async (
             buffer.push(compressed);
             animBufferLength += compressed.length;
           } else {
+            // baseIndex is an index into anim.frames (not newPoolFrames), and
+            // framePoolIndices is built with the same anim.frames indexing.
             const basePoolIndex = framePoolIndices[frame.cropped.baseIndex];
             const parts: EIAFileV1CroppedPart[] = [];
             let fileBufferLength = 0;
