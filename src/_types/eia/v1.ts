@@ -46,7 +46,7 @@ export type EIACompressionMethod = "lz4" | "lz4-base64";
 export type EIAManifestV1 = {
   t: "eia"; //type
   c: EIACompressionMethod; //compressor
-  v: 1 | 2; //version
+  v: 1; //version
   f: string[]; //features
   e: EIAExtension[]; //extensions
   i: EIAFileV1[]; //items

@@ -110,7 +110,6 @@ const compressEIAv1Part = async (
   const files: EIAFileV1[] = [];
   const buffer: Buffer[] = [];
   let bufferLength = 0;
-  let usesAnimationFrameSizeV2 = false;
 
   // Track animation metadata per slide index
   const slideAnimMeta = new Map<number, string>();
@@ -260,7 +259,6 @@ const compressEIAv1Part = async (
         if (frameWidth !== anim.w || frameHeight !== anim.h) {
           animMeta.fw = frameWidth;
           animMeta.fh = frameHeight;
-          usesAnimationFrameSizeV2 = true;
           usedFeatures.add("Feature:animation-frame-size");
         }
         animMetas.push(animMeta);
@@ -288,7 +286,7 @@ const compressEIAv1Part = async (
   const manifest: EIAManifestV1 = {
     t: "eia",
     c: "lz4",
-    v: usesAnimationFrameSizeV2 ? 2 : 1,
+    v: 1,
     f: features,
     e: [
       "note",
