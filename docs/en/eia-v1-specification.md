@@ -343,7 +343,7 @@ When a slide references an animation, the animation is rendered at position (`x`
 
 1. If `manifest.ac` is present, decode each frame in `pool` by resolving dependencies:
    - `t: "m"` is used directly as a complete frame image
-   - `t: "c"` copies the image data from `pool[b]`, then applies each part in `r`
+   - `t: "c"` **copies** the image data from `pool[b]`, then applies each part in `r`. The base frame buffer MUST NOT be modified in-place.
 2. Follow `seq` to assemble the frame sequence from the decoded pool frames
 3. Compute the current frame index: `floor((Time.now - startTime) * fps % seq.length)`
 4. Render the selected frame image within the display slot (`EIAAnimationRef.x`, `EIAAnimationRef.y`, `EIAAnimationRef.w ?? anim.w`, `EIAAnimationRef.h ?? anim.h`)
@@ -524,6 +524,9 @@ An example placing an animation (`id: "intro"`) on slide 0:
       },
       {
         "t": "c",
+        "f": "RGB24",
+        "w": 400,
+        "h": 300,
         "b": 0,
         "s": 271000,
         "l": 2000,

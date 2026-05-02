@@ -84,7 +84,7 @@ type EIAManifestV1 = {
 **バージョン番号:**
 - `1`: EIA v1（現行で唯一の値）
 
-`ac` フィールドを含むアニメーションも v1 互換の拡張として扱うため、`v` を bump する必要はありません。
+`ac` フィールドを含むマニフェストも v1 互換の拡張として扱うため、`v` を bump する必要はありません。
 
 #### 2.4.1 機能配列
 
@@ -240,7 +240,7 @@ compressed_block:
 ```typescript
 type EIAExtensionObject = {
   note?: string;  // オプションテキストアノテーション（UTF-8）
-  a?: string;     // アニメーション参照配列（JSON文字列、§7.3参照）
+  a?: string;     // アニメーション参照配列（JSON文字列、§7.4参照）
 }
 ```
 
@@ -343,7 +343,7 @@ type EIAAnimationRef = {
 
 1. `manifest.ac` が存在する場合、`pool` 内の各フレームを依存関係を解決してデコードする
    - `t: "m"` はそのまま完全フレーム画像として使用する
-   - `t: "c"` は `pool[b]` の画像データをコピーし、各パーツを適用して合成する
+   - `t: "c"` は `pool[b]` の画像データを**コピー**し、各パーツを適用して合成する。ベースフレームのバッファを直接変更してはならない（MUST NOT）
 2. `seq` に従って、対応するプールフレームを時系列に並べる
 3. `floor((Time.now - startTime) * fps % seq.length)` でフレームインデックスを計算する
 4. 選択されたフレーム画像を表示スロット（`EIAAnimationRef.x`, `EIAAnimationRef.y`, `EIAAnimationRef.w ?? anim.w`, `EIAAnimationRef.h ?? anim.h`）に配置する
@@ -524,6 +524,9 @@ type EIAAnimationRef = {
       },
       {
         "t": "c",
+        "f": "RGB24",
+        "w": 400,
+        "h": 300,
         "b": 0,
         "s": 271000,
         "l": 2000,
