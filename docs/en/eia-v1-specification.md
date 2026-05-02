@@ -299,9 +299,9 @@ type EIAAnimFramePoolItemCropped = {
 
 > **Important**: `EIAAnimFramePoolItemCropped.b` refers to another entry within the same `pool` array by numeric index. This is different from slide-level cropped files (`EIAFileV1Cropped.b`), which use a string name.
 >
-> Reference chaining (where the base frame is itself `t: "c"`) is allowed, but encoders MUST NOT produce circular references. Decoders MUST enforce a depth limit when resolving references. A recommended maximum depth is 64. `b` MUST be a valid index into `pool`: `0 ≤ b < pool.length`. A frame MUST NOT reference itself. `b` is not required to refer to a lower index; decoders SHOULD resolve dependencies when decoding. For example, when a frame references an undecoded frame, decoders MUST use deferred decoding, memoized recursion, or topological sorting to ensure all dependencies are satisfied before applying crop composition.
+> Reference chaining (where the base frame is itself `t: "c"`) is allowed, but encoders MUST NOT produce circular references. Decoders MUST enforce a depth limit when resolving references. A recommended maximum depth is 64. `b` MUST be a valid index into `pool`: `0 ≤ b < pool.length`. A frame MUST NOT reference itself. `b` is not required to refer to a lower index; decoders MUST resolve dependencies when decoding. For example, when a frame references an undecoded frame, decoders MUST use deferred decoding, memoized recursion, or topological sorting to ensure all dependencies are satisfied before applying crop composition.
 
-The `EIAFileV1CroppedPart.s` values within `r` are **decompressed-buffer offsets** (the first part always has `s = 0`), using the same coordinate space as file-level cropped parts (see §3.2.1). This is a different coordinate space from `EIAAnimFramePoolItemCropped.s` (which is a compressed-space offset). `r` MUST NOT be empty. Each part in `r` MUST satisfy: `x ≥ 0`, `y ≥ 0`, `w > 0`, `h > 0`, `x + w ≤ frame.w`, `y + h ≤ frame.h`.
+The `EIAFileV1CroppedPart.s` values within `r` are **decompressed-buffer offsets** (the first part always has `s = 0`), using the same coordinate space as file-level cropped parts (see §3.2.1). This is a different coordinate space from `EIAAnimFramePoolItemCropped.s` (which is a compressed-space offset). `r` MUST NOT be empty. Each part in `r` MUST satisfy: `x ≥ 0`, `y ≥ 0`, `w > 0`, `h > 0`, `x + w ≤ pool[b].w`, `y + h ≤ pool[b].h`. Additionally, `EIAAnimFramePoolItemCropped.f`, `w`, and `h` MUST equal `pool[b].f`, `pool[b].w`, and `pool[b].h` respectively.
 
 ### 7.3 Animation Definition
 
@@ -325,10 +325,10 @@ Slides store an animation reference array in their extension object (`e.a`) to s
 // file.e.a is JSON.stringify() of the following array:
 type EIAAnimationRef = {
   id: string;  // Animation identifier within ac.anims
-  x: number;   // X coordinate of the display area in the base image (REQUIRED)
-  y: number;   // Y coordinate of the display area in the base image (REQUIRED)
-  w: number;   // Display width in pixels (REQUIRED)
-  h: number;   // Display height in pixels (REQUIRED)
+  x: number;   // X coordinate of the display area in the base image
+  y: number;   // Y coordinate of the display area in the base image
+  w: number;   // Display width in pixels
+  h: number;   // Display height in pixels
 }
 ```
 
@@ -336,7 +336,7 @@ When a slide references an animation, the animation is rendered at position (`x`
 
 ### 7.5 Animation Decoding Steps
 
-1. If `manifest.ac` is present, decode each frame in `pool` by resolving dependencies:
+1. If `manifest.ac` is present, decode frames in `pool` as needed by resolving dependencies:
    - `t: "m"` is used directly as a complete frame image
    - `t: "c"` **copies** the image data from `pool[b]`, then applies each part in `r`. The base frame buffer MUST NOT be modified in-place.
 2. Follow `seq` to assemble the frame sequence from the decoded pool frames
@@ -399,6 +399,7 @@ Implementations SHOULD enforce reasonable limits on:
 - Uncompressed data sizes
 - Frame pool size
 - Number of animations
+- Per-animation `seq` length and aggregate `seq` element count across all animations
 
 ## 10. Examples
 
