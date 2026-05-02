@@ -6,7 +6,6 @@ import { selectedFiles2EIAv1RGB24Cropped } from "@/lib/selectedFiles2EIA/selecte
 import { selectedFiles2EIAv1RGB24CroppedBase64 } from "@/lib/selectedFiles2EIA/selectedFiles2EIAv1RGB24CroppedBase64";
 import {
   selectedFiles2v0RGBA32,
-  selectedFiles2v1DXT1,
   selectedFiles2v1RGB24,
   selectedFiles2v1RGB24Cropped,
   selectedFiles2v1RGBA32,
@@ -37,7 +36,7 @@ export const TargetVersions: {
     label: "v0.2.x",
     image: "/image-slide/v0.1.x.png",
     value: 1,
-    formats: ["text-zip-v1-RGBA32", "text-zip-v1-RGB24", "text-zip-v1-DXT1"],
+    formats: ["text-zip-v1-RGBA32", "text-zip-v1-RGB24"],
   },
   {
     label: "v0.3.x",
@@ -76,15 +75,6 @@ export const TargetFormats: FormatItemType[] = [
     converter: selectedFiles2v1RGBA32,
   },
   {
-    id: "text-zip-v1-DXT1",
-    label: "TextZip v1 DXT1",
-    bytePerPixel: 1,
-    priority: 1,
-    container: "text-zip-v1",
-    format: "DXT1",
-    converter: selectedFiles2v1DXT1,
-  },
-  {
     id: "text-zip-v1-RGB24-cropped",
     label: "TextZip v1 RGB24 (cropped)",
     bytePerPixel: 3,
@@ -115,5 +105,5 @@ export const TargetFormats: FormatItemType[] = [
     estimatedCompressionRatio: 0.3,
     signageSupport: true,
     converter: selectedFiles2EIAv1RGB24CroppedBase64,
-  }
+  },
 ];
