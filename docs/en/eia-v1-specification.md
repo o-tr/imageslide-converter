@@ -375,7 +375,7 @@ Implementations MUST handle:
 - Invalid pool reference indices
 - Animation reference to unknown animation identifier
 - Slide with `e.a` but missing `manifest.ac`
-- Circular references in animation frame chains
+- Circular references in frame pool reference chains
 - Circular references in cropped file references
 - Out-of-bounds offset references in compressed space (`s + l` exceeding data section length)
 - Out-of-bounds offset references in decompressed buffer (`part.s + part.l` exceeding `file.u`)
