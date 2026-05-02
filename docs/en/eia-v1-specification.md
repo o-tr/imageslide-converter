@@ -352,6 +352,7 @@ Encoders SHOULD:
 - Set keyframe intervals to balance compression and random access
 - Optimize rectangle placement to minimize redundant data
 - Share identical frame data across multiple animations via the pool
+- Clip animations that extend beyond the slide boundaries so they fit within the slide area
 
 ### 8.2 Decoding
 
