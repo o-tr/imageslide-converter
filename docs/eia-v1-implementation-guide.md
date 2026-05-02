@@ -175,13 +175,14 @@ if (frame.t === "m") {
   frameData = lz4.decompress(compressed, frame.u);
 }
 
-// クロップ（デルタ）フレーム
-// 実装例は src/lib/slidePreview/decodeEIAv1.ts の `applyRects` を参照
+// クロップ（デルタ）フレーム（疑似コード）
+// 参考実装: src/lib/slidePreview/decodeEIAv1.ts のモジュール内関数 `applyRects`
 if (frame.t === "c") {
   const compressed = dataSection.slice(frame.s, frame.s + frame.l);
   const delta = lz4.decompress(compressed, frame.u);
   // baseFrameData をコピーし、frame.r の各パーツを delta バッファから上書き合成する。
   // part.s は delta バッファ内のオフセット（圧縮空間ではない）。
+  // fw / format はアニメーションスロットの fw（フレーム幅）/ f（テクスチャフォーマット）。
   frameData = applyRects(baseFrameData, delta, frame.r, fw, format);
 }
 ```

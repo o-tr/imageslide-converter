@@ -175,13 +175,14 @@ if (frame.t === "m") {
   frameData = lz4.decompress(compressed, frame.u);
 }
 
-// Cropped (delta) frame
-// See `applyRects` in src/lib/slidePreview/decodeEIAv1.ts for the reference implementation.
+// Cropped (delta) frame (pseudo-code)
+// Reference implementation: the module-local `applyRects` in src/lib/slidePreview/decodeEIAv1.ts
 if (frame.t === "c") {
   const compressed = dataSection.slice(frame.s, frame.s + frame.l);
   const delta = lz4.decompress(compressed, frame.u);
   // Copy baseFrameData and overwrite each part of `frame.r` from the delta buffer.
   // part.s is an offset into the delta buffer (not compressed space).
+  // fw / format come from the animation slot's fw (frame width) / f (texture format).
   frameData = applyRects(baseFrameData, delta, frame.r, fw, format);
 }
 ```
