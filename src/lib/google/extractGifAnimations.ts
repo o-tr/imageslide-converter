@@ -572,52 +572,62 @@ export const extractGifAnimations = async (
   );
 
   const results = nonIntersectingAnimatedCandidates
-    .map(({ pixelRect, rawFrames, gifWidth, gifHeight }) => {
-      try {
-        const previewFps = derivePreviewFps(rawFrames);
-        const sampleIndices = sampleFrameIndices(rawFrames, previewFps);
-        const { w: targetW, h: targetH } = clampDimensions(gifWidth, gifHeight);
-        const { w: storedFrameW, h: storedFrameH } = clampDimensions(
-          pixelRect.w,
-          pixelRect.h,
-          MAX_STORED_FRAME_DIMENSION,
-        );
-
-        // Build composed GIF frames with proper inter-frame compositing
-        const composedFrames = buildComposedFrames(
-          rawFrames,
-          sampleIndices,
-          gifWidth,
-          gifHeight,
-          targetW,
-          targetH,
-        );
-        const frames = composedFrames.map((frameCanvas) => {
-          const result = compositeWithBackground(
-            baseSlideCanvas,
-            frameCanvas,
-            pixelRect,
-            storedFrameW,
-            storedFrameH,
+    .map(
+      ({
+        pixelRect,
+        rawFrames,
+        gifWidth,
+        gifHeight,
+      }): SelectedFileAnimation | null => {
+        try {
+          const previewFps = derivePreviewFps(rawFrames);
+          const sampleIndices = sampleFrameIndices(rawFrames, previewFps);
+          const { w: targetW, h: targetH } = clampDimensions(
+            gifWidth,
+            gifHeight,
           );
-          // OffscreenCanvas has no close() — rely on GC for resource release.
-          return result;
-        });
+          const { w: storedFrameW, h: storedFrameH } = clampDimensions(
+            pixelRect.w,
+            pixelRect.h,
+            MAX_STORED_FRAME_DIMENSION,
+          );
 
-        return {
-          x: pixelRect.x,
-          y: pixelRect.y,
-          w: pixelRect.w,
-          h: pixelRect.h,
-          fps: previewFps,
-          fpsOverride: Math.min(5, previewFps),
-          frames,
-        } satisfies SelectedFileAnimation;
-      } catch (e) {
-        console.warn("Failed to build composed GIF frames:", e);
-        return null;
-      }
-    })
+          // Build composed GIF frames with proper inter-frame compositing
+          const composedFrames = buildComposedFrames(
+            rawFrames,
+            sampleIndices,
+            gifWidth,
+            gifHeight,
+            targetW,
+            targetH,
+          );
+          const frames = composedFrames.map((frameCanvas) => {
+            const result = compositeWithBackground(
+              baseSlideCanvas,
+              frameCanvas,
+              pixelRect,
+              storedFrameW,
+              storedFrameH,
+            );
+            // OffscreenCanvas has no close() — rely on GC for resource release.
+            return result;
+          });
+
+          return {
+            x: pixelRect.x,
+            y: pixelRect.y,
+            w: pixelRect.w,
+            h: pixelRect.h,
+            fps: previewFps,
+            fpsOverride: Math.min(5, previewFps),
+            frames,
+          } satisfies SelectedFileAnimation;
+        } catch (e) {
+          console.warn("Failed to build composed GIF frames:", e);
+          return null;
+        }
+      },
+    )
     .filter((r): r is SelectedFileAnimation => !!r);
 
   return results;
