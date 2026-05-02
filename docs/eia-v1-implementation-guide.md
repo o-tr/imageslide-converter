@@ -44,55 +44,164 @@ if (mergedBoundingBoxes[0].area === currentImage.rect.width * currentImage.rect.
 }
 ```
 
-## 2. ファイルサイズ管理
+## 2. オフセット座標系
 
-### 2.1 チャンク戦略
+EIA v1 において `s` という名前のフィールドは複数の座標系で使われます。エンコーダ・デコーダの実装で最もバグが発生しやすい箇所です。
+
+### 2.1 ファイルレベルの `s`（圧縮空間）
+
+`EIAFileV1Master.s`、`EIAFileV1Cropped.s`、`EIAAnimationFrameRef*.s` はすべて**圧縮済みバイト単位**で `$` 直後を起点とするオフセットです。
+
+```typescript
+// エンコーダ側: bufferLength は圧縮ブロックを追加するごとに加算
+let bufferLength = 0;
+
+const compressed = lz4.compress(rawData);
+files.push({ s: bufferLength, l: compressed.length, u: rawData.length, ... });
+bufferLength += compressed.length; // 次のファイルは compressed.length バイト後から始まる
+```
+
+### 2.2 クロップパーツの `s`（非圧縮空間）
+
+`EIAFileV1CroppedPart.s` は**非圧縮バイト単位**でそのファイルの展開バッファ先頭を起点とするオフセットです。最初のパーツは常に `s = 0` です。
+
+```typescript
+// エンコーダ側: fileBufferLength は各パーツのバッファを連結するごとに加算
+let fileBufferLength = 0;
+
+for (const rect of rects) {
+  parts.push({ s: fileBufferLength, l: rect.buffer.length, ... });
+  fileBuffer.push(rect.buffer);
+  fileBufferLength += rect.buffer.length; // 0, size0, size0+size1, ...
+}
+
+const mergedBuffer = Buffer.concat(fileBuffer);
+const compressed = lz4.compress(mergedBuffer);
+// file.s = bufferLength（圧縮空間）, file.u = mergedBuffer.length（非圧縮）
+// part[i].s はこの mergedBuffer 内のオフセット
+```
+
+### 2.3 デコーダ実装上の注意
+
+```
+誤り: rectOffset = rect.s - file.s    // ← file.s（圧縮空間）を引いてしまう
+正解: rectOffset = rect.s             // ← rect.s はすでに展開バッファ内オフセット
+```
+
+クロップファイルのデコード手順：
+
+```typescript
+// 1. 圧縮ブロックを読み取る（file.s は圧縮空間オフセット）
+const compressedBlock = dataSection.slice(file.s, file.s + file.l);
+
+// 2. LZ4展開
+const decompressed = lz4.decompress(compressedBlock, file.u);
+// decompressed は file.u バイト。part[i].s はこの中のオフセット。
+
+// 3. 各パーツを適用（rect.s は展開バッファ内オフセット）
+for (const part of file.r) {
+  const partData = decompressed.slice(part.s, part.s + part.l);
+  // baseImage の (part.x, part.y) に part.w × part.h ピクセルを書き込む
+}
+```
+
+## 3. ファイルサイズ管理
+
+### 3.1 チャンク戦略
 
 大きなデータセットは自動的に複数ファイルに分割されます：
 
 ```typescript
 const FileSizeLimit = 95 * 1024 * 1024; // ファイルあたり95MB
 
-export const compressEIAv1 = async (
-  data: RawImageObjV1Cropped[],
-  count = 1,
-  stepSize = 10,
-): Promise<Buffer[]> => {
-  // 圧縮サイズに基づく適応分割
-  // `compressedPart` は、データの一部（例: dataSlice）を `compressEIAv1Part(dataSlice)` で圧縮した結果とします。
-  if (compressedPart.length > FileSizeLimit) {
-    // データ全体をより多くの部分に分割して再試行することを意図しています。
-    return compressEIAv1(data, count + 1);
+// 圧縮後サイズが上限を超えた場合、より多くの分割数で再試行
+if (compressedPart.length > FileSizeLimit) {
+  return compressEIAv1(data, signage, count + 1, stepSize, animationMap);
+}
+```
+
+### 3.2 サイズ推定
+
+異なるシナリオの圧縮率推定を提供：
+- **静的コンテンツ**: 0.1-0.2倍（90-80%削減）
+- **スライドプレゼンテーション**: 0.2-0.4倍（80-60%削減）
+- **動画コンテンツ**: 0.4-0.8倍（60-20%削減）
+
+## 4. アニメーション実装
+
+### 4.1 エンコード
+
+アニメーションフレームはすべてのスライドデータの後にデータセクションへ追加され、スロット定義はマスターファイルの拡張オブジェクト（`e.a`）にJSON文字列として格納されます。
+
+```typescript
+// アニメーションフレームの圧縮（クロップフレームの例）
+let fileBufferLength = 0;
+const parts: EIAFileV1CroppedPart[] = [];
+
+for (const rect of frame.cropped.rects) {
+  parts.push({
+    s: fileBufferLength,      // 展開バッファ内オフセット（0始まり）
+    l: rect.buffer.length,    // 非圧縮バイト長
+    x: rect.x, y: rect.y, w: rect.width, h: rect.height,
+  });
+  fileBufferLength += rect.buffer.length;
+}
+
+const mergedBuffer = Buffer.concat(rects.map(r => r.buffer));
+const compressed = lz4.compress(mergedBuffer);
+
+frameRefs.push({
+  t: "c",
+  s: bufferLength,            // データセクション内の圧縮空間オフセット
+  l: compressed.length,
+  u: mergedBuffer.length,
+  r: parts,                   // parts[i].s は展開バッファ内オフセット
+  b: frame.cropped.baseIndex,
+});
+bufferLength += compressed.length;
+```
+
+### 4.2 デコード
+
+```typescript
+// フレームインデックス計算
+const frameIndex = Math.floor((Time.now - startTime) * fps) % frameCount;
+
+// マスターフレーム
+if (frame.t === "m") {
+  const compressed = dataSection.slice(frame.s, frame.s + frame.l);
+  frameData = lz4.decompress(compressed, frame.u);
+}
+
+// クロップ（デルタ）フレーム
+if (frame.t === "c") {
+  const compressed = dataSection.slice(frame.s, frame.s + frame.l);
+  const delta = lz4.decompress(compressed, frame.u);
+  frameData = copyFrom(baseFrameData);
+  for (const part of frame.r) {
+    // part.s は delta バッファ内のオフセット（圧縮空間ではない）
+    const partPixels = delta.slice(part.s, part.s + part.l);
+    applyRect(frameData, partPixels, part.x, part.y, part.w, part.h, fw, bpp);
   }
 }
 ```
 
-### 2.2 サイズ推定
+### 4.3 フレームサイズ拡張
 
-異なるシナリオの圧縮率推定を提供：
-- **静的コンテンツ**: 0.1-0.2倍（90-80%削減）
-- **スライドプレゼンテーション**: 0.2-0.4倍（80-60%削減）  
-- **動画コンテンツ**: 0.4-0.8倍（60-20%削減）
+アニメーションフレームの格納サイズ（`fw`/`fh`）が表示スロットサイズ（`w`/`h`）と異なる場合は、スロットメタデータに `fw`/`fh` を含め、マニフェストの `f` 配列に `"Feature:animation-frame-size"` を追加しなければなりません（MUST）。`manifest.v` は常に `1` です。
 
-## 3. フォーマット互換性
+## 5. フォーマット互換性
 
-### 3.1 サポートされるテクスチャフォーマット
+### 5.1 サポートされるテクスチャフォーマット
 
-| フォーマット | バイト/ピクセル | 用途 | 圧縮 |
-|-------------|----------------|------|------|
-| RGB24       | 3              | 標準画像 | 良好 |
-| RGBA32      | 4              | アルファ付き画像 | 良好 |
-| DXT1        | 0.5            | テクスチャ圧縮 | 優秀 |
+| フォーマット | バイト/ピクセル | 用途 |
+|-------------|----------------|------|
+| RGB24       | 3              | 標準画像 |
+| RGBA32      | 4              | アルファ付き画像 |
 
-### 3.2 プラットフォーム考慮事項
+## 6. パフォーマンス特性
 
-- **Web**: 幅広い互換性のためRGB24を使用
-- **モバイル**: より良いパフォーマンスのためDXT1を検討
-- **デスクトップ**: 高品質アプリケーションにはRGBA32
-
-## 4. パフォーマンス特性
-
-### 4.1 圧縮パフォーマンス
+### 6.1 圧縮パフォーマンス
 
 スライドプレゼンテーションの典型的な圧縮結果：
 
@@ -102,13 +211,13 @@ EIA v1出力: 約20-60MB（80-94%削減）
 処理時間: 2-5秒（コンテンツの複雑さに依存）
 ```
 
-### 4.2 メモリ使用量
+### 6.2 メモリ使用量
 
 - **エンコーディング**: ピークメモリ ≈ 非圧縮サイズの2倍
 - **デコーディング**: インクリメンタル、約1フレームバッファが必要
 - **ランダムアクセス**: キーフレームはO(1)、差分フレームはO(k)
 
-### 4.3 最適化ガイドライン
+### 6.3 最適化ガイドライン
 
 #### エンコーダー向け：
 - シーケンス順で画像を処理
@@ -120,13 +229,13 @@ EIA v1出力: 約20-60MB（80-94%削減）
 - 大きなファイルにはストリーミング展開を使用
 - UIの応答性のためプログレッシブローディングを実装
 
-## 5. エラーハンドリングのベストプラクティス
+## 7. エラーハンドリングのベストプラクティス
 
-### 5.1 検証チェックリスト
+### 7.1 検証チェックリスト
 
 ```typescript
 // ヘッダー検証
-if (!data.startsWith('EIA^')) {
+if (data.slice(0, 4) !== 'EIA^') {
   throw new Error('無効なEIAヘッダー');
 }
 
@@ -135,21 +244,26 @@ if (manifest.v !== 1) {
   throw new Error(`サポートされていないバージョン: ${manifest.v}`);
 }
 
-// 境界チェック
+// ファイルレベルの境界チェック（圧縮空間）
 if (file.s + file.l > dataSection.length) {
   throw new Error('ファイルがデータセクションを超えています');
 }
+
+// パーツレベルの境界チェック（非圧縮空間）
+if (part.s + part.l > file.u) {
+  throw new Error('パーツが展開バッファを超えています');
+}
 ```
 
-### 5.2 回復戦略
+### 7.2 回復戦略
 
 - **破損したマニフェスト**: 既知の構造を使用した部分回復を試行
 - **欠損ベースファイル**: 依存するクロップファイルをスキップまたは最近のキーフレームを使用
 - **圧縮エラー**: 利用可能な場合は生データにフォールバック
 
-## 6. 統合例
+## 8. 統合例
 
-### 6.1 Webアプリケーション
+### 8.1 Webアプリケーション
 
 ```typescript
 // ブラウザでのプログレッシブローディング
@@ -168,7 +282,7 @@ async function loadEIASequence(url: string) {
 }
 ```
 
-### 6.2 Node.js処理
+### 8.2 Node.js処理
 
 ```typescript
 // バッチ変換
@@ -185,9 +299,9 @@ async function convertSlides(inputFiles: string[]) {
 }
 ```
 
-## 7. 移行ガイド
+## 9. 移行ガイド
 
-### 7.1 TextZip v1からの移行
+### 9.1 TextZip v1からの移行
 
 EIA v1は画像シーケンスでより良い圧縮を提供：
 
@@ -198,16 +312,16 @@ EIA v1は画像シーケンスでより良い圧縮を提供：
 | ランダムアクセス | 良好 | 優秀 |
 | サイズ効率 | 良好 | 優秀 |
 
-### 7.2 移行手順
+### 9.2 移行手順
 
 1. **評価**: 既存のTextZipファイルのクロップ可能性を分析
 2. **変換**: 提供された移行ツールを使用
 3. **検証**: 出力品質と圧縮率を比較
 4. **展開**: EIA v1サポートのためクライアントアプリケーションを更新
 
-## 8. デバッグとプロファイリング
+## 10. デバッグとプロファイリング
 
-### 8.1 診断ツール
+### 10.1 診断ツール
 
 ```typescript
 // 圧縮分析
@@ -220,22 +334,17 @@ function analyzeCompression(input: RawImageObjV1[], output: Buffer[]) {
 }
 ```
 
-### 8.2 パフォーマンス監視
+### 10.2 パフォーマンス監視
 
 主要メトリクスを追跡：
 - 画像あたりの**エンコーディング時間**
-- コンテンツタイプ別の**圧縮率**  
+- コンテンツタイプ別の**圧縮率**
 - **メモリ使用量**のピーク
 - **差分効率**（クロップ対キーフレームの比率）
 
-## 9. 将来の考慮事項
+## 11. 将来の考慮事項
 
-### 9.1 潜在的な拡張
-
-- **メタデータ**: 拡張アノテーションサポート
-- **暗号化**: オプションのデータ保護
-
-### 9.2 後方互換性
+### 11.1 後方互換性
 
 将来のバージョンはv1との互換性を維持すべきです（SHOULD）：
 - コア構造を保持

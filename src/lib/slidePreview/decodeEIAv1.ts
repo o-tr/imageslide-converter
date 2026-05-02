@@ -101,7 +101,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
   const manifest: EIAManifestV1 = JSON.parse(
     textDecoder.decode(uint8.subarray(4, dollarPos)),
   );
-  if (manifest.v !== 1 && manifest.v !== 2)
+  if (manifest.v !== 1)
     throw new Error(`Unsupported EIA version: ${manifest.v}`);
   if (manifest.c !== "lz4" && manifest.c !== "lz4-base64")
     throw new Error(`Unsupported compression: ${manifest.c}`);
