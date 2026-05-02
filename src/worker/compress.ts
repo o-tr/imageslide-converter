@@ -28,41 +28,23 @@ worker.addEventListener(
           let effectiveScaleY: number;
           let canvas: OffscreenCanvas;
 
-          if (["DXT1"].includes(format)) {
-            // そのままだとノイズが目立つので2倍に拡大してから圧縮
-            const _width = Math.max(
-              4,
-              Math.ceil((file.bitmap.width * scale * 2) / 4) * 4,
-            );
-            const _height = Math.max(
-              4,
-              Math.ceil((file.bitmap.height * scale * 2) / 4) * 4,
-            );
-            effectiveScaleX = _width / file.bitmap.width;
-            effectiveScaleY = _height / file.bitmap.height;
-            canvas = new OffscreenCanvas(_width, _height);
+          const finalScale = scale * resolutionScale;
+          if (finalScale === 1) {
+            effectiveScaleX = 1;
+            effectiveScaleY = 1;
+            canvas = new OffscreenCanvas(file.bitmap.width, file.bitmap.height);
           } else {
-            const finalScale = scale * resolutionScale;
-            if (finalScale === 1) {
-              effectiveScaleX = 1;
-              effectiveScaleY = 1;
-              canvas = new OffscreenCanvas(
-                file.bitmap.width,
-                file.bitmap.height,
-              );
-            } else {
-              const scaledWidth = Math.max(
-                1,
-                Math.round(file.bitmap.width * finalScale),
-              );
-              const scaledHeight = Math.max(
-                1,
-                Math.round(file.bitmap.height * finalScale),
-              );
-              effectiveScaleX = scaledWidth / file.bitmap.width;
-              effectiveScaleY = scaledHeight / file.bitmap.height;
-              canvas = new OffscreenCanvas(scaledWidth, scaledHeight);
-            }
+            const scaledWidth = Math.max(
+              1,
+              Math.round(file.bitmap.width * finalScale),
+            );
+            const scaledHeight = Math.max(
+              1,
+              Math.round(file.bitmap.height * finalScale),
+            );
+            effectiveScaleX = scaledWidth / file.bitmap.width;
+            effectiveScaleY = scaledHeight / file.bitmap.height;
+            canvas = new OffscreenCanvas(scaledWidth, scaledHeight);
           }
 
           const canvasCtx = canvas.getContext("2d");

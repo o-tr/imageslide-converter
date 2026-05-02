@@ -7,10 +7,6 @@ export interface TypedWorkerClientMethodMap {
     request: TypedWorkerClientMethodPing;
     response: TypedWorkerWorkerResponsePing;
   };
-  "convert-dxt1": {
-    request: TypedWorkerClientMethodConvertDXT1;
-    response: TypedWorkerWorkerResponseConvertDXT1;
-  };
 }
 export type TypedWorkerClientMethod =
   TypedWorkerClientMethodMap[keyof TypedWorkerClientMethodMap]["request"];
@@ -37,20 +33,5 @@ export type TypedWorkerClientMethodPing = {
 export type TypedWorkerWorkerResponsePing = {
   type: "ping";
   requestId: string;
-  transfer?: Transferable[];
-};
-
-export type TypedWorkerClientMethodConvertDXT1 = {
-  type: "convert-dxt1";
-  requestId: string;
-  bitmap: ImageBitmap;
-};
-
-export type TypedWorkerWorkerResponseConvertDXT1 = {
-  type: "convert-dxt1";
-  requestId: string;
-  buffer: ArrayBufferLike;
-  width: number;
-  height: number;
   transfer?: Transferable[];
 };
