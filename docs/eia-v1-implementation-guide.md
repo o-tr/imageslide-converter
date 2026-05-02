@@ -131,65 +131,117 @@ if (compressedPart.length > FileSizeLimit) {
 
 ### 4.1 エンコード
 
-アニメーションフレームはすべてのスライドデータの後にデータセクションへ追加され、スロット定義はマスターファイルの拡張オブジェクト（`e.a`）にJSON文字列として格納されます。
+アニメーションフレームはすべてのスライドデータの後にデータセクションへ追加され、フレームデータはマニフェストの `ac.pool` に集約されます。スライドの拡張オブジェクト（`e.a`）にはアニメーション参照配列（`EIAAnimationRef[]`）を**JSON文字列化せずそのまま**格納します。
 
 ```typescript
-// アニメーションフレームの圧縮（クロップフレームの例）
-let fileBufferLength = 0;
-const fileBuffer: Buffer[] = [];
-const parts: EIAFileV1CroppedPart[] = [];
+// フレームの重複排除とプール構築
+const pool: EIAAnimFramePoolItem[] = [];
+const poolDecodedBuffers: Buffer[] = [];
+const anims: EIAAnimation[] = [];
 
-for (const rect of frame.cropped.rects) {
-  fileBuffer.push(rect.buffer);
-  parts.push({
-    s: fileBufferLength,      // 展開バッファ内オフセット（0始まり）
-    l: rect.buffer.length,    // 非圧縮バイト長
-    x: rect.x, y: rect.y, w: rect.width, h: rect.height,
-  });
-  fileBufferLength += rect.buffer.length;
+for (const anim of animations) {
+  const seq: number[] = [];
+  const resolvedBuffers = new Map<number, Buffer>();
+  const framePoolIndices: number[] = [];
+  const newPoolFrames: RawImageObjV1Cropped[] = [];
+  const newDecodedBuffers: Buffer[] = [];
+
+  // Pass 1: すべてのフレームをデコードしプールインデックスを決定
+  for (let fi = 0; fi < anim.frames.length; fi++) {
+    const frame = anim.frames[fi];
+    const decoded = decodeAnimationFrame(frame, resolvedBuffers);
+    resolvedBuffers.set(fi, decoded);
+
+    const existing = findMatchingPoolIndex(decoded, poolDecodedBuffers, frameW, frameH);
+    if (existing >= 0) {
+      framePoolIndices.push(existing);
+    } else {
+      const localExisting = findMatchingPoolIndex(decoded, newDecodedBuffers, frameW, frameH);
+      if (localExisting >= 0) {
+        framePoolIndices.push(pool.length + localExisting);
+      } else {
+        framePoolIndices.push(pool.length + newDecodedBuffers.length);
+        newDecodedBuffers.push(decoded);
+        newPoolFrames.push(frame);
+      }
+    }
+  }
+
+  poolDecodedBuffers.push(...newDecodedBuffers);
+
+  // Pass 2: 新規プールエントリを圧縮
+  for (const frame of newPoolFrames) {
+    if (!frame.cropped) {
+      const compressed = lz4.compress(frame.buffer);
+      pool.push({ t: "m", f: format, w: frameW, h: frameH, s: bufferLength, l: compressed.length, u: frame.buffer.length });
+      bufferLength += compressed.length;
+    } else {
+      const basePoolIndex = framePoolIndices[frame.cropped.baseIndex];
+      const parts = buildParts(frame.cropped.rects);
+      const merged = Buffer.concat(frame.cropped.rects.map(r => r.buffer));
+      const compressed = lz4.compress(merged);
+      pool.push({ t: "c", f: format, w: frameW, h: frameH, b: basePoolIndex, s: bufferLength, l: compressed.length, u: merged.length, r: parts });
+      bufferLength += compressed.length;
+    }
+  }
+
+  anims.push({ id: animId, fps: anim.fps, seq: framePoolIndices });
+  slideRefs.push({ id: animId, x: anim.x, y: anim.y, w: anim.w, h: anim.h });
 }
 
-const mergedBuffer = Buffer.concat(fileBuffer);
-const compressed = lz4.compress(mergedBuffer);
-
-frameRefs.push({
-  t: "c",
-  s: bufferLength,            // データセクション内の圧縮空間オフセット
-  l: compressed.length,
-  u: mergedBuffer.length,
-  r: parts,                   // parts[i].s は展開バッファ内オフセット
-  b: frame.cropped.baseIndex,
-});
-bufferLength += compressed.length;
+// e.a に参照配列をそのまま格納（JSON.stringify しない）
+file.e = { ...file.e, a: slideRefs };
+manifest.ac = { pool, anims };
+manifest.f.push("Feature:animation");
 ```
 
 ### 4.2 デコード
 
+アニメーションデータは `manifest.ac` からデコードします。プール内のフレームは依存関係を解決しながら再帰的にデコードします。
+
+> **実装上の注意（`manifest.c === "lz4-base64"`）**  
+> 現在の `decodeEIAv1` 実装では、`manifest.c` が `"lz4-base64"` の場合は `binarySection` が存在しないため、`manifest.ac` があっても `decodePoolFrame` を呼ばず、`lz4` ベースのプール復元（`lz4.decompress`）を実行しません。結果として、仕様文上は `manifest.ac` から復元可能でも、実行時にはプール化アニメーションのデコードを意図的にスキップします。
+
 ```typescript
-// フレームインデックス計算
-const frameIndex = Math.floor((Time.now - startTime) * fps) % frameCount;
+// フレームプールのデコード（メモ化 + 深さ制限）
+const decodePoolFrame = (pool, binarySection, index, depth, memo) => {
+  if (depth > 64) throw new Error("Pool reference depth exceeded");
+  if (memo.has(index)) return memo.get(index);
 
-// マスターフレーム
-if (frame.t === "m") {
-  const compressed = dataSection.slice(frame.s, frame.s + frame.l);
-  frameData = lz4.decompress(compressed, frame.u);
+  const item = pool[index];
+  const compressed = binarySection.slice(item.s, item.s + item.l);
+  const decompressed = lz4.decompress(compressed, item.u);
+
+  let result;
+  if (item.t === "m") {
+    result = decompressed;
+  } else {
+    const base = decodePoolFrame(pool, binarySection, item.b, depth + 1, memo);
+    const copied = new Uint8Array(base); // ベースをコピー（直接変更禁止）
+    result = applyRects(copied, decompressed, item.r, item.w, item.f);
+  }
+  memo.set(index, result);
+  return result;
+};
+
+// すべてのプールフレームを事前デコード
+const poolDecoded = new Map();
+for (let i = 0; i < manifest.ac.pool.length; i++) {
+  decodePoolFrame(manifest.ac.pool, binarySection, i, 0, poolDecoded);
 }
 
-// クロップ（デルタ）フレーム（疑似コード）
-// 参考実装: src/lib/slidePreview/decodeEIAv1.ts のモジュール内関数 `applyRects`
-if (frame.t === "c") {
-  const compressed = dataSection.slice(frame.s, frame.s + frame.l);
-  const delta = lz4.decompress(compressed, frame.u);
-  // baseFrameData をコピーし、frame.r の各パーツを delta バッファから上書き合成する。
-  // part.s は delta バッファ内のオフセット（圧縮空間ではない）。
-  // fw / format はアニメーションスロットの fw（フレーム幅）/ f（テクスチャフォーマット）。
-  frameData = applyRects(baseFrameData, delta, frame.r, fw, format);
-}
+// フレームインデックス計算（Unixエポック基点で同期再生）
+const frameIndex = Math.floor((Date.now() / 1000) * fps) % seq.length;
+const poolIdx = anim.seq[frameIndex];
+const frameData = poolDecoded.get(poolIdx);
+
+// 表示スロットに配置（フレームサイズと表示サイズが異なる場合はスケール）
+// drawImage を使用してスケーリング描画
+ctx.drawImage(
+  frameImage,
+  ref.x, ref.y, ref.w, ref.h,  // 表示スロット
+);
 ```
-
-### 4.3 フレームサイズ拡張
-
-アニメーションフレームの格納サイズ（`fw`/`fh`）が表示スロットサイズ（`w`/`h`）と異なる場合は、スロットメタデータに `fw`/`fh` を含め、マニフェストの `f` 配列に `"Feature:animation-frame-size"` を追加しなければなりません（MUST）。`manifest.v` は常に `1` です。
 
 ## 5. フォーマット互換性
 

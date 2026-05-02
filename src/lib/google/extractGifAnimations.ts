@@ -618,7 +618,7 @@ export const extractGifAnimations = async (
         return null;
       }
     })
-    .filter((r): r is SelectedFileAnimation => r !== null);
+    .filter((r): r is SelectedFileAnimation => !!r);
 
   return results;
 };

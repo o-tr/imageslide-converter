@@ -1,15 +1,30 @@
 import type { RawAnimationData } from "@/_types/eia/rawAnimationData";
 import type {
-  EIAAnimationFrameRef,
-  EIAAnimationMeta,
+  EIAAnimFramePoolItem,
+  EIAAnimFramePoolItemCropped,
+  EIAAnimation,
+  EIAAnimationContainer,
+  EIAAnimationRef,
   EIAFileV1,
   EIAFileV1CroppedPart,
   EIAManifestV1,
   EIASignageManifest,
 } from "@/_types/eia/v1";
 import type { RawImageObjV1Cropped } from "@/_types/text-zip/v1";
+import { IMAGE_DIFF_THRESHOLD } from "@/const/config";
 import { FileSizeLimit } from "@/const/convert";
 import lz4 from "lz4js";
+
+const SIMILARITY_THRESHOLD_RATIO = 0.005;
+const IMAGE_FORMAT_RGBA32 = "RGBA32";
+
+const getBytesPerPixel = (format: string): number => {
+  if (format === IMAGE_FORMAT_RGBA32) return 4;
+  if (format.startsWith("RGB24")) return 3;
+  throw new Error(`Unsupported animation format: "${format}"`);
+};
+
+type FrameDimensions = { w: number; h: number };
 
 export const compressEIAv1 = async (
   data: RawImageObjV1Cropped[],
@@ -111,11 +126,8 @@ const compressEIAv1Part = async (
   const buffer: Buffer[] = [];
   let bufferLength = 0;
 
-  // Track animation metadata per slide index
-  const slideAnimMeta = new Map<number, string>();
-
   for (const image of data) {
-    const ext: { note?: string; a?: string } = {};
+    const ext: { note?: string } = {};
     if (image.note) ext.note = image.note;
 
     if (!image.cropped) {
@@ -174,49 +186,139 @@ const compressEIAv1Part = async (
     bufferLength += compressed.length;
   }
 
-  // Append animation frames to data section (after all slide data)
-  if (animationMap) {
-    for (const [slideIndex, anims] of animationMap) {
-      const animMetas: EIAAnimationMeta[] = [];
+  // Encode animations into a global pool + container
+  let ac: EIAAnimationContainer | undefined;
+  const slideAnimRefs = new Map<number, EIAAnimationRef[]>();
 
-      for (const [animIndex, anim] of anims.entries()) {
-        const frameRefs: EIAAnimationFrameRef[] = [];
-        let hasCroppedFrames = false;
+  if (animationMap) {
+    const pool: EIAAnimFramePoolItem[] = [];
+    const poolDecodedBuffers: Buffer[] = [];
+    const poolDecodedDimensions: FrameDimensions[] = [];
+    const anims: EIAAnimation[] = [];
+    let animBufferLength = bufferLength;
+
+    for (const [slideIndex, animsData] of animationMap) {
+      const refs: EIAAnimationRef[] = [];
+
+      for (const [animIndex, anim] of animsData.entries()) {
+        const animId = `anim_${slideIndex}_${animIndex}`;
+
         if (anim.frames.length === 0) continue;
         usedFormats.add(anim.format);
-        const frameWidth = anim.frames[0].rect.width;
-        const frameHeight = anim.frames[0].rect.height;
+        const bpp = getBytesPerPixel(anim.format);
+
+        const frameW = anim.frames[0].rect.width;
+        const frameH = anim.frames[0].rect.height;
+
+        // Validation
         for (const [frameIndex, frame] of anim.frames.entries()) {
           if (frame.format !== anim.format) {
             throw new Error(
               `Animation format mismatch at slide ${slideIndex}, animation ${animIndex}, frame ${frameIndex}: expected "${anim.format}", got "${frame.format}"`,
             );
           }
-          if (
-            frame.rect.width !== frameWidth ||
-            frame.rect.height !== frameHeight
-          ) {
+          if (frame.rect.width !== frameW || frame.rect.height !== frameH) {
             throw new Error(
-              `Animation frame size mismatch at slide ${slideIndex}, animation ${animIndex}, frame ${frameIndex}: expected ${frameWidth}x${frameHeight}, got ${frame.rect.width}x${frame.rect.height}`,
+              `Animation frame size mismatch at slide ${slideIndex}, animation ${animIndex}, frame ${frameIndex}: expected ${frameW}x${frameH}, got ${frame.rect.width}x${frame.rect.height}`,
             );
           }
+        }
+
+        // Pass 1: decode all frames and assign pool indices (with dedup)
+        const resolvedBuffers = new Map<number, Buffer>();
+        const framePoolIndices: number[] = [];
+        const newPoolFrames: RawImageObjV1Cropped[] = [];
+        const newDecodedBuffers: Buffer[] = [];
+        const cropBaseIndices = new Set<number>();
+
+        for (const frame of anim.frames) {
+          if (frame.cropped) {
+            cropBaseIndices.add(frame.cropped.baseIndex);
+          }
+        }
+
+        for (let fi = 0; fi < anim.frames.length; fi++) {
+          const frame = anim.frames[fi];
+          const decoded = decodeAnimationFrame(frame, resolvedBuffers, bpp);
+          resolvedBuffers.set(fi, decoded);
+          const requireExactMatch =
+            frame.cropped !== undefined || cropBaseIndices.has(fi);
+
+          const existing = findMatchingPoolIndex(
+            decoded,
+            poolDecodedBuffers,
+            frameW,
+            frameH,
+            bpp,
+            requireExactMatch,
+            poolDecodedDimensions,
+          );
+          if (existing >= 0) {
+            framePoolIndices.push(existing);
+            continue;
+          }
+
+          const localExisting = findMatchingPoolIndex(
+            decoded,
+            newDecodedBuffers,
+            frameW,
+            frameH,
+            bpp,
+            requireExactMatch,
+          );
+          if (localExisting >= 0) {
+            framePoolIndices.push(pool.length + localExisting);
+          } else {
+            framePoolIndices.push(pool.length + newDecodedBuffers.length);
+            newDecodedBuffers.push(decoded);
+            newPoolFrames.push(frame);
+          }
+        }
+
+        // Register decoded buffers for global dedup
+        poolDecodedBuffers.push(...newDecodedBuffers);
+        for (let i = 0; i < newDecodedBuffers.length; i++) {
+          poolDecodedDimensions.push({ w: frameW, h: frameH });
+        }
+
+        // Pass 2: compress new pool entries
+        for (let ni = 0; ni < newPoolFrames.length; ni++) {
+          const frame = newPoolFrames[ni];
+
           if (!frame.cropped) {
-            // Master frame: store full buffer
             const compressed = Buffer.from(lz4.compress(frame.buffer));
-            buffer.push(compressed);
-            frameRefs.push({
+            pool.push({
               t: "m",
-              s: bufferLength,
+              f: anim.format,
+              w: frameW,
+              h: frameH,
+              s: animBufferLength,
               l: compressed.length,
               u: frame.buffer.length,
             });
-            bufferLength += compressed.length;
+            buffer.push(compressed);
+            animBufferLength += compressed.length;
           } else {
-            // Cropped frame: concatenate rect buffers, then compress
-            hasCroppedFrames = true;
+            // baseIndex is an index into anim.frames (not newPoolFrames), and
+            // framePoolIndices is built with the same anim.frames indexing.
+            if (
+              frame.cropped.baseIndex < 0 ||
+              frame.cropped.baseIndex >= framePoolIndices.length
+            ) {
+              throw new Error(
+                `Invalid animation base frame index ${frame.cropped.baseIndex} at slide ${slideIndex}, animation ${animIndex}`,
+              );
+            }
+            const basePoolIndex = framePoolIndices[frame.cropped.baseIndex];
+            if (basePoolIndex === undefined) {
+              throw new Error(
+                `Unresolved animation base frame index ${frame.cropped.baseIndex} at slide ${slideIndex}, animation ${animIndex}`,
+              );
+            }
+            const parts: EIAFileV1CroppedPart[] = [];
             let fileBufferLength = 0;
             const fileBuffer: Buffer[] = [];
-            const parts: EIAFileV1CroppedPart[] = [];
+
             for (const rect of frame.cropped.rects) {
               fileBuffer.push(rect.buffer);
               parts.push({
@@ -229,51 +331,48 @@ const compressEIAv1Part = async (
               });
               fileBufferLength += rect.buffer.length;
             }
+
             const mergedBuffer = Buffer.concat(fileBuffer);
             const compressed = Buffer.from(lz4.compress(mergedBuffer));
-            buffer.push(compressed);
-            frameRefs.push({
+            const poolItem: EIAAnimFramePoolItemCropped = {
               t: "c",
-              b: frame.cropped.baseIndex,
-              r: parts,
-              s: bufferLength,
+              f: anim.format,
+              w: frameW,
+              h: frameH,
+              b: basePoolIndex,
+              s: animBufferLength,
               l: compressed.length,
               u: mergedBuffer.length,
-            });
-            bufferLength += compressed.length;
+              r: parts,
+            };
+            pool.push(poolItem);
+            buffer.push(compressed);
+            animBufferLength += compressed.length;
           }
         }
-        if (hasCroppedFrames) {
-          usedFeatures.add("Feature:animation-crop");
-        }
 
-        const animMeta: EIAAnimationMeta = {
-          x: anim.x,
-          y: anim.y,
-          w: anim.w,
-          h: anim.h,
-          fps: anim.fps,
-          f: anim.format,
-          frames: frameRefs,
-        };
-        if (frameWidth !== anim.w || frameHeight !== anim.h) {
-          animMeta.fw = frameWidth;
-          animMeta.fh = frameHeight;
-          usedFeatures.add("Feature:animation-frame-size");
-        }
-        animMetas.push(animMeta);
+        const seq = framePoolIndices.slice();
+
+        anims.push({ id: animId, fps: anim.fps, seq });
+        refs.push({ id: animId, x: anim.x, y: anim.y, w: anim.w, h: anim.h });
       }
 
-      slideAnimMeta.set(slideIndex, JSON.stringify(animMetas));
+      if (refs.length > 0) {
+        slideAnimRefs.set(slideIndex, refs);
+      }
+    }
+
+    if (pool.length > 0 && anims.length > 0) {
+      ac = { pool, anims };
       usedFeatures.add("Feature:animation");
     }
 
-    // Attach animation metadata to corresponding slide items
+    // Attach animation refs to corresponding slide items
     for (const file of files) {
       const index = Number(file.n);
-      const animJson = slideAnimMeta.get(index);
-      if (animJson) {
-        file.e = { ...file.e, a: animJson };
+      const refs = slideAnimRefs.get(index);
+      if (refs) {
+        file.e = { ...file.e, a: refs };
       }
     }
   }
@@ -294,6 +393,7 @@ const compressEIAv1Part = async (
     ],
     i: files,
     m: signage,
+    ac,
   };
 
   const encodedBuffer = Buffer.concat([
@@ -302,4 +402,89 @@ const compressEIAv1Part = async (
   ]);
 
   return encodedBuffer;
+};
+
+const decodeAnimationFrame = (
+  frame: RawImageObjV1Cropped,
+  resolvedBuffers: Map<number, Buffer>,
+  bpp: number,
+): Buffer => {
+  if (!frame.cropped) return frame.buffer;
+  const base = resolvedBuffers.get(frame.cropped.baseIndex);
+  if (!base) {
+    throw new Error(
+      `Base frame ${frame.cropped.baseIndex} not found for animation frame`,
+    );
+  }
+  const result = Buffer.from(base);
+  for (const rect of frame.cropped.rects) {
+    for (let j = 0; j < rect.height; j++) {
+      const srcStart = j * rect.width * bpp;
+      const dstStart = ((rect.y + j) * frame.rect.width + rect.x) * bpp;
+      rect.buffer.copy(result, dstStart, srcStart, srcStart + rect.width * bpp);
+    }
+  }
+  return result;
+};
+
+const findMatchingPoolIndex = (
+  decoded: Buffer,
+  poolBuffers: Buffer[],
+  width: number,
+  height: number,
+  bpp: number,
+  requireExactMatch: boolean,
+  poolDimensions?: FrameDimensions[],
+): number => {
+  const expectedLength = width * height * bpp;
+  if (decoded.length !== expectedLength) return -1;
+  const threshold = Math.max(
+    1,
+    Math.floor(width * height * SIMILARITY_THRESHOLD_RATIO),
+  );
+  for (let i = 0; i < poolBuffers.length; i++) {
+    if (poolBuffers[i].length !== expectedLength) continue;
+    const candidateDimensions = poolDimensions?.[i];
+    if (candidateDimensions) {
+      if (candidateDimensions.w !== width || candidateDimensions.h !== height) {
+        continue;
+      }
+    }
+    if (poolBuffers[i].equals(decoded)) return i;
+    if (requireExactMatch) continue;
+    const diff = computeDiffMask(poolBuffers[i], decoded, width, height, bpp);
+    const diffCount = countDiffPixels(diff);
+    if (diffCount <= threshold) return i;
+  }
+  return -1;
+};
+
+const computeDiffMask = (
+  a: Buffer,
+  b: Buffer,
+  width: number,
+  height: number,
+  bpp: number,
+): Uint8Array => {
+  const result = new Uint8Array(width * height);
+  const actualDiffThreshold = IMAGE_DIFF_THRESHOLD * bpp;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * bpp;
+      let diff = 0;
+      for (let channel = 0; channel < bpp; channel++) {
+        diff += Math.abs(a[idx + channel] - b[idx + channel]);
+      }
+      result[y * width + x] = diff > actualDiffThreshold ? 1 : 0;
+    }
+  }
+  return result;
+};
+
+const countDiffPixels = (diff: Uint8Array): number => {
+  let count = 0;
+  for (let i = 0; i < diff.length; i++) {
+    if (diff[i] !== 0) count++;
+  }
+  return count;
 };
