@@ -175,7 +175,7 @@ type EIAFileV1CroppedPart = {
 
 The data section immediately follows the `$` terminator and contains independently LZ4-compressed blocks, one per file item.
 
-When an animation container (`ac`) is present, the frame pool blocks (`ac.pool`) are appended after all slide data blocks (corresponding to the `i` array). Pool blocks are placed consecutively in `pool` array index order (`pool[0]`, `pool[1]`, ...).
+When an animation container (`ac`) is present, the frame pool blocks (`ac.pool`) are appended after all slide data blocks (corresponding to the `i` array). Pool blocks are placed consecutively in `pool` array index order (`pool[0]`, `pool[1]`, ...). Each pool block's `s` MUST be ≥ the sum of all slide compressed block sizes.
 
 ```text
 [slide data blocks ...][animation pool blocks ...]
@@ -301,11 +301,11 @@ type EIAAnimFramePoolItemCropped = {
 >
 > Reference chaining (where the base frame is itself `t: "c"`) is allowed, but encoders MUST NOT produce circular references. Decoders MUST enforce a depth limit when resolving references. A recommended maximum depth is 64. `b` MUST be a valid index into `pool`: `0 ≤ b < pool.length`. A frame MUST NOT reference itself. `b` is not required to refer to a lower index; decoders MUST resolve dependencies when decoding. For example, when a frame references an undecoded frame, decoders MUST use deferred decoding, memoized recursion, or topological sorting to ensure all dependencies are satisfied before applying crop composition.
 
-The `EIAFileV1CroppedPart.s` values within `r` are **decompressed-buffer offsets** (the first part always has `s = 0`), using the same coordinate space as file-level cropped parts (see §3.2.1). This is a different coordinate space from `EIAAnimFramePoolItemCropped.s` (which is a compressed-space offset). `r` MUST NOT be empty. Each part in `r` MUST satisfy: `x ≥ 0`, `y ≥ 0`, `w > 0`, `h > 0`, `x + w ≤ pool[b].w`, `y + h ≤ pool[b].h`, `s + l ≤ file.u`, `l == w × h × bytes_per_pixel`. Additionally, `EIAAnimFramePoolItemCropped.f`, `w`, and `h` MUST equal `pool[b].f`, `pool[b].w`, and `pool[b].h` respectively. `u` MUST equal the sum of all parts' `l` values.
+The `EIAFileV1CroppedPart.s` values within `r` are **decompressed-buffer offsets** (the first part always has `s = 0`), using the same coordinate space as file-level cropped parts (see §3.2.1). This is a different coordinate space from `EIAAnimFramePoolItemCropped.s` (which is a compressed-space offset). `r` MUST NOT be empty. Each part in `r` MUST satisfy: `x ≥ 0`, `y ≥ 0`, `w > 0`, `h > 0`, `x + w ≤ pool[b].w`, `y + h ≤ pool[b].h`, `s + l ≤ u`, `l == w × h × bytes_per_pixel`. Additionally, `EIAAnimFramePoolItemCropped.f`, `w`, and `h` MUST equal `pool[b].f`, `pool[b].w`, and `pool[b].h` respectively. These self-describing fields allow decoders to validate dimensions and format without following the `b` reference chain. `u` MUST equal the sum of all parts' `l` values.
 
 ### 7.3 Animation Definition
 
-An animation definition corresponds to a single GIF and describes its frame sequence and attributes:
+An animation definition corresponds to a single GIF and describes its frame sequence and attributes. Display size is determined by `EIAAnimationRef`, so `EIAAnimation` carries no dimension fields:
 
 ```typescript
 type EIAAnimation = {
@@ -315,7 +315,7 @@ type EIAAnimation = {
 }
 ```
 
-Each element of `seq` is an index into the `pool` array. By referencing the same frame data multiple times, back-and-forth GIFs and other repeating frame patterns can be represented without data duplication. `seq` MUST NOT be empty. Each element of `seq` MUST be a valid pool index: `0 ≤ seq[i] < pool.length`. All index fields (`seq[i]` and `EIAAnimFramePoolItemCropped.b`) MUST be non-negative integers. All frames referenced by a single `seq` SHOULD share the same `w`, `h`, and `f`. `fps` MUST be a finite positive number (`fps > 0`). All animations within `ac.anims` MUST have a unique `id`.
+Each element of `seq` is an index into the `pool` array. By referencing the same frame data multiple times, back-and-forth GIFs and other repeating frame patterns can be represented without data duplication. `seq` MUST NOT be empty. Each element of `seq` MUST be a valid pool index: `0 ≤ seq[i] < pool.length`. All index fields (`seq[i]` and `EIAAnimFramePoolItemCropped.b`) MUST be non-negative integers. All frames referenced by a single `seq` SHOULD share the same `w`, `h`, and `f`. `fps` MUST be a finite positive number (`fps > 0`). All animations within `ac.anims` MUST have a unique, non-empty `id`.
 
 ### 7.4 Animation References from Slides
 
@@ -332,7 +332,7 @@ type EIAAnimationRef = {
 }
 ```
 
-When a slide references an animation, the animation is rendered at position (`x`, `y`) on that slide. If `e.a` is present, `manifest.ac` MUST also be present. Multiple slides MAY reference the same `id`. `id` MUST exist within `ac.anims`. Each reference MUST satisfy: `x ≥ 0`, `y ≥ 0`, `w > 0`, `h > 0`, `x < slide.w`, `y < slide.h`.
+When a slide references an animation, the animation is rendered at position (`x`, `y`) on that slide. If `e.a` is present, `manifest.ac` MUST also be present. Multiple slides MAY reference the same `id`. `id` MUST exist within `ac.anims`. Each reference MUST satisfy: `x ≥ 0`, `y ≥ 0`, `w > 0`, `h > 0`, `x < slide.w`, `y < slide.h`. If `x + w` or `y + h` exceeds the slide dimensions, the decoder MUST clip to the slide boundary.
 
 ### 7.5 Animation Decoding Steps
 
@@ -340,7 +340,7 @@ When a slide references an animation, the animation is rendered at position (`x`
    - `t: "m"` is used directly as a complete frame image
    - `t: "c"` **copies** the image data from `pool[b]`, then applies each part in `r`. The base frame buffer MUST NOT be modified in-place.
 2. Follow `seq` to assemble the frame sequence from the decoded pool frames
-3. Compute the current frame index: `floor(Time.now * fps) % seq.length`, where `Time.now` is the elapsed seconds since the Unix epoch. This computation produces an infinite loop (the animation cycles indefinitely without stopping)
+3. Compute the current frame index: `floor(Time.now * fps) % seq.length`, where `Time.now` is the elapsed seconds since the Unix epoch. This computation causes the animation to loop indefinitely
 4. Render the selected frame image within the display slot (`EIAAnimationRef.x`, `EIAAnimationRef.y`, `EIAAnimationRef.w`, `EIAAnimationRef.h`). If the frame pixel size (`pool[seq[i]].w`, `pool[seq[i]].h`) differs from the display size (`EIAAnimationRef.w`, `EIAAnimationRef.h`), the decoder MUST scale the frame to the display size
 
 ## 8. Processing Guidelines
@@ -363,7 +363,7 @@ Decoders MUST:
 - Reconstruct images by applying cropped parts to base images
 - Distinguish between `EIAFileV1Cropped.s` (compressed-space offset) and `EIAFileV1CroppedPart.s` (decompressed-buffer offset) when processing
 - Decode the frame pool correctly when `manifest.ac` is present
-- Detect and prevent circular references in animation frame chains
+- Detect and prevent circular references in frame pool reference chains
 
 ### 8.3 Error Handling
 
@@ -534,7 +534,7 @@ An example placing an animation (`id: "intro"`) on slide 0:
         "h": 300,
         "b": 0,
         "s": 271000,
-        "l": 2000,
+        "l": 24000,
         "u": 120000,
         "r": [
           {
