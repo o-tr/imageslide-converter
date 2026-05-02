@@ -232,7 +232,7 @@ const slide2canvas = async (
   for (const [outputIndex, slide] of filteredSlides.entries()) {
     signal?.throwIfAborted();
     const { canvas, index, speakerNote, pageElements } = slide;
-    const animations = await extractGifAnimations(
+    const { animations, skipped } = await extractGifAnimations(
       pageElements,
       metadata.pageSize,
       { width: canvas.width, height: canvas.height },
@@ -245,6 +245,7 @@ const slide2canvas = async (
       canvas,
       note: speakerNote,
       animations: animations.length > 0 ? animations : undefined,
+      skippedAnimations: skipped.length > 0 ? skipped : undefined,
       metadata: {
         fileType: "pdf" as const,
         file,

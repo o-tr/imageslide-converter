@@ -310,13 +310,18 @@ const compositeWithBackground = (
   return composited;
 };
 
+export type ExtractGifAnimationsResult = {
+  animations: SelectedFileAnimation[];
+  skipped: PixelRect[];
+};
+
 export const extractGifAnimations = async (
   pageElements: SlidePageElement[],
   pageSize: PageSize,
   canvasSize: CanvasSize,
   baseSlideCanvas: OffscreenCanvas,
   signal?: AbortSignal,
-): Promise<SelectedFileAnimation[]> => {
+): Promise<ExtractGifAnimationsResult> => {
   const imageElements = pageElements
     .map((element) => {
       const contentUrl = element.image?.contentUrl;
@@ -565,6 +570,14 @@ export const extractGifAnimations = async (
     );
   }
 
+  const skippedRects: PixelRect[] = [];
+  for (const index of intersectingElementIndices) {
+    skippedRects.push(animatedGifCandidates[index].pixelRect);
+  }
+  for (const index of intersectingNonAnimatedIndices) {
+    skippedRects.push(animatedGifCandidates[index].pixelRect);
+  }
+
   const nonIntersectingAnimatedCandidates = animatedGifCandidates.filter(
     (_, index) =>
       !intersectingElementIndices.has(index) &&
@@ -630,5 +643,5 @@ export const extractGifAnimations = async (
     )
     .filter((r): r is SelectedFileAnimation => !!r);
 
-  return results;
+  return { animations: results, skipped: skippedRects };
 };

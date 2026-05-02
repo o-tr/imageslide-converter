@@ -1,3 +1,5 @@
+import type { PixelRect } from "@/_types/lib/google/slideGeometry";
+
 export type SelectedFileAnimation = {
   x: number;
   y: number;
@@ -8,6 +10,8 @@ export type SelectedFileAnimation = {
   frames: OffscreenCanvas[];
 };
 
+export type SkippedAnimation = PixelRect;
+
 export type SelectedFile = {
   id: string;
   fileName: string;
@@ -15,6 +19,7 @@ export type SelectedFile = {
   canvas: OffscreenCanvas;
   metadata: SelectedFileMetadata;
   animations?: SelectedFileAnimation[];
+  skippedAnimations?: SkippedAnimation[];
 };
 
 export type SelectedFileMetadataImage = {
