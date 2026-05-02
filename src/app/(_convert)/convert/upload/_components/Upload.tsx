@@ -77,7 +77,7 @@ export const Upload: FC = () => {
         result.version,
       );
 
-      router.push(`/files/${fileId}`);
+      router.replace(`/files/${fileId}`);
     })();
   }, [result, files, router, outputFileName]);
 

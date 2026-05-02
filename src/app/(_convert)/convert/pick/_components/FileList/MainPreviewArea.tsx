@@ -18,6 +18,8 @@ const AnimatedPreview: FC<AnimatedPreviewProps> = ({
   onAnimationFpsChange,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const frameIndicesRef = useRef<number[]>([]);
+  const lastTimesRef = useRef<number[]>([]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -29,8 +31,14 @@ const AnimatedPreview: FC<AnimatedPreviewProps> = ({
     canvas.height = file.canvas.height;
 
     const animations = file.animations;
-    const frameIndices = animations.map(() => 0);
-    const lastTimes = animations.map(() => -1);
+
+    // Preserve frame position across FPS-only changes; reset only when animation count changes
+    if (frameIndicesRef.current.length !== animations.length) {
+      frameIndicesRef.current = animations.map(() => 0);
+    }
+    // Always re-sync timing when the RAF loop restarts
+    lastTimesRef.current = animations.map(() => -1);
+
     let rafId: number;
 
     const draw = (time: number) => {
@@ -56,20 +64,21 @@ const AnimatedPreview: FC<AnimatedPreviewProps> = ({
             )
           : anim.frames.length;
 
-        if (lastTimes[i] < 0) {
-          lastTimes[i] = time;
+        if (lastTimesRef.current[i] < 0) {
+          lastTimesRef.current[i] = time;
         } else {
           const interval = 1000 / targetFps;
-          const elapsed = time - lastTimes[i];
+          const elapsed = time - lastTimesRef.current[i];
           if (elapsed >= interval) {
-            frameIndices[i] = (frameIndices[i] + 1) % virtualFrameCount;
-            lastTimes[i] = time - (elapsed % interval);
+            frameIndicesRef.current[i] =
+              (frameIndicesRef.current[i] + 1) % virtualFrameCount;
+            lastTimesRef.current[i] = time - (elapsed % interval);
           }
         }
 
         // Map virtual index → stored frame index
         const storedIndex = Math.min(
-          Math.round((frameIndices[i] * storedFps) / targetFps),
+          Math.round((frameIndicesRef.current[i] * storedFps) / targetFps),
           anim.frames.length - 1,
         );
         ctx.drawImage(anim.frames[storedIndex], anim.x, anim.y, anim.w, anim.h);
@@ -174,6 +183,7 @@ export const MainPreviewArea: FC<MainPreviewAreaProps> = ({
         >
           {file.animations?.length ? (
             <AnimatedPreview
+              key={file.id}
               file={file}
               onAnimationFpsChange={handleFpsChange}
             />
