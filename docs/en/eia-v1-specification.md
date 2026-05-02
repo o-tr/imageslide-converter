@@ -239,8 +239,8 @@ Extensions are stored in an optional `e` field on each item:
 
 ```typescript
 type EIAExtensionObject = {
-  note?: string;  // Optional UTF-8 text annotation
-  a?: string;     // Animation reference array (JSON string, see §7.4)
+  note?: string;           // Optional UTF-8 text annotation
+  a?: EIAAnimationRef[];   // Animation reference array (see §7.4)
 }
 ```
 
@@ -322,7 +322,7 @@ Each element of `seq` is an index into the `pool` array. By referencing the same
 Slides store an animation reference array in their extension object (`e.a`) to specify which animations to place on that slide:
 
 ```typescript
-// file.e.a is JSON.stringify() of the following array:
+// e.a is a JSON array of animation references (stored natively, not JSON.stringify'd)
 type EIAAnimationRef = {
   id: string;  // Animation identifier within ac.anims
   x: number;   // X coordinate of the display area in the base image
@@ -512,7 +512,7 @@ An example placing an animation (`id: "intro"`) on slide 0:
       "l": 256000,
       "u": 6220800,
       "e": {
-        "a": "[{\"id\":\"intro\",\"x\":100,\"y\":200,\"w\":400,\"h\":300}]"
+        "a": [{"id": "intro", "x": 100, "y": 200, "w": 400, "h": 300}]
       }
     }
   ],

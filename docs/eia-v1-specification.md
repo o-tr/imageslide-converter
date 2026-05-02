@@ -239,8 +239,8 @@ compressed_block:
 
 ```typescript
 type EIAExtensionObject = {
-  note?: string;  // オプションテキストアノテーション（UTF-8）
-  a?: string;     // アニメーション参照配列（JSON文字列、§7.4参照）
+  note?: string;           // オプションテキストアノテーション（UTF-8）
+  a?: EIAAnimationRef[];   // アニメーション参照配列（§7.4参照）
 }
 ```
 
@@ -322,7 +322,7 @@ type EIAAnimation = {
 スライドは自身の拡張オブジェクト（`e.a`）にアニメーション参照配列を格納し、配置するアニメーションを指定します：
 
 ```typescript
-// file.e.a は以下の配列をJSON.stringify() した文字列
+// e.a はアニメーション参照の JSON 配列（JSON.stringify せず、そのまま格納）
 type EIAAnimationRef = {
   id: string;  // ac.anims 内のアニメーション識別子
   x: number;   // ベース画像内のアニメーション表示領域X座標
@@ -512,7 +512,7 @@ type EIAAnimationRef = {
       "l": 256000,
       "u": 6220800,
       "e": {
-        "a": "[{\"id\":\"intro\",\"x\":100,\"y\":200,\"w\":400,\"h\":300}]"
+        "a": [{"id": "intro", "x": 100, "y": 200, "w": 400, "h": 300}]
       }
     }
   ],
