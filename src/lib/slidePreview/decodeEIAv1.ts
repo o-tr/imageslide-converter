@@ -114,7 +114,9 @@ const decodePoolFrame = (
 
   let result: Uint8Array;
   if (item.t === "m") {
-    result = decompressed;
+    // Keep memoized master frames isolated from accidental in-place mutation
+    // by future callers.
+    result = new Uint8Array(decompressed);
   } else {
     const base = decodePoolFrame(pool, binarySection, item.b, depth + 1, memo);
     result = applyRects(base, decompressed, item.r, item.w, item.f);

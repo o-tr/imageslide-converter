@@ -7,7 +7,6 @@ export type EIAExtension = (typeof EIAExtensions)[number];
 export type EIAExtensionObject = {
   note?: string;
   a?: EIAAnimationRef[];
-  [key: string]: string | EIAAnimationRef[] | undefined;
 };
 
 export type EIAAnimationContainer = {

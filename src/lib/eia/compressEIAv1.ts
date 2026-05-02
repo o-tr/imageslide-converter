@@ -199,7 +199,6 @@ const compressEIAv1Part = async (
 
       for (const [animIndex, anim] of animsData.entries()) {
         const animId = `anim_${slideIndex}_${animIndex}`;
-        const seq: number[] = [];
 
         if (anim.frames.length === 0) continue;
         usedFormats.add(anim.format);
@@ -332,10 +331,7 @@ const compressEIAv1Part = async (
           }
         }
 
-        // Build seq
-        for (let fi = 0; fi < anim.frames.length; fi++) {
-          seq.push(framePoolIndices[fi]);
-        }
+        const seq = framePoolIndices.slice();
 
         anims.push({ id: animId, fps: anim.fps, seq });
         refs.push({ id: animId, x: anim.x, y: anim.y, w: anim.w, h: anim.h });
