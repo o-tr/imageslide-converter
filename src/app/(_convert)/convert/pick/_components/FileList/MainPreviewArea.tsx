@@ -132,7 +132,7 @@ const AnimatedPreview: FC<AnimatedPreviewProps> = ({
           menu={{ items: buildFpsMenuItems(i, anim) }}
         >
           <div
-            className="absolute cursor-context-menu transition-all duration-150 hover:ring-2 hover:ring-inset hover:ring-blue-500/70 hover:bg-blue-500/10"
+            className="absolute cursor-context-menu z-10 transition-all duration-150 hover:ring-2 hover:ring-inset hover:ring-blue-500/70 hover:bg-blue-500/10"
             title="右クリックでFPS・解像度を変更"
             style={{
               left: `${(anim.x / file.canvas.width) * 100}%`,
@@ -167,7 +167,7 @@ const SkippedAnimationsOverlay: FC<{ file: SelectedFile }> = ({ file }) => {
             <span className="text-[10px] leading-tight text-red-700 bg-white/90 px-1.5 py-0.5 rounded shadow text-center">
               アニメーションが無効化されました
               <br />
-              （静的要素と重なっています）
+              （重なっています）
             </span>
           </div>
         </div>

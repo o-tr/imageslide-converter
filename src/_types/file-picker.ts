@@ -8,12 +8,8 @@ export type SelectedFileAnimation = {
   frames: OffscreenCanvas[];
 };
 
-export type SkippedAnimation = {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-};
+import type { PixelRect } from "@/_types/lib/google/slideGeometry";
+export type SkippedAnimation = PixelRect;
 
 export type SelectedFile = {
   id: string;

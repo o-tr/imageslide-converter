@@ -571,6 +571,9 @@ export const extractGifAnimations = async (
   }
 
   const skippedRects: PixelRect[] = [];
+  for (const index of intersectingElementIndices) {
+    skippedRects.push(animatedGifCandidates[index].pixelRect);
+  }
   for (const index of intersectingNonAnimatedIndices) {
     skippedRects.push(animatedGifCandidates[index].pixelRect);
   }
@@ -582,8 +585,13 @@ export const extractGifAnimations = async (
   );
 
   const results = nonIntersectingAnimatedCandidates
-    .map<SelectedFileAnimation | null>(
-      ({ pixelRect, rawFrames, gifWidth, gifHeight }) => {
+    .map(
+      ({
+        pixelRect,
+        rawFrames,
+        gifWidth,
+        gifHeight,
+      }): SelectedFileAnimation | null => {
         try {
           const previewFps = derivePreviewFps(rawFrames);
           const sampleIndices = sampleFrameIndices(rawFrames, previewFps);
@@ -626,7 +634,7 @@ export const extractGifAnimations = async (
             fps: previewFps,
             fpsOverride: Math.min(5, previewFps),
             frames,
-          };
+          } satisfies SelectedFileAnimation;
         } catch (e) {
           console.warn("Failed to build composed GIF frames:", e);
           return null;
