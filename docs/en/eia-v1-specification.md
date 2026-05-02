@@ -61,7 +61,7 @@ The data section begins immediately after the `$` terminator. All `s` (start off
 
 ```
 ...{manifest}$[byte 0][byte 1][byte 2]...
-              ↑ this is s=0
+               ↑ this is s=0
 ```
 
 ### 2.4 Manifest Structure
@@ -77,28 +77,27 @@ type EIAManifestV1 = {
   e: EIAExtension[];  // Extensions array
   i: EIAFileV1[];     // Items array
   m?: EIASignageManifest; // Optional signage manifest
+  ac?: EIAAnimationContainer; // Optional animation container
 }
 ```
 
 **Version number:**
 - `1`: EIA v1 (the only valid value)
 
-Animation slots that include `fw`/`fh` fields are treated as a v1-compatible extension and do not require bumping `v`.
+Animation slots that include the `ac` field are treated as a v1-compatible extension and do not require bumping `v`.
 
 #### 2.4.1 Features Array
 
 The features array (`f`) MUST contain a `"Format:{format_name}"` string for each texture format used in the archive. When animation features are used, additional identifiers are included:
 
 - `"Format:RGB24"` etc.: Texture formats in use
-- `"Feature:animation"`: Archive contains animation slots
-- `"Feature:animation-crop"`: Archive contains delta (cropped) animation frames
-- `"Feature:animation-frame-size"`: Animation slots use `fw`/`fh` fields
+- `"Feature:animation"`: Archive contains an `ac` field
 
 #### 2.4.2 Extensions Array
 
 The extensions array (`e`) MUST contain all extension keys used in item extension objects. Currently supported extensions:
 - `"note"`: Text annotations for individual items
-- `"a"`: Animation slot definitions
+- `"a"`: Animation reference arrays
 
 #### 2.4.3 Items Array
 
@@ -176,10 +175,16 @@ type EIAFileV1CroppedPart = {
 
 The data section immediately follows the `$` terminator and contains independently LZ4-compressed blocks, one per file item.
 
+When an animation container (`ac`) is present, the frame pool blocks (`ac.pool`) are appended after all slide data blocks (corresponding to the `i` array).
+
+```
+[slide data blocks ...][animation pool blocks ...]
+```
+
 ### 4.2 Compression
 
 - All image data MUST be compressed using LZ4
-- Each file's data is compressed independently as a single block
+- Each file's data and each pool frame's data is compressed independently as a single block
 - Cropped files concatenate all parts' pixel data before compression
 
 ### 4.3 Data Layout
@@ -208,6 +213,10 @@ Steps to decode a cropped file:
 2. LZ4-decompress to obtain a buffer of `file.u` bytes
 3. For each part `r[i]`, read `r[i].l` bytes at offset `r[i].s` within the decompressed buffer and write them to the base image at `(r[i].x, r[i].y)` covering `r[i].w × r[i].h` pixels
 
+#### Animation Pool Frames
+
+Each frame in the animation pool uses the same data layout as slide master/cropped files. Master frames contain full image data, and cropped frames contain differential part data.
+
 ## 5. Supported Formats
 
 ### 5.1 Texture Formats
@@ -231,7 +240,7 @@ Extensions are stored in an optional `e` field on each item:
 ```typescript
 type EIAExtensionObject = {
   note?: string;  // Optional UTF-8 text annotation
-  a?: string;     // Animation slot definitions (JSON string, see §7)
+  a?: string;     // Animation reference array (JSON string, see §7.4)
 }
 ```
 
@@ -241,50 +250,40 @@ The `note` extension MAY contain UTF-8 encoded text annotations for the image.
 
 ## 7. Animation Extension
 
-The animation extension allows defining animation slots (animated regions such as GIFs) associated with a master file.
+The animation extension allows placing GIF-like animations within slides. Animation frame data is aggregated at the manifest top level, and each slide only references placement information.
 
-### 7.1 Animation Slot Definition
+### 7.1 Animation Container
 
-Animation slots are stored in the master file's extension object (`e.a`). The value is a JSON-stringified array of `EIAAnimationMeta` objects:
+Animation frames and their playback sequences are aggregated in an animation container (`ac`):
 
 ```typescript
-// file.e.a is JSON.stringify() of the following:
-type EIAAnimationMeta = {
-  x: number;    // X coordinate of the animation display area in the base image
-  y: number;    // Y coordinate of the animation display area in the base image
-  w: number;    // Display width in pixels
-  h: number;    // Display height in pixels
-  fw?: number;  // Stored frame width (defaults to w if omitted)
-  fh?: number;  // Stored frame height (defaults to h if omitted)
-  fps: number;  // Frame rate
-  f: TTextureFormat; // Texture format of the frames
-  frames: EIAAnimationFrameRef[]; // Frame reference array
+type EIAAnimationContainer = {
+  pool: EIAAnimFramePoolItem[]; // Pool of unique frames
+  anims: EIAAnimation[];        // Animation (GIF) definitions
 }
 ```
 
-When `fw`/`fh` are used, `manifest.f` MUST include `"Feature:animation-frame-size"`. `manifest.v` remains `1`.
+When `ac` is present, `manifest.f` MUST include `"Feature:animation"`.
 
-### 7.2 Animation Frame References
+### 7.2 Frame Pool
 
-Frames come in two types: master (full frame) and cropped (delta frame). All frame data is appended to the archive's data section after all slide data.
-
-#### Master Frame (Full Frame)
+The frame pool stores unique frame data used by all animations. Encoders SHOULD share a single pool entry when the same frame data appears across multiple animations or within repeated frames of the same animation (e.g., back-and-forth GIFs).
 
 ```typescript
-type EIAAnimationFrameRefMaster = {
+type EIAAnimFramePoolItem =
+  | EIAAnimFramePoolItemMaster
+  | EIAAnimFramePoolItemCropped;
+
+type EIAAnimFramePoolItemMaster = {
   t: "m";    // Type (master)
   s: number; // Start offset in the data section (same coordinate space as §2.3)
   l: number; // Byte length after LZ4 compression
-  u: number; // Byte length after LZ4 decompression (= fw × fh × bytes_per_pixel)
+  u: number; // Byte length after LZ4 decompression (= w × h × bytes_per_pixel)
 }
-```
 
-#### Cropped Frame (Delta Frame)
-
-```typescript
-type EIAAnimationFrameRefCropped = {
+type EIAAnimFramePoolItemCropped = {
   t: "c";    // Type (cropped)
-  b: number; // Index of the base frame within this animation's frames array
+  b: number; // Base frame index within the same `pool` array
   s: number; // Start offset in the data section (same coordinate space as §2.3)
   l: number; // Byte length after LZ4 compression
   u: number; // Byte length after LZ4 decompression (= sum of all parts' l values)
@@ -292,14 +291,56 @@ type EIAAnimationFrameRefCropped = {
 }
 ```
 
-The `EIAFileV1CroppedPart.s` values within `r` are **decompressed-buffer offsets** (the first part always has `s = 0`), using the same coordinate space as file-level cropped parts (see §3.2.1). This is a different coordinate space from `EIAAnimationFrameRefCropped.s` (which is a compressed-space offset).
+> **Important**: `EIAAnimFramePoolItemCropped.b` refers to another entry within the same `pool` array by numeric index. This is different from slide-level cropped files (`EIAFileV1Cropped.b`), which use a string name.
+>
+> Reference chaining (where the base frame is itself `t: "c"`) is allowed, but encoders MUST NOT produce circular references. Decoders SHOULD enforce a depth limit when resolving references.
 
-### 7.3 Animation Decoding Steps
+The `EIAFileV1CroppedPart.s` values within `r` are **decompressed-buffer offsets** (the first part always has `s = 0`), using the same coordinate space as file-level cropped parts (see §3.2.1). This is a different coordinate space from `EIAAnimFramePoolItemCropped.s` (which is a compressed-space offset).
 
-1. Master frames are used directly as complete frame images
-2. Cropped frames: copy the image data of the base frame indicated by `b`, then apply each part in `r`
-3. Compute the current frame index: `floor((Time.now - startTime) * fps) % frameCount`
-4. Render the composed frame image within the display slot `(x, y, w, h)` on the base slide
+
+
+### 7.3 Animation Definition
+
+An animation definition corresponds to a single GIF and describes its frame sequence and attributes:
+
+```typescript
+type EIAAnimation = {
+  id: string;   // Unique animation identifier
+  w: number;    // Frame width in pixels
+  h: number;    // Frame height in pixels
+  fps: number;  // Frame rate
+  f: TTextureFormat; // Texture format of frames
+  seq: number[]; // Frame sequence (array of pool indices)
+}
+```
+
+Each element of `seq` is an index into the `pool` array. By referencing the same frame data multiple times, back-and-forth GIFs and other repeating frame patterns can be represented without data duplication.
+
+### 7.4 Animation References from Slides
+
+Slides store an animation reference array in their extension object (`e.a`) to specify which animations to place on that slide:
+
+```typescript
+// file.e.a is JSON.stringify() of the following:
+type EIAAnimationRef = {
+  id: string;  // Animation identifier within ac.anims
+  x: number;   // X coordinate of the display area in the base image (REQUIRED)
+  y: number;   // Y coordinate of the display area in the base image (REQUIRED)
+  w?: number;  // Display width (defaults to anim.w if omitted)
+  h?: number;  // Display height (defaults to anim.h if omitted)
+}
+```
+
+When a slide references an animation, the animation is rendered at position (`x`, `y`) on that slide. Multiple slides MAY reference the same `id`.
+
+### 7.5 Animation Decoding Steps
+
+1. If `manifest.ac` is present, decode each frame in `pool` sequentially:
+   - `t: "m"` is used directly as a complete frame image
+   - `t: "c"` copies the image data from `pool[b]`, then applies each part in `r`
+2. Follow `seq` to assemble the frame sequence from the decoded pool frames
+3. Compute the current frame index: `floor((Time.now - startTime) * fps) % seq.length`
+4. Render the selected frame image within the display slot (`EIAAnimationRef.x`, `EIAAnimationRef.y`, `EIAAnimationRef.w ?? anim.w`, `EIAAnimationRef.h ?? anim.h`)
 
 ## 8. Processing Guidelines
 
@@ -309,6 +350,7 @@ Encoders SHOULD:
 - Use differential encoding for sequences with minimal changes
 - Set keyframe intervals to balance compression and random access
 - Optimize rectangle placement to minimize redundant data
+- Share identical frame data across multiple animations via the pool
 
 ### 8.2 Decoding
 
@@ -318,6 +360,8 @@ Decoders MUST:
 - Decompress data using LZ4
 - Reconstruct images by applying cropped parts to base images
 - Distinguish between `EIAFileV1Cropped.s` (compressed-space offset) and `EIAFileV1CroppedPart.s` (decompressed-buffer offset) when processing
+- Decode the frame pool correctly when `manifest.ac` is present
+- Detect and prevent circular references in animation frame chains
 
 ### 8.3 Error Handling
 
@@ -326,6 +370,8 @@ Implementations MUST handle:
 - Unsupported versions
 - Compression errors
 - Missing base file references
+- Invalid pool reference indices
+- Circular references in animation frame chains
 
 ## 9. Security Considerations
 
@@ -336,6 +382,8 @@ Implementations MUST validate:
 - JSON manifest structure
 - Offset and length values to prevent buffer overflows
 - Compression ratios to detect compression bombs
+- Pool index ranges (to prevent out-of-bounds access)
+- Cropped frame reference chain depth (to prevent infinite loops)
 
 ### 9.2 Resource Limits
 
@@ -344,6 +392,8 @@ Implementations SHOULD enforce reasonable limits on:
 - Number of files
 - Image dimensions
 - Uncompressed data sizes
+- Frame pool size
+- Number of animations
 
 ## 10. Examples
 
@@ -426,6 +476,81 @@ Data section layout:
 
 Decode result: copy slide 0's image, overwrite the region `(100, 200, 50×100)` with the decompressed data → slide 1.
 
+### 10.3 Animation Container Example
+
+An example placing an animation (`id: "intro"`) on slide 0:
+
+```json
+{
+  "t": "eia",
+  "c": "lz4",
+  "v": 1,
+  "f": [
+    "Format:RGB24",
+    "Feature:animation"
+  ],
+  "e": ["note", "a"],
+  "i": [
+    {
+      "t": "m",
+      "n": "0",
+      "f": "RGB24",
+      "w": 1920,
+      "h": 1080,
+      "s": 0,
+      "l": 256000,
+      "u": 6220800,
+      "e": {
+        "a": "[{\"id\":\"intro\",\"x\":100,\"y\":200}]"
+      }
+    }
+  ],
+  "ac": {
+    "pool": [
+      {
+        "t": "m",
+        "s": 256000,
+        "l": 15000,
+        "u": 480000
+      },
+      {
+        "t": "c",
+        "b": 0,
+        "s": 271000,
+        "l": 2000,
+        "u": 120000,
+        "r": [
+          {
+            "x": 50,
+            "y": 50,
+            "w": 200,
+            "h": 200,
+            "s": 0,
+            "l": 120000
+          }
+        ]
+      }
+    ],
+    "anims": [
+      {
+        "id": "intro",
+        "w": 400,
+        "h": 300,
+        "fps": 30,
+        "f": "RGB24",
+        "seq": [0, 1, 0]
+      }
+    ]
+  }
+}
+```
+
+In this example:
+- Slide 0's extension `e.a` stores an animation reference array
+- `ac.pool[0]` is frame 0 (master), `ac.pool[1]` is frame 1 (cropped from frame 0)
+- `ac.anims[0].seq = [0, 1, 0]` describes a back-and-forth animation: frame 0 → frame 1 → frame 0
+- Frame 0 is referenced twice, but pool data is stored only once
+
 ## 11. References
 
 - RFC 2119: Key words for use in RFCs to Indicate Requirement Levels
@@ -446,6 +571,6 @@ EIA v1 uses a field named `s` in multiple contexts with different coordinate spa
 | `EIAFileV1Master.s` | compressed bytes | first byte after `$` | 0, 256000, … |
 | `EIAFileV1Cropped.s` | compressed bytes | first byte after `$` | 256000, … |
 | `EIAFileV1CroppedPart.s` | uncompressed bytes | start of that file's decompressed buffer | 0, 15000, … |
-| `EIAAnimationFrameRefMaster.s` | compressed bytes | first byte after `$` | large value |
-| `EIAAnimationFrameRefCropped.s` | compressed bytes | first byte after `$` | large value |
-| `EIAAnimationFrameRefCropped.r[i].s` | uncompressed bytes | start of that frame's decompressed buffer | 0, … |
+| `EIAAnimFramePoolItemMaster.s` | compressed bytes | first byte after `$` | large value |
+| `EIAAnimFramePoolItemCropped.s` | compressed bytes | first byte after `$` | large value |
+| `EIAAnimFramePoolItemCropped.r[i].s` | uncompressed bytes | start of that frame's decompressed buffer | 0, … |
