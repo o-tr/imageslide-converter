@@ -101,7 +101,7 @@ The extensions array (`e`) MUST contain all extension keys used in item extensio
 
 #### 2.4.3 Items Array
 
-The items array (`i`) MUST contain EIAFileV1 objects describing each image in the archive.
+The items array (`i`) MUST contain EIAFileV1 objects describing each image in the archive. All items in `i` MUST have a unique `n` (name/identifier).
 
 ## 3. File Types
 
@@ -167,7 +167,7 @@ type EIAFileV1CroppedPart = {
 > - `EIAFileV1Cropped.s` — offset in **compressed bytes** from the start of the data section
 > - `EIAFileV1CroppedPart.s` — offset in **uncompressed bytes** within this file's LZ4-decompressed buffer
 >
-> The first part always has `s = 0`. Each subsequent part's `s` equals the cumulative sum of all preceding parts' `l` values.
+> The first part always has `s = 0`. Each subsequent part's `s` equals the cumulative sum of all preceding parts' `l` values. Each part MUST satisfy: `x ≥ 0`, `y ≥ 0`, `w > 0`, `h > 0`, `x + w ≤ base.w`, `y + h ≤ base.h`.
 
 ## 4. Data Section
 
@@ -299,7 +299,7 @@ type EIAAnimFramePoolItemCropped = {
 
 > **Important**: `EIAAnimFramePoolItemCropped.b` refers to another entry within the same `pool` array by numeric index. This is different from slide-level cropped files (`EIAFileV1Cropped.b`), which use a string name.
 >
-> Reference chaining (where the base frame is itself `t: "c"`) is allowed, but encoders MUST NOT produce circular references. Decoders MUST enforce a depth limit when resolving references. `b` is not required to refer to a lower index; decoders SHOULD resolve dependencies when decoding. For example, when a frame references an undecoded frame, decoders MUST use deferred decoding, memoized recursion, or topological sorting to ensure all dependencies are satisfied before applying crop composition.
+> Reference chaining (where the base frame is itself `t: "c"`) is allowed, but encoders MUST NOT produce circular references. Decoders MUST enforce a depth limit when resolving references. `b` MUST be a valid index into `pool`: `0 ≤ b < pool.length`. A frame MUST NOT reference itself. `b` is not required to refer to a lower index; decoders SHOULD resolve dependencies when decoding. For example, when a frame references an undecoded frame, decoders MUST use deferred decoding, memoized recursion, or topological sorting to ensure all dependencies are satisfied before applying crop composition.
 
 The `EIAFileV1CroppedPart.s` values within `r` are **decompressed-buffer offsets** (the first part always has `s = 0`), using the same coordinate space as file-level cropped parts (see §3.2.1). This is a different coordinate space from `EIAAnimFramePoolItemCropped.s` (which is a compressed-space offset).
 
@@ -315,7 +315,7 @@ type EIAAnimation = {
 }
 ```
 
-Each element of `seq` is an index into the `pool` array. By referencing the same frame data multiple times, back-and-forth GIFs and other repeating frame patterns can be represented without data duplication. `seq` MUST NOT be empty.
+Each element of `seq` is an index into the `pool` array. By referencing the same frame data multiple times, back-and-forth GIFs and other repeating frame patterns can be represented without data duplication. `seq` MUST NOT be empty. `fps` MUST be a finite positive number (`fps > 0`). All animations within `ac.anims` MUST have a unique `id`.
 
 ### 7.4 Animation References from Slides
 
@@ -332,7 +332,7 @@ type EIAAnimationRef = {
 }
 ```
 
-When a slide references an animation, the animation is rendered at position (`x`, `y`) on that slide. Multiple slides MAY reference the same `id`.
+When a slide references an animation, the animation is rendered at position (`x`, `y`) on that slide. Multiple slides MAY reference the same `id`. Each reference MUST satisfy: `x ≥ 0`, `y ≥ 0`, `w > 0`, `h > 0`.
 
 ### 7.5 Animation Decoding Steps
 
