@@ -8,6 +8,34 @@ import { compressEIAv1 } from "@/lib/eia/compressEIAv1";
 import { cropImages } from "../crop/cropImages";
 
 const keyframeInterval = 10;
+const FNV_OFFSET_BASIS_64 = 0xcbf29ce484222325n;
+const FNV_PRIME_64 = 0x100000001b3n;
+const FNV_MASK_64 = 0xffffffffffffffffn;
+const textEncoder = new TextEncoder();
+
+const updateFNV1a64 = (hash: bigint, data: Uint8Array): bigint => {
+  let result = hash;
+  for (let i = 0; i < data.length; i++) {
+    result ^= BigInt(data[i]);
+    result = (result * FNV_PRIME_64) & FNV_MASK_64;
+  }
+  return result;
+};
+
+const createAnimationCacheKey = (frames: RawImageObjV1[]): string => {
+  let hash = FNV_OFFSET_BASIS_64;
+  hash = updateFNV1a64(hash, textEncoder.encode(`${frames.length}|`));
+  for (const frame of frames) {
+    hash = updateFNV1a64(
+      hash,
+      textEncoder.encode(
+        `${frame.rect.width}x${frame.rect.height}:${frame.format}:${frame.buffer.length}|`,
+      ),
+    );
+    hash = updateFNV1a64(hash, frame.buffer);
+  }
+  return hash.toString(16).padStart(16, "0");
+};
 
 export const selectedFiles2EIAv1RGB24Cropped = async (
   selectedFiles: SelectedFile[],
@@ -50,12 +78,7 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
           format: IMAGE_FORMAT_RGB24,
           buffer: Buffer.from(canvas2rgb24(frame)),
         }));
-        // Build a lightweight hash from pre-crop buffers to detect identical GIFs
-        const hashParts = animRawImages.map((img) => {
-          const b = img.buffer;
-          return `${b.length}:${b[0]}:${b[Math.floor(b.length / 4)]}:${b[Math.floor(b.length / 2)]}:${b[Math.floor((b.length * 3) / 4)]}:${b[b.length - 1]}`;
-        });
-        const animHash = hashParts.join("|");
+        const animHash = createAnimationCacheKey(animRawImages);
         const cachedFrames = animationCache.get(animHash);
         const croppedAnimFrames =
           cachedFrames ??

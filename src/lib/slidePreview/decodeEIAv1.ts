@@ -117,8 +117,7 @@ const decodePoolFrame = (
     result = decompressed;
   } else {
     const base = decodePoolFrame(pool, binarySection, item.b, depth + 1, memo);
-    const copied = new Uint8Array(base);
-    result = applyRects(copied, decompressed, item.r, item.w, item.f);
+    result = applyRects(base, decompressed, item.r, item.w, item.f);
   }
 
   memo.set(index, result);

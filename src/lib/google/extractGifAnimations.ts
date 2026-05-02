@@ -612,7 +612,7 @@ export const extractGifAnimations = async (
           fps: previewFps,
           fpsOverride: Math.min(5, previewFps),
           frames,
-        } as SelectedFileAnimation;
+        } satisfies SelectedFileAnimation;
       } catch (e) {
         console.warn("Failed to build composed GIF frames:", e);
         return null;

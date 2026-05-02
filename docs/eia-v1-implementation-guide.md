@@ -199,6 +199,9 @@ manifest.f.push("Feature:animation");
 
 アニメーションデータは `manifest.ac` からデコードします。プール内のフレームは依存関係を解決しながら再帰的にデコードします。
 
+> **実装上の注意（`manifest.c === "lz4-base64"`）**  
+> 現在の `decodeEIAv1` 実装では、`manifest.c` が `"lz4-base64"` の場合は `binarySection` が存在しないため、`manifest.ac` があっても `decodePoolFrame` を呼ばず、`lz4` ベースのプール復元（`lz4.decompress`）を実行しません。結果として、仕様文上は `manifest.ac` から復元可能でも、実行時にはプール化アニメーションのデコードを意図的にスキップします。
+
 ```typescript
 // フレームプールのデコード（メモ化 + 深さ制限）
 const decodePoolFrame = (pool, binarySection, index, depth, memo) => {

@@ -15,8 +15,14 @@ import { IMAGE_DIFF_THRESHOLD } from "@/const/config";
 import { FileSizeLimit } from "@/const/convert";
 import lz4 from "lz4js";
 
-const ACTUAL_DIFF_THRESHOLD = IMAGE_DIFF_THRESHOLD * 3;
 const SIMILARITY_THRESHOLD_RATIO = 0.005;
+const IMAGE_FORMAT_RGBA32 = "RGBA32";
+
+const getBytesPerPixel = (format: string): number => {
+  if (format === IMAGE_FORMAT_RGBA32) return 4;
+  if (format.startsWith("RGB24")) return 3;
+  throw new Error(`Unsupported animation format: "${format}"`);
+};
 
 export const compressEIAv1 = async (
   data: RawImageObjV1Cropped[],
@@ -197,6 +203,7 @@ const compressEIAv1Part = async (
 
         if (anim.frames.length === 0) continue;
         usedFormats.add(anim.format);
+        const bpp = getBytesPerPixel(anim.format);
 
         const frameW = anim.frames[0].rect.width;
         const frameH = anim.frames[0].rect.height;
@@ -220,17 +227,28 @@ const compressEIAv1Part = async (
         const framePoolIndices: number[] = [];
         const newPoolFrames: RawImageObjV1Cropped[] = [];
         const newDecodedBuffers: Buffer[] = [];
+        const cropBaseIndices = new Set<number>();
+
+        for (const frame of anim.frames) {
+          if (frame.cropped) {
+            cropBaseIndices.add(frame.cropped.baseIndex);
+          }
+        }
 
         for (let fi = 0; fi < anim.frames.length; fi++) {
           const frame = anim.frames[fi];
-          const decoded = decodeAnimationFrame(frame, resolvedBuffers);
+          const decoded = decodeAnimationFrame(frame, resolvedBuffers, bpp);
           resolvedBuffers.set(fi, decoded);
+          const requireExactMatch =
+            frame.cropped !== undefined || cropBaseIndices.has(fi);
 
           const existing = findMatchingPoolIndex(
             decoded,
             poolDecodedBuffers,
             frameW,
             frameH,
+            bpp,
+            requireExactMatch,
           );
           if (existing >= 0) {
             framePoolIndices.push(existing);
@@ -242,6 +260,8 @@ const compressEIAv1Part = async (
             newDecodedBuffers,
             frameW,
             frameH,
+            bpp,
+            requireExactMatch,
           );
           if (localExisting >= 0) {
             framePoolIndices.push(pool.length + localExisting);
@@ -369,6 +389,7 @@ const compressEIAv1Part = async (
 const decodeAnimationFrame = (
   frame: RawImageObjV1Cropped,
   resolvedBuffers: Map<number, Buffer>,
+  bpp: number,
 ): Buffer => {
   if (!frame.cropped) return frame.buffer;
   const base = resolvedBuffers.get(frame.cropped.baseIndex);
@@ -380,9 +401,9 @@ const decodeAnimationFrame = (
   const result = Buffer.from(base);
   for (const rect of frame.cropped.rects) {
     for (let j = 0; j < rect.height; j++) {
-      const srcStart = j * rect.width * 3;
-      const dstStart = ((rect.y + j) * frame.rect.width + rect.x) * 3;
-      rect.buffer.copy(result, dstStart, srcStart, srcStart + rect.width * 3);
+      const srcStart = j * rect.width * bpp;
+      const dstStart = ((rect.y + j) * frame.rect.width + rect.x) * bpp;
+      rect.buffer.copy(result, dstStart, srcStart, srcStart + rect.width * bpp);
     }
   }
   return result;
@@ -393,15 +414,21 @@ const findMatchingPoolIndex = (
   poolBuffers: Buffer[],
   width: number,
   height: number,
+  bpp: number,
+  requireExactMatch: boolean,
 ): number => {
+  const expectedLength = width * height * bpp;
+  if (decoded.length !== expectedLength) return -1;
+  const threshold = Math.max(
+    1,
+    Math.floor(width * height * SIMILARITY_THRESHOLD_RATIO),
+  );
   for (let i = 0; i < poolBuffers.length; i++) {
-    if (poolBuffers[i].length !== decoded.length) continue;
-    const diff = computeDiffMask(poolBuffers[i], decoded, width, height);
+    if (poolBuffers[i].length !== expectedLength) continue;
+    if (poolBuffers[i].equals(decoded)) return i;
+    if (requireExactMatch) continue;
+    const diff = computeDiffMask(poolBuffers[i], decoded, width, height, bpp);
     const diffCount = countDiffPixels(diff);
-    const threshold = Math.max(
-      1,
-      Math.floor(width * height * SIMILARITY_THRESHOLD_RATIO),
-    );
     if (diffCount <= threshold) return i;
   }
   return -1;
@@ -412,16 +439,18 @@ const computeDiffMask = (
   b: Buffer,
   width: number,
   height: number,
+  bpp: number,
 ): Uint8Array => {
   const result = new Uint8Array(width * height);
+  const actualDiffThreshold = IMAGE_DIFF_THRESHOLD * bpp;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 3;
-      const diff =
-        Math.abs(a[idx] - b[idx]) +
-        Math.abs(a[idx + 1] - b[idx + 1]) +
-        Math.abs(a[idx + 2] - b[idx + 2]);
-      result[y * width + x] = diff > ACTUAL_DIFF_THRESHOLD ? 1 : 0;
+      const idx = (y * width + x) * bpp;
+      let diff = 0;
+      for (let channel = 0; channel < bpp; channel++) {
+        diff += Math.abs(a[idx + channel] - b[idx + channel]);
+      }
+      result[y * width + x] = diff > actualDiffThreshold ? 1 : 0;
     }
   }
   return result;
