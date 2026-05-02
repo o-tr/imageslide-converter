@@ -1,6 +1,6 @@
 import type {
-  EIAAnimationFrameRefCropped,
-  EIAAnimationMeta,
+  EIAAnimFramePoolItem,
+  EIAAnimationRef,
   EIAFileV1Cropped,
   EIAFileV1CroppedPart,
   EIAManifestV1,
@@ -87,6 +87,44 @@ const applyRects = (
   return result;
 };
 
+const decodePoolFrame = (
+  pool: EIAAnimFramePoolItem[],
+  binarySection: Uint8Array,
+  index: number,
+  depth: number,
+  memo: Map<number, Uint8Array>,
+): Uint8Array => {
+  if (depth > 64) {
+    throw new Error(`Pool reference depth exceeded at index ${index}`);
+  }
+  const cached = memo.get(index);
+  if (cached) return cached;
+
+  const item = pool[index];
+  if (!item) throw new Error(`Pool index ${index} out of bounds`);
+
+  if (item.s < 0 || item.l < 0 || item.s + item.l > binarySection.length) {
+    throw new Error(
+      `Pool frame ${index} data out of bounds: offset ${item.s} + length ${item.l} ` +
+        `exceeds binary section size ${binarySection.length}`,
+    );
+  }
+  const compressed = binarySection.subarray(item.s, item.s + item.l);
+  const decompressed = lz4Decompress(compressed, item.u, `pool_${index}`);
+
+  let result: Uint8Array;
+  if (item.t === "m") {
+    result = decompressed;
+  } else {
+    const base = decodePoolFrame(pool, binarySection, item.b, depth + 1, memo);
+    const copied = new Uint8Array(base);
+    result = applyRects(copied, decompressed, item.r, item.w, item.f);
+  }
+
+  memo.set(index, result);
+  return result;
+};
+
 export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
   const uint8 = new Uint8Array(buffer);
   const textDecoder = new TextDecoder();
@@ -114,6 +152,16 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
     manifest.c === "lz4-base64"
       ? textDecoder.decode(uint8.subarray(dataOffset))
       : null;
+
+  // Pre-decode animation pool if present
+  const poolDecoded = new Map<number, Uint8Array>();
+  if (manifest.ac && binarySection) {
+    for (let i = 0; i < manifest.ac.pool.length; i++) {
+      if (!poolDecoded.has(i)) {
+        decodePoolFrame(manifest.ac.pool, binarySection, i, 0, poolDecoded);
+      }
+    }
+  }
 
   const baseNames = new Set(
     manifest.i
@@ -183,110 +231,79 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
     if (!Number.isFinite(index))
       throw new Error(`Non-numeric frame name: "${item.n}"`);
 
-    // Decode animation data from e.a extension (binary lz4 only)
+    // Decode animation data from e.a extension
     let animations: SlideAnimation[] | undefined;
     if (item.e?.a) {
-      if (binarySection === null) {
+      if (!manifest.ac) {
+        console.warn(
+          `Slide "${item.n}" has animation refs but manifest.ac is missing`,
+        );
+      } else if (binarySection === null) {
         console.warn(
           `Animation data for frame "${item.n}" cannot be decoded under lz4-base64 compression`,
         );
       } else {
-        let animMetas: EIAAnimationMeta[] = [];
-        try {
-          const parsed = JSON.parse(item.e.a);
-          if (!Array.isArray(parsed)) {
-            throw new Error("Animation metadata must be an array");
-          }
-          animMetas = parsed as EIAAnimationMeta[];
-        } catch (e) {
-          console.warn(
-            `Failed to parse animation metadata for frame "${item.n}":`,
-            e,
-          );
-        }
-
-        const decodedAnimations = animMetas
-          .map((meta, metaIndex): SlideAnimation | null => {
+        const animRefs = Array.isArray(item.e.a)
+          ? (item.e.a as EIAAnimationRef[])
+          : [];
+        const animationContainer = manifest.ac;
+        const decodedAnimations = animRefs
+          .map((ref, refIndex): SlideAnimation | null => {
             try {
-              const frameWidth = meta.fw ?? meta.w;
-              const frameHeight = meta.fh ?? meta.h;
-              const animFrames: ImageData[] = [];
-              const animFrameBuffers = new Map<number, Uint8Array>();
-
-              // Pre-scan to find which frames are referenced as base by cropped frames
-              const animBaseIndices = new Set<number>();
-              for (const fr of meta.frames) {
-                if ("t" in fr && fr.t === "c") {
-                  animBaseIndices.add((fr as EIAAnimationFrameRefCropped).b);
-                }
+              const anim = animationContainer.anims.find(
+                (a) => a.id === ref.id,
+              );
+              if (!anim) {
+                throw new Error(
+                  `Animation id "${ref.id}" not found in manifest.ac.anims`,
+                );
               }
 
-              for (let fi = 0; fi < meta.frames.length; fi++) {
-                const frameRef = meta.frames[fi];
+              // Validate that all frames in seq share the same dimensions/format
+              const firstPoolItem = animationContainer.pool[anim.seq[0]];
+              if (!firstPoolItem) {
+                throw new Error(`Invalid pool index ${anim.seq[0]} in seq`);
+              }
+              for (let si = 1; si < anim.seq.length; si++) {
+                const poolItem = animationContainer.pool[anim.seq[si]];
+                if (!poolItem) {
+                  throw new Error(`Invalid pool index ${anim.seq[si]} in seq`);
+                }
                 if (
-                  frameRef.s < 0 ||
-                  frameRef.l < 0 ||
-                  frameRef.s + frameRef.l > binarySection.length
+                  poolItem.w !== firstPoolItem.w ||
+                  poolItem.h !== firstPoolItem.h ||
+                  poolItem.f !== firstPoolItem.f
                 ) {
                   throw new Error(
-                    `Animation frame ref out of bounds: offset ${frameRef.s} + length ${frameRef.l} ` +
-                      `exceeds binary section size ${binarySection.length}`,
+                    `Frame dimension/format mismatch in seq at index ${si}`,
                   );
-                }
-                const compressedFrame = binarySection.subarray(
-                  frameRef.s,
-                  frameRef.s + frameRef.l,
-                );
-                const decompressedFrame = lz4Decompress(
-                  compressedFrame,
-                  frameRef.u,
-                  `anim_${item.n}_${metaIndex}_${fi}`,
-                );
-
-                let rawBuffer: Uint8Array;
-                if (!("t" in frameRef) || frameRef.t === "m") {
-                  // Master frame (or legacy frame without 't' field)
-                  rawBuffer = decompressedFrame;
-                } else {
-                  // Cropped frame: apply rects to base
-                  const croppedRef = frameRef as EIAAnimationFrameRefCropped;
-                  const baseBuffer = animFrameBuffers.get(croppedRef.b);
-                  if (!baseBuffer) {
-                    throw new Error(
-                      `Animation base frame ${croppedRef.b} not found for cropped frame ${fi}`,
-                    );
-                  }
-                  rawBuffer = applyRects(
-                    baseBuffer,
-                    decompressedFrame,
-                    croppedRef.r,
-                    frameWidth,
-                    meta.f,
-                  );
-                }
-
-                animFrameBuffers.set(fi, rawBuffer);
-                animFrames.push(
-                  rawToImageData(rawBuffer, frameWidth, frameHeight, meta.f),
-                );
-
-                // Release buffer if not needed as base for future frames
-                if (!animBaseIndices.has(fi)) {
-                  animFrameBuffers.delete(fi);
                 }
               }
+
+              const animFrames: ImageData[] = [];
+              for (const poolIdx of anim.seq) {
+                const frameData = poolDecoded.get(poolIdx);
+                if (!frameData) {
+                  throw new Error(`Pool frame ${poolIdx} not decoded`);
+                }
+                const poolItem = animationContainer.pool[poolIdx];
+                animFrames.push(
+                  rawToImageData(frameData, poolItem.w, poolItem.h, poolItem.f),
+                );
+              }
+
               return {
-                x: meta.x,
-                y: meta.y,
-                w: meta.w,
-                h: meta.h,
-                fps: meta.fps,
+                x: ref.x,
+                y: ref.y,
+                w: ref.w,
+                h: ref.h,
+                fps: anim.fps,
                 frames: animFrames,
               };
             } catch (e) {
               console.warn(
-                `Failed to decode animation meta index ${metaIndex} for frame "${item.n}":`,
-                meta,
+                `Failed to decode animation ref index ${refIndex} for frame "${item.n}":`,
+                ref,
                 e,
               );
               return null;

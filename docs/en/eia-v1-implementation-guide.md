@@ -131,65 +131,110 @@ Provide compression ratio estimates for different scenarios:
 
 ### 4.1 Encoding
 
-Animation frames are appended to the data section after all slide data. The slot definition is stored as a JSON string in the master file's extension object (`e.a`).
+Animation frames are appended to the data section after all slide data. Frame data is aggregated into `ac.pool` at the manifest top level. The slide's extension object (`e.a`) stores the animation reference array (`EIAAnimationRef[]`) **natively without JSON.stringify**.
 
 ```typescript
-// Encoding a cropped animation frame
-let fileBufferLength = 0;
-const fileBuffer: Buffer[] = [];
-const parts: EIAFileV1CroppedPart[] = [];
+// Frame deduplication and pool construction
+const pool: EIAAnimFramePoolItem[] = [];
+const poolDecodedBuffers: Buffer[] = [];
+const anims: EIAAnimation[] = [];
 
-for (const rect of frame.cropped.rects) {
-  fileBuffer.push(rect.buffer);
-  parts.push({
-    s: fileBufferLength,      // decompressed-buffer offset (starts at 0)
-    l: rect.buffer.length,    // uncompressed byte length
-    x: rect.x, y: rect.y, w: rect.width, h: rect.height,
-  });
-  fileBufferLength += rect.buffer.length;
+for (const anim of animations) {
+  const seq: number[] = [];
+  const resolvedBuffers = new Map<number, Buffer>();
+  const framePoolIndices: number[] = [];
+  const newPoolFrames: RawImageObjV1Cropped[] = [];
+  const newDecodedBuffers: Buffer[] = [];
+
+  // Pass 1: decode all frames and assign pool indices (with dedup)
+  for (let fi = 0; fi < anim.frames.length; fi++) {
+    const frame = anim.frames[fi];
+    const decoded = decodeAnimationFrame(frame, resolvedBuffers);
+    resolvedBuffers.set(fi, decoded);
+
+    const existing = findMatchingPoolIndex(decoded, poolDecodedBuffers, frameW, frameH);
+    if (existing >= 0) {
+      framePoolIndices.push(existing);
+    } else {
+      const localExisting = findMatchingPoolIndex(decoded, newDecodedBuffers, frameW, frameH);
+      if (localExisting >= 0) {
+        framePoolIndices.push(pool.length + localExisting);
+      } else {
+        framePoolIndices.push(pool.length + newDecodedBuffers.length);
+        newDecodedBuffers.push(decoded);
+        newPoolFrames.push(frame);
+      }
+    }
+  }
+
+  poolDecodedBuffers.push(...newDecodedBuffers);
+
+  // Pass 2: compress new pool entries
+  for (const frame of newPoolFrames) {
+    if (!frame.cropped) {
+      const compressed = lz4.compress(frame.buffer);
+      pool.push({ t: "m", f: format, w: frameW, h: frameH, s: bufferLength, l: compressed.length, u: frame.buffer.length });
+      bufferLength += compressed.length;
+    } else {
+      const basePoolIndex = framePoolIndices[frame.cropped.baseIndex];
+      const parts = buildParts(frame.cropped.rects);
+      const merged = Buffer.concat(frame.cropped.rects.map(r => r.buffer));
+      const compressed = lz4.compress(merged);
+      pool.push({ t: "c", f: format, w: frameW, h: frameH, b: basePoolIndex, s: bufferLength, l: compressed.length, u: merged.length, r: parts });
+      bufferLength += compressed.length;
+    }
+  }
+
+  anims.push({ id: animId, fps: anim.fps, seq: framePoolIndices });
+  slideRefs.push({ id: animId, x: anim.x, y: anim.y, w: anim.w, h: anim.h });
 }
 
-const mergedBuffer = Buffer.concat(fileBuffer);
-const compressed = lz4.compress(mergedBuffer);
-
-frameRefs.push({
-  t: "c",
-  s: bufferLength,            // compressed-space offset in the data section
-  l: compressed.length,
-  u: mergedBuffer.length,
-  r: parts,                   // parts[i].s are decompressed-buffer offsets
-  b: frame.cropped.baseIndex,
-});
-bufferLength += compressed.length;
+// Store refs natively in e.a (do not JSON.stringify)
+file.e = { ...file.e, a: slideRefs };
+manifest.ac = { pool, anims };
+manifest.f.push("Feature:animation");
 ```
 
 ### 4.2 Decoding
 
+Animation data is decoded from `manifest.ac`. Pool frames are decoded recursively while resolving dependencies.
+
 ```typescript
-// Frame index calculation
-const frameIndex = Math.floor((Time.now - startTime) * fps) % frameCount;
+// Pool frame decoding (memoization + depth limit)
+const decodePoolFrame = (pool, binarySection, index, depth, memo) => {
+  if (depth > 64) throw new Error("Pool reference depth exceeded");
+  if (memo.has(index)) return memo.get(index);
 
-// Master frame
-if (frame.t === "m") {
-  const compressed = dataSection.slice(frame.s, frame.s + frame.l);
-  frameData = lz4.decompress(compressed, frame.u);
+  const item = pool[index];
+  const compressed = binarySection.slice(item.s, item.s + item.l);
+  const decompressed = lz4.decompress(compressed, item.u);
+
+  let result;
+  if (item.t === "m") {
+    result = decompressed;
+  } else {
+    const base = decodePoolFrame(pool, binarySection, item.b, depth + 1, memo);
+    const copied = new Uint8Array(base); // copy base (MUST NOT modify in place)
+    result = applyRects(copied, decompressed, item.r, item.w, item.f);
+  }
+  memo.set(index, result);
+  return result;
+};
+
+// Pre-decode all pool frames
+const poolDecoded = new Map();
+for (let i = 0; i < manifest.ac.pool.length; i++) {
+  decodePoolFrame(manifest.ac.pool, binarySection, i, 0, poolDecoded);
 }
 
-// Cropped (delta) frame (pseudo-code)
-// Reference implementation: the module-local `applyRects` in src/lib/slidePreview/decodeEIAv1.ts
-if (frame.t === "c") {
-  const compressed = dataSection.slice(frame.s, frame.s + frame.l);
-  const delta = lz4.decompress(compressed, frame.u);
-  // Copy baseFrameData and overwrite each part of `frame.r` from the delta buffer.
-  // part.s is an offset into the delta buffer (not compressed space).
-  // fw / format come from the animation slot's fw (frame width) / f (texture format).
-  frameData = applyRects(baseFrameData, delta, frame.r, fw, format);
-}
+// Frame index calculation (Unix epoch anchor for synchronized playback)
+const frameIndex = Math.floor((Date.now() / 1000) * fps) % seq.length;
+const poolIdx = anim.seq[frameIndex];
+const frameData = poolDecoded.get(poolIdx);
+
+// Render into display slot (scale if frame size differs from display size)
+ctx.drawImage(frameImage, ref.x, ref.y, ref.w, ref.h);
 ```
-
-### 4.3 Frame Size Extension
-
-When the stored frame dimensions (`fw`/`fh`) differ from the display slot dimensions (`w`/`h`), the slot metadata MUST include `fw`/`fh` and the manifest's `f` array MUST include `"Feature:animation-frame-size"`. `manifest.v` remains `1`.
 
 ## 5. Format Compatibility
 

@@ -6,51 +6,66 @@ export type EIAExtension = (typeof EIAExtensions)[number];
 
 export type EIAExtensionObject = {
   note?: string;
-  a?: string; // JSON string of EIAAnimationMeta[]
-} & { [key in EIAExtension]?: string };
-
-export type EIAAnimationMeta = {
-  x: number; // pixel X on base image
-  y: number; // pixel Y on base image
-  w: number; // display pixel width
-  h: number; // display pixel height
-  fw?: number; // stored frame pixel width (defaults to w)
-  fh?: number; // stored frame pixel height (defaults to h)
-  fps: number; // frame rate
-  f: TTextureFormat; // frame format
-  frames: EIAAnimationFrameRef[];
+  a?: EIAAnimationRef[];
+  [key: string]: string | EIAAnimationRef[] | undefined;
 };
 
-export type EIAAnimationFrameRef =
-  | EIAAnimationFrameRefMaster
-  | EIAAnimationFrameRefCropped;
-
-export type EIAAnimationFrameRefMaster = {
-  t: "m"; // master (full frame)
-  s: number; // start offset in data section
-  l: number; // compressed length
-  u: number; // uncompressed size
+export type EIAAnimationContainer = {
+  pool: EIAAnimFramePoolItem[];
+  anims: EIAAnimation[];
 };
 
-export type EIAAnimationFrameRefCropped = {
-  t: "c"; // cropped (diff frame)
-  b: number; // base frame index within this animation's frames array
-  s: number; // start offset in data section
-  l: number; // compressed length
-  u: number; // uncompressed size
-  r: EIAFileV1CroppedPart[]; // changed rects
+export type EIAAnimFramePoolItem =
+  | EIAAnimFramePoolItemMaster
+  | EIAAnimFramePoolItemCropped;
+
+export type EIAAnimFramePoolItemMaster = {
+  t: "m";
+  f: TTextureFormat;
+  w: number;
+  h: number;
+  s: number;
+  l: number;
+  u: number;
+};
+
+export type EIAAnimFramePoolItemCropped = {
+  t: "c";
+  f: TTextureFormat;
+  w: number;
+  h: number;
+  b: number;
+  s: number;
+  l: number;
+  u: number;
+  r: EIAFileV1CroppedPart[];
+};
+
+export type EIAAnimation = {
+  id: string;
+  fps: number;
+  seq: number[];
+};
+
+export type EIAAnimationRef = {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 };
 
 export type EIACompressionMethod = "lz4" | "lz4-base64";
 
 export type EIAManifestV1 = {
-  t: "eia"; //type
-  c: EIACompressionMethod; //compressor
-  v: 1; //version
-  f: string[]; //features
-  e: EIAExtension[]; //extensions
-  i: EIAFileV1[]; //items
+  t: "eia";
+  c: EIACompressionMethod;
+  v: 1;
+  f: string[];
+  e: EIAExtension[];
+  i: EIAFileV1[];
   m?: EIASignageManifest;
+  ac?: EIAAnimationContainer;
 };
 
 export type EIASignageManifest = {
@@ -58,39 +73,39 @@ export type EIASignageManifest = {
 };
 
 export type EIASignageItem = {
-  f: string; // file name
-  t: string; // transition
-  d: number; // duration
+  f: string;
+  t: string;
+  d: number;
 };
 
 export type EIAFileV1 = EIAFileV1Master | EIAFileV1Cropped;
 
 type EIAFileV1Base = {
-  n: string; //name
-  f: TTextureFormat; //format
-  w: number; //width
-  h: number; //height
-  s: number; //start
-  l: number; //length
-  u: number; //uncompressed size
-  e?: EIAExtensionObject; //extensions
+  n: string;
+  f: TTextureFormat;
+  w: number;
+  h: number;
+  s: number;
+  l: number;
+  u: number;
+  e?: EIAExtensionObject;
 };
 
 export type EIAFileV1Master = EIAFileV1Base & {
-  t: "m"; //type: master
+  t: "m";
 };
 
 export type EIAFileV1Cropped = EIAFileV1Base & {
-  t: "c"; //type: cropped
-  b: string; // base file name
-  r: EIAFileV1CroppedPart[]; //rects
+  t: "c";
+  b: string;
+  r: EIAFileV1CroppedPart[];
 };
 
 export type EIAFileV1CroppedPart = {
   x: number;
   y: number;
-  w: number; //width
-  h: number; //height
-  s: number; //start (in file)
-  l: number; //length
+  w: number;
+  h: number;
+  s: number;
+  l: number;
 };

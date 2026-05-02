@@ -612,13 +612,13 @@ export const extractGifAnimations = async (
           fps: previewFps,
           fpsOverride: Math.min(5, previewFps),
           frames,
-        } satisfies SelectedFileAnimation;
+        } as SelectedFileAnimation;
       } catch (e) {
         console.warn("Failed to build composed GIF frames:", e);
         return null;
       }
     })
-    .filter((r): r is SelectedFileAnimation => r !== null);
+    .filter((r): r is SelectedFileAnimation => !!r);
 
   return results;
 };
