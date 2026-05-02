@@ -94,7 +94,9 @@ const decodePoolFrame = (
   depth: number,
   memo: Map<number, Uint8Array>,
 ): Uint8Array => {
-  if (depth >= 64) {
+  // Depth 65 (next recursive call passes depth === 65) exceeds the documented
+  // 64-level recursion budget; deepest allowed entry is depth 64.
+  if (depth > 64) {
     throw new Error(`Pool reference depth exceeded at index ${index}`);
   }
   const cached = memo.get(index);
@@ -244,9 +246,18 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
           `Animation data for frame "${item.n}" cannot be decoded under lz4-base64 compression`,
         );
       } else {
-        const animRefs = Array.isArray(item.e.a)
-          ? (item.e.a as EIAAnimationRef[])
-          : [];
+        const refsField = item.e.a;
+        let animRefs: EIAAnimationRef[];
+        if (Array.isArray(refsField)) {
+          animRefs = refsField as EIAAnimationRef[];
+        } else if (typeof refsField === "string") {
+          console.warn(
+            `Slide "${item.n}" has legacy JSON-string animation refs in e.a; decode skipped (expected EIAAnimationRef[]).`,
+          );
+          animRefs = [];
+        } else {
+          animRefs = [];
+        }
         const animationContainer = manifest.ac;
         const decodedAnimations = animRefs
           .map((ref, refIndex): SlideAnimation | null => {
