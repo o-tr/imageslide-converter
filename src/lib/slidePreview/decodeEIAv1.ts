@@ -94,7 +94,7 @@ const decodePoolFrame = (
   depth: number,
   memo: Map<number, Uint8Array>,
 ): Uint8Array => {
-  if (depth > 64) {
+  if (depth >= 64) {
     throw new Error(`Pool reference depth exceeded at index ${index}`);
   }
   const cached = memo.get(index);
