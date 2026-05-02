@@ -327,7 +327,7 @@ type EIAAnimation = {
 スライドは自身の拡張オブジェクト（`e.a`）にアニメーション参照配列を格納し、配置するアニメーションを指定します：
 
 ```typescript
-// file.e.a は以下をJSON.stringify() した文字列
+// file.e.a は以下の配列をJSON.stringify() した文字列
 type EIAAnimationRef = {
   id: string;  // ac.anims 内のアニメーション識別子
   x: number;   // ベース画像内のアニメーション表示領域X座標（必須）

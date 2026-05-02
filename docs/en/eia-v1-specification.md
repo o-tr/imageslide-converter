@@ -327,7 +327,7 @@ Each element of `seq` is an index into the `pool` array. By referencing the same
 Slides store an animation reference array in their extension object (`e.a`) to specify which animations to place on that slide:
 
 ```typescript
-// file.e.a is JSON.stringify() of the following:
+// file.e.a is JSON.stringify() of the following array:
 type EIAAnimationRef = {
   id: string;  // Animation identifier within ac.anims
   x: number;   // X coordinate of the display area in the base image (REQUIRED)
