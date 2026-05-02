@@ -24,6 +24,8 @@ const getBytesPerPixel = (format: string): number => {
   throw new Error(`Unsupported animation format: "${format}"`);
 };
 
+type FrameDimensions = { w: number; h: number };
+
 export const compressEIAv1 = async (
   data: RawImageObjV1Cropped[],
   signage?: EIASignageManifest,
@@ -191,6 +193,7 @@ const compressEIAv1Part = async (
   if (animationMap) {
     const pool: EIAAnimFramePoolItem[] = [];
     const poolDecodedBuffers: Buffer[] = [];
+    const poolDecodedDimensions: FrameDimensions[] = [];
     const anims: EIAAnimation[] = [];
     let animBufferLength = bufferLength;
 
@@ -248,6 +251,7 @@ const compressEIAv1Part = async (
             frameH,
             bpp,
             requireExactMatch,
+            poolDecodedDimensions,
           );
           if (existing >= 0) {
             framePoolIndices.push(existing);
@@ -273,6 +277,9 @@ const compressEIAv1Part = async (
 
         // Register decoded buffers for global dedup
         poolDecodedBuffers.push(...newDecodedBuffers);
+        for (let i = 0; i < newDecodedBuffers.length; i++) {
+          poolDecodedDimensions.push({ w: frameW, h: frameH });
+        }
 
         // Pass 2: compress new pool entries
         for (let ni = 0; ni < newPoolFrames.length; ni++) {
@@ -294,7 +301,20 @@ const compressEIAv1Part = async (
           } else {
             // baseIndex is an index into anim.frames (not newPoolFrames), and
             // framePoolIndices is built with the same anim.frames indexing.
+            if (
+              frame.cropped.baseIndex < 0 ||
+              frame.cropped.baseIndex >= framePoolIndices.length
+            ) {
+              throw new Error(
+                `Invalid animation base frame index ${frame.cropped.baseIndex} at slide ${slideIndex}, animation ${animIndex}`,
+              );
+            }
             const basePoolIndex = framePoolIndices[frame.cropped.baseIndex];
+            if (basePoolIndex === undefined) {
+              throw new Error(
+                `Unresolved animation base frame index ${frame.cropped.baseIndex} at slide ${slideIndex}, animation ${animIndex}`,
+              );
+            }
             const parts: EIAFileV1CroppedPart[] = [];
             let fileBufferLength = 0;
             const fileBuffer: Buffer[] = [];
@@ -414,6 +434,7 @@ const findMatchingPoolIndex = (
   height: number,
   bpp: number,
   requireExactMatch: boolean,
+  poolDimensions?: FrameDimensions[],
 ): number => {
   const expectedLength = width * height * bpp;
   if (decoded.length !== expectedLength) return -1;
@@ -423,6 +444,12 @@ const findMatchingPoolIndex = (
   );
   for (let i = 0; i < poolBuffers.length; i++) {
     if (poolBuffers[i].length !== expectedLength) continue;
+    const candidateDimensions = poolDimensions?.[i];
+    if (candidateDimensions) {
+      if (candidateDimensions.w !== width || candidateDimensions.h !== height) {
+        continue;
+      }
+    }
     if (poolBuffers[i].equals(decoded)) return i;
     if (requireExactMatch) continue;
     const diff = computeDiffMask(poolBuffers[i], decoded, width, height, bpp);
