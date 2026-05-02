@@ -1,7 +1,7 @@
 import type { RawAnimationData } from "@/_types/eia/rawAnimationData";
 import type { EIASignageManifest } from "@/_types/eia/v1";
 import type { SelectedFile } from "@/_types/file-picker";
-import type { RawImageObjV1 } from "@/_types/text-zip/v1";
+import type { RawImageObjV1, RawImageObjV1Cropped } from "@/_types/text-zip/v1";
 import { IMAGE_FORMAT_RGB24 } from "@/const/imageFormat";
 import { canvas2rgb24 } from "@/lib/canvas2rawImage/canvas2rgb24";
 import { compressEIAv1 } from "@/lib/eia/compressEIAv1";
@@ -36,6 +36,9 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
   if (!signage) {
     // Extract animation data per slide (signage exports intentionally omit animations)
     const extractedAnimationMap = new Map<number, RawAnimationData[]>();
+    // Cache crop results keyed by pre-crop frame buffers so identical GIFs
+    // across slides share the same cropped frames (and pool dedup works).
+    const animationCache = new Map<string, RawImageObjV1Cropped[]>();
     for (let i = 0; i < selectedFiles.length; i++) {
       const file = selectedFiles[i];
       if (!file.animations || file.animations.length === 0) continue;
@@ -47,12 +50,23 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
           format: IMAGE_FORMAT_RGB24,
           buffer: Buffer.from(canvas2rgb24(frame)),
         }));
-        // Apply differential compression to animation frames
-        const croppedAnimFrames = cropImages(animRawImages, {
-          keyframeInterval,
-          parentSearchWindow: 5,
-          parentSearchTopK: 1,
+        // Build a lightweight hash from pre-crop buffers to detect identical GIFs
+        const hashParts = animRawImages.map((img) => {
+          const b = img.buffer;
+          return `${b.length}:${b[0]}:${b[Math.floor(b.length / 4)]}:${b[Math.floor(b.length / 2)]}:${b[Math.floor((b.length * 3) / 4)]}:${b[b.length - 1]}`;
         });
+        const animHash = hashParts.join("|");
+        const cachedFrames = animationCache.get(animHash);
+        const croppedAnimFrames =
+          cachedFrames ??
+          cropImages(animRawImages, {
+            keyframeInterval,
+            parentSearchWindow: 5,
+            parentSearchTopK: 1,
+          });
+        if (!cachedFrames) {
+          animationCache.set(animHash, croppedAnimFrames);
+        }
         return {
           x: anim.x,
           y: anim.y,
