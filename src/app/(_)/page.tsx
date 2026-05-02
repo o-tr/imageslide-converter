@@ -1,5 +1,5 @@
 "use client";
-import { Controls } from "@/app/(_)/convert/pick/_components/FileList/Controls";
+import { Controls } from "@/app/(_convert)/convert/pick/_components/FileList/Controls";
 import { TransitionOnDrag } from "@/app/_components/TransitionOnDrag";
 import { ResultAtom } from "@/atoms/convert";
 import { SelectedFilesAtom } from "@/atoms/file-drop";

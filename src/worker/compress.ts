@@ -1,6 +1,7 @@
 import type { SelectedFileAnimation } from "@/_types/file-picker";
 import type { WorkerMessage, WorkerResponse } from "@/_types/worker";
 import { TargetFormats } from "@/const/convert";
+import { getAnimationFrameScale } from "@/utils/getAnimationFrameScale";
 import { getResolutionScale } from "@/utils/getResolutionScale";
 
 const worker = self as unknown as Worker;
@@ -79,20 +80,20 @@ worker.addEventListener(
           // Convert animation bitmaps to OffscreenCanvas with scaling applied
           let animations: SelectedFileAnimation[] | undefined;
           if (file.animations && file.animations.length > 0) {
-            animations = file.animations.map((anim) => ({
-              x: Math.round(anim.x * effectiveScaleX),
-              y: Math.round(anim.y * effectiveScaleY),
-              w: Math.max(1, Math.round(anim.w * effectiveScaleX)),
-              h: Math.max(1, Math.round(anim.h * effectiveScaleY)),
-              fps: anim.fps,
-              frames: anim.frames.map((bm) => {
+            animations = file.animations.map((anim) => {
+              const storedFps = anim.fps;
+              const targetFps = anim.fpsOverride ?? storedFps;
+              const frameScale = getAnimationFrameScale(targetFps);
+
+              // Scale all frames first, closing source bitmaps
+              const scaledFrames = anim.frames.map((bm) => {
                 const scaledW = Math.max(
                   1,
-                  Math.round(bm.width * effectiveScaleX),
+                  Math.round(bm.width * effectiveScaleX * frameScale),
                 );
                 const scaledH = Math.max(
                   1,
-                  Math.round(bm.height * effectiveScaleY),
+                  Math.round(bm.height * effectiveScaleY * frameScale),
                 );
                 const c = new OffscreenCanvas(scaledW, scaledH);
                 const ctx = c.getContext("2d");
@@ -101,8 +102,39 @@ worker.addEventListener(
                 ctx.drawImage(bm, 0, 0, scaledW, scaledH);
                 bm.close();
                 return c;
-              }),
-            }));
+              });
+
+              // Sub-sample frames when targetFps < storedFps to reduce frame count
+              // while keeping total playback duration unchanged
+              let outputFrames = scaledFrames;
+              if (
+                anim.fpsOverride !== undefined &&
+                anim.fpsOverride < storedFps &&
+                storedFps > 0
+              ) {
+                const totalFrames = scaledFrames.length;
+                const targetCount = Math.max(
+                  1,
+                  Math.round((totalFrames / storedFps) * targetFps),
+                );
+                outputFrames = Array.from({ length: targetCount }, (_, i) => {
+                  const srcIndex = Math.min(
+                    Math.round((i * storedFps) / targetFps),
+                    totalFrames - 1,
+                  );
+                  return scaledFrames[srcIndex];
+                });
+              }
+
+              return {
+                x: Math.round(anim.x * effectiveScaleX),
+                y: Math.round(anim.y * effectiveScaleY),
+                w: Math.max(1, Math.round(anim.w * effectiveScaleX)),
+                h: Math.max(1, Math.round(anim.h * effectiveScaleY)),
+                fps: targetFps,
+                frames: outputFrames,
+              };
+            });
           }
 
           return { ...file, canvas, animations };

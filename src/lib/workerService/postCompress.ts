@@ -41,6 +41,7 @@ export const postCompress = (
           w: anim.w,
           h: anim.h,
           fps: anim.fps,
+          fpsOverride: anim.fpsOverride,
           frames: animBitmaps,
         };
       });

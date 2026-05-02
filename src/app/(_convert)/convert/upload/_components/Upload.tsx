@@ -1,6 +1,6 @@
 "use client";
 import { ResultAtom } from "@/atoms/convert";
-import { SelectedFilesAtom } from "@/atoms/file-drop";
+import { OutputFileNameAtom, SelectedFilesAtom } from "@/atoms/file-drop";
 import { getNormalFileId } from "@/lib/service/getNormalFileId";
 import { getNormalPreSignedPut } from "@/lib/service/getNormalPreSignedPut";
 import { postRegisterFile } from "@/lib/service/postRegisterFile";
@@ -17,6 +17,7 @@ export const Upload: FC = () => {
   const [progress, setProgress] = useState<{ [fileName: string]: number }>({});
 
   const files = useAtomValue(SelectedFilesAtom);
+  const outputFileName = useAtomValue(OutputFileNameAtom);
   const router = useRouter();
   const initRef = useRef(false);
   useEffect(() => {
@@ -69,18 +70,16 @@ export const Upload: FC = () => {
       );
       await postRegisterFile(
         fileId,
-        files[0].fileName,
+        outputFileName || files[0]?.fileName || "untitled",
         data.length,
         data.reduce((acc, { fileSize }) => acc + fileSize, 0),
         result.format,
         result.version,
       );
 
-      setTimeout(() => {
-        router.push(`/files/${fileId}`);
-      }, 100);
+      router.replace(`/files/${fileId}`);
     })();
-  }, [result, files, router]);
+  }, [result, files, router, outputFileName]);
 
   if (Object.keys(progress).length === 0) {
     return <Preparing />;
