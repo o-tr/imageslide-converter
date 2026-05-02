@@ -315,7 +315,7 @@ type EIAAnimation = {
 }
 ```
 
-Each element of `seq` is an index into the `pool` array. By referencing the same frame data multiple times, back-and-forth GIFs and other repeating frame patterns can be represented without data duplication. `seq` MUST NOT be empty. Each element of `seq` MUST be a valid pool index: `0 ≤ seq[i] < pool.length`. `fps` MUST be a finite positive number (`fps > 0`). All animations within `ac.anims` MUST have a unique `id`.
+Each element of `seq` is an index into the `pool` array. By referencing the same frame data multiple times, back-and-forth GIFs and other repeating frame patterns can be represented without data duplication. `seq` MUST NOT be empty. Each element of `seq` MUST be a valid pool index: `0 ≤ seq[i] < pool.length`. All frames referenced by a single `seq` SHOULD share the same `w`, `h`, and `f`. `fps` MUST be a finite positive number (`fps > 0`). All animations within `ac.anims` MUST have a unique `id`.
 
 ### 7.4 Animation References from Slides
 
@@ -340,7 +340,7 @@ When a slide references an animation, the animation is rendered at position (`x`
    - `t: "m"` is used directly as a complete frame image
    - `t: "c"` **copies** the image data from `pool[b]`, then applies each part in `r`. The base frame buffer MUST NOT be modified in-place.
 2. Follow `seq` to assemble the frame sequence from the decoded pool frames
-3. Compute the current frame index: `floor((Time.now - startTime) * fps) % seq.length`
+3. Compute the current frame index: `floor((Time.now - startTime) * fps) % seq.length`, where `startTime` is the timestamp at which the slide containing this animation is first rendered
 4. Render the selected frame image within the display slot (`EIAAnimationRef.x`, `EIAAnimationRef.y`, `EIAAnimationRef.w`, `EIAAnimationRef.h`). If the frame pixel size (`pool[seq[i]].w`, `pool[seq[i]].h`) differs from the display size (`EIAAnimationRef.w`, `EIAAnimationRef.h`), the decoder MUST scale the frame to the display size
 
 ## 8. Processing Guidelines
