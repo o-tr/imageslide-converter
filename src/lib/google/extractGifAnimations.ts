@@ -502,27 +502,6 @@ export const extractGifAnimations = async (
     (candidate): candidate is AnimatedGifCandidate => candidate !== null,
   );
 
-  const intersectingElementIndices = new Set<number>();
-  for (let i = 0; i < animatedGifCandidates.length; i++) {
-    for (let j = i + 1; j < animatedGifCandidates.length; j++) {
-      if (
-        rectsIntersect(
-          animatedGifCandidates[i].pixelRect,
-          animatedGifCandidates[j].pixelRect,
-        )
-      ) {
-        intersectingElementIndices.add(i);
-        intersectingElementIndices.add(j);
-      }
-    }
-  }
-
-  if (intersectingElementIndices.size > 0) {
-    console.warn(
-      `extractGifAnimations: skipping ${intersectingElementIndices.size} intersecting animated GIF element(s); overlapping animated rects are not supported with RGB24 animation encoding`,
-    );
-  }
-
   // Z-order: elements later in pageElements are drawn on top (higher Z).
   // Only elements drawn ABOVE the GIF can obscure it; elements below are already
   // baked into the base slide composite and do not cause artifacts.
@@ -531,20 +510,15 @@ export const extractGifAnimations = async (
     elementZOrder.set(pageElements[i], i);
   }
 
-  // Only GIFs that survived GIF-to-GIF intersection are still animated at render time.
-  // GIFs removed by that filter are now static pixels in the base canvas and must be
-  // treated as potential non-animated foreground blockers for surviving candidates.
-  // Invariant: survivors are pairwise non-overlapping (the pairwise check above marks
-  // BOTH i and j when their rects intersect), so survivingAnimatedElements.has() in the
-  // Z-order loop below can safely skip other survivors without missing any occlusion.
+  // All animated GIF candidates are kept (overlapping animated rects are now
+  // supported at runtime by drawing them in Z-order). We still skip candidates
+  // that have higher-Z non-animated elements overlapping them, since those
+  // cannot be represented correctly without baking the foreground into each frame.
   const survivingAnimatedElements = new Set(
-    animatedGifCandidates
-      .filter((_, i) => !intersectingElementIndices.has(i))
-      .map((c) => c.element),
+    animatedGifCandidates.map((c) => c.element),
   );
   const intersectingNonAnimatedIndices = new Set<number>();
   for (let i = 0; i < animatedGifCandidates.length; i++) {
-    if (intersectingElementIndices.has(i)) continue; // already filtered, skip
     const candidate = animatedGifCandidates[i];
     const gifZ = elementZOrder.get(candidate.element) ?? 0;
     for (const positioned of positionedElements) {
@@ -566,9 +540,7 @@ export const extractGifAnimations = async (
   }
 
   const nonIntersectingAnimatedCandidates = animatedGifCandidates.filter(
-    (_, index) =>
-      !intersectingElementIndices.has(index) &&
-      !intersectingNonAnimatedIndices.has(index),
+    (_, index) => !intersectingNonAnimatedIndices.has(index),
   );
 
   const results = nonIntersectingAnimatedCandidates
