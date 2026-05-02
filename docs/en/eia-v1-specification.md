@@ -299,11 +299,9 @@ type EIAAnimFramePoolItemCropped = {
 
 > **Important**: `EIAAnimFramePoolItemCropped.b` refers to another entry within the same `pool` array by numeric index. This is different from slide-level cropped files (`EIAFileV1Cropped.b`), which use a string name.
 >
-> Reference chaining (where the base frame is itself `t: "c"`) is allowed, but encoders MUST NOT produce circular references. Decoders SHOULD enforce a depth limit when resolving references. `b` is not required to refer to a lower index; decoders SHOULD resolve dependencies when decoding.
+> Reference chaining (where the base frame is itself `t: "c"`) is allowed, but encoders MUST NOT produce circular references. Decoders SHOULD enforce a depth limit when resolving references. `b` is not required to refer to a lower index; decoders SHOULD resolve dependencies when decoding. For example, when a frame references an undecoded frame, decoders MUST use deferred decoding, memoized recursion, or topological sorting to ensure all dependencies are satisfied before applying crop composition.
 
 The `EIAFileV1CroppedPart.s` values within `r` are **decompressed-buffer offsets** (the first part always has `s = 0`), using the same coordinate space as file-level cropped parts (see §3.2.1). This is a different coordinate space from `EIAAnimFramePoolItemCropped.s` (which is a compressed-space offset).
-
-
 
 ### 7.3 Animation Definition
 
@@ -312,10 +310,7 @@ An animation definition corresponds to a single GIF and describes its frame sequ
 ```typescript
 type EIAAnimation = {
   id: string;   // Unique animation identifier
-  w: number;    // Frame width in pixels
-  h: number;    // Frame height in pixels
   fps: number;  // Frame rate
-  f: TTextureFormat; // Texture format of frames
   seq: number[]; // Frame sequence (array of pool indices)
 }
 ```
@@ -332,8 +327,8 @@ type EIAAnimationRef = {
   id: string;  // Animation identifier within ac.anims
   x: number;   // X coordinate of the display area in the base image (REQUIRED)
   y: number;   // Y coordinate of the display area in the base image (REQUIRED)
-  w?: number;  // Display width (defaults to anim.w if omitted)
-  h?: number;  // Display height (defaults to anim.h if omitted)
+  w: number;   // Display width in pixels
+  h: number;   // Display height in pixels
 }
 ```
 
@@ -345,8 +340,8 @@ When a slide references an animation, the animation is rendered at position (`x`
    - `t: "m"` is used directly as a complete frame image
    - `t: "c"` **copies** the image data from `pool[b]`, then applies each part in `r`. The base frame buffer MUST NOT be modified in-place.
 2. Follow `seq` to assemble the frame sequence from the decoded pool frames
-3. Compute the current frame index: `floor((Time.now - startTime) * fps % seq.length)`
-4. Render the selected frame image within the display slot (`EIAAnimationRef.x`, `EIAAnimationRef.y`, `EIAAnimationRef.w ?? anim.w`, `EIAAnimationRef.h ?? anim.h`)
+3. Compute the current frame index: `floor((Time.now - startTime) * fps) % seq.length`
+4. Render the selected frame image within the display slot (`EIAAnimationRef.x`, `EIAAnimationRef.y`, `EIAAnimationRef.w`, `EIAAnimationRef.h`)
 
 ## 8. Processing Guidelines
 
@@ -377,6 +372,7 @@ Implementations MUST handle:
 - Compression errors
 - Missing base file references
 - Invalid pool reference indices
+- Animation reference to unknown animation identifier
 - Circular references in animation frame chains
 
 ## 9. Security Considerations

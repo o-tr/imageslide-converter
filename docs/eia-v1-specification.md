@@ -299,11 +299,9 @@ type EIAAnimFramePoolItemCropped = {
 
 > **重要**: `EIAAnimFramePoolItemCropped.b` は、同一 `pool` 配列内の他のプールエントリを参照します。スライドのクロップファイル（`EIAFileV1Cropped.b`）とは異なり、ここでは**数値インデックス**（文字列ではなく）を使用します。
 >
-> 参照連鎖（参照先がさらに `t: "c"` であるケース）は許可されますが、エンコーダーは循環参照を生成してはなりません（MUST NOT）。デコーダーは参照を辿る際に深さ制限を設けるべきです（SHOULD）。`b` は自身より前のインデックスを参照する必要はありません。デコーダーは依存関係を解決してデコードするべきです（SHOULD）。
+> 参照連鎖（参照先がさらに `t: "c"` であるケース）は許可されますが、エンコーダーは循環参照を生成してはなりません（MUST NOT）。デコーダーは参照を辿る際に深さ制限を設けるべきです（SHOULD）。`b` は自身より前のインデックスを参照する必要はありません。デコーダーは依存関係を解決してデコードするべきです（SHOULD）。例えば、未デコードのフレームを参照する場合は遅延デコード、メモ化付き再帰、またはトポロジカルソートを使用して、すべての依存関係が満たされた後にクロップ合成を行う必要があります。
 
 `r` 内の `EIAFileV1CroppedPart.s` は、クロップファイルと同様に **LZ4展開後バッファ内のバイトオフセット**（最初のパーツは常に `s = 0`）です。`EIAAnimFramePoolItemCropped.s`（圧縮空間）とは座標系が異なります（§3.2.1の注意事項を参照）。
-
-
 
 ### 7.3 アニメーション定義
 
@@ -312,10 +310,7 @@ type EIAAnimFramePoolItemCropped = {
 ```typescript
 type EIAAnimation = {
   id: string;   // 一意のアニメーション識別子
-  w: number;    // フレーム幅（ピクセル）
-  h: number;    // フレーム高さ（ピクセル）
   fps: number;  // フレームレート
-  f: TTextureFormat; // フレームのテクスチャフォーマット
   seq: number[]; // フレームシーケンス（pool内インデックスの配列）
 }
 ```
@@ -332,8 +327,8 @@ type EIAAnimationRef = {
   id: string;  // ac.anims 内のアニメーション識別子
   x: number;   // ベース画像内のアニメーション表示領域X座標（必須）
   y: number;   // ベース画像内のアニメーション表示領域Y座標（必須）
-  w?: number;  // 表示幅（省略時は anim.w を使用）
-  h?: number;  // 表示高さ（省略時は anim.h を使用）
+  w: number;   // 表示幅（ピクセル）
+  h: number;   // 表示高さ（ピクセル）
 }
 ```
 
@@ -345,8 +340,8 @@ type EIAAnimationRef = {
    - `t: "m"` はそのまま完全フレーム画像として使用する
    - `t: "c"` は `pool[b]` の画像データを**コピー**し、各パーツを適用して合成する。ベースフレームのバッファを直接変更してはならない（MUST NOT）
 2. `seq` に従って、対応するプールフレームを時系列に並べる
-3. `floor((Time.now - startTime) * fps % seq.length)` でフレームインデックスを計算する
-4. 選択されたフレーム画像を表示スロット（`EIAAnimationRef.x`, `EIAAnimationRef.y`, `EIAAnimationRef.w ?? anim.w`, `EIAAnimationRef.h ?? anim.h`）に配置する
+3. `floor((Time.now - startTime) * fps) % seq.length` でフレームインデックスを計算する
+4. 選択されたフレーム画像を表示スロット（`EIAAnimationRef.x`, `EIAAnimationRef.y`, `EIAAnimationRef.w`, `EIAAnimationRef.h`）に配置する
 
 ## 8. 処理ガイドライン
 
@@ -377,6 +372,7 @@ type EIAAnimationRef = {
 - 圧縮エラー
 - 欠損ベースファイル参照
 - 不正なプール参照インデックス
+- 存在しないアニメーション識別子への参照
 - アニメーション参照の循環
 
 ## 9. セキュリティ考慮事項
