@@ -327,8 +327,8 @@ type EIAAnimationRef = {
   id: string;  // ac.anims 内のアニメーション識別子
   x: number;   // ベース画像内のアニメーション表示領域X座標（必須）
   y: number;   // ベース画像内のアニメーション表示領域Y座標（必須）
-  w: number;   // 表示幅（ピクセル）
-  h: number;   // 表示高さ（ピクセル）
+  w: number;   // 表示幅（ピクセル、必須）
+  h: number;   // 表示高さ（ピクセル、必須）
 }
 ```
 
@@ -503,7 +503,7 @@ type EIAAnimationRef = {
       "l": 256000,
       "u": 6220800,
       "e": {
-        "a": "[{\"id\":\"intro\",\"x\":100,\"y\":200}]"
+        "a": "[{\"id\":\"intro\",\"x\":100,\"y\":200,\"w\":400,\"h\":300}]"
       }
     }
   ],
@@ -542,10 +542,7 @@ type EIAAnimationRef = {
     "anims": [
       {
         "id": "intro",
-        "w": 400,
-        "h": 300,
         "fps": 30,
-        "f": "RGB24",
         "seq": [0, 1, 0]
       }
     ]

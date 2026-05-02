@@ -327,8 +327,8 @@ type EIAAnimationRef = {
   id: string;  // Animation identifier within ac.anims
   x: number;   // X coordinate of the display area in the base image (REQUIRED)
   y: number;   // Y coordinate of the display area in the base image (REQUIRED)
-  w: number;   // Display width in pixels
-  h: number;   // Display height in pixels
+  w: number;   // Display width in pixels (REQUIRED)
+  h: number;   // Display height in pixels (REQUIRED)
 }
 ```
 
@@ -503,7 +503,7 @@ An example placing an animation (`id: "intro"`) on slide 0:
       "l": 256000,
       "u": 6220800,
       "e": {
-        "a": "[{\"id\":\"intro\",\"x\":100,\"y\":200}]"
+        "a": "[{\"id\":\"intro\",\"x\":100,\"y\":200,\"w\":400,\"h\":300}]"
       }
     }
   ],
@@ -542,10 +542,7 @@ An example placing an animation (`id: "intro"`) on slide 0:
     "anims": [
       {
         "id": "intro",
-        "w": 400,
-        "h": 300,
         "fps": 30,
-        "f": "RGB24",
         "seq": [0, 1, 0]
       }
     ]
