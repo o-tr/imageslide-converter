@@ -6,7 +6,6 @@ export const ContainerFormat = ["text-zip-v0", "text-zip-v1", "eia-v1"];
 export const TextureFormat = [
   "RGBA32",
   "RGB24",
-  "DXT1",
   "RGB24-cropped",
   "RGB24-cropped-base64",
 ] as const;
@@ -18,7 +17,6 @@ export const TextureConverterFormat = [
   "text-zip-v0-RGBA32",
   "text-zip-v1-RGB24",
   "text-zip-v1-RGBA32",
-  "text-zip-v1-DXT1",
   "text-zip-v1-RGB24-cropped",
   "eia-v1-RGB24-cropped",
   "eia-v1-RGB24-cropped-base64",
