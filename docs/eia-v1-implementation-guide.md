@@ -136,9 +136,11 @@ if (compressedPart.length > FileSizeLimit) {
 ```typescript
 // アニメーションフレームの圧縮（クロップフレームの例）
 let fileBufferLength = 0;
+const fileBuffer: Buffer[] = [];
 const parts: EIAFileV1CroppedPart[] = [];
 
 for (const rect of frame.cropped.rects) {
+  fileBuffer.push(rect.buffer);
   parts.push({
     s: fileBufferLength,      // 展開バッファ内オフセット（0始まり）
     l: rect.buffer.length,    // 非圧縮バイト長
@@ -147,7 +149,7 @@ for (const rect of frame.cropped.rects) {
   fileBufferLength += rect.buffer.length;
 }
 
-const mergedBuffer = Buffer.concat(rects.map(r => r.buffer));
+const mergedBuffer = Buffer.concat(fileBuffer);
 const compressed = lz4.compress(mergedBuffer);
 
 frameRefs.push({
@@ -174,15 +176,13 @@ if (frame.t === "m") {
 }
 
 // クロップ（デルタ）フレーム
+// 実装例は src/lib/slidePreview/decodeEIAv1.ts の `applyRects` を参照
 if (frame.t === "c") {
   const compressed = dataSection.slice(frame.s, frame.s + frame.l);
   const delta = lz4.decompress(compressed, frame.u);
-  frameData = copyFrom(baseFrameData);
-  for (const part of frame.r) {
-    // part.s は delta バッファ内のオフセット（圧縮空間ではない）
-    const partPixels = delta.slice(part.s, part.s + part.l);
-    applyRect(frameData, partPixels, part.x, part.y, part.w, part.h, fw, bpp);
-  }
+  // baseFrameData をコピーし、frame.r の各パーツを delta バッファから上書き合成する。
+  // part.s は delta バッファ内のオフセット（圧縮空間ではない）。
+  frameData = applyRects(baseFrameData, delta, frame.r, fw, format);
 }
 ```
 

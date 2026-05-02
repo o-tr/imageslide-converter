@@ -136,9 +136,11 @@ Animation frames are appended to the data section after all slide data. The slot
 ```typescript
 // Encoding a cropped animation frame
 let fileBufferLength = 0;
+const fileBuffer: Buffer[] = [];
 const parts: EIAFileV1CroppedPart[] = [];
 
 for (const rect of frame.cropped.rects) {
+  fileBuffer.push(rect.buffer);
   parts.push({
     s: fileBufferLength,      // decompressed-buffer offset (starts at 0)
     l: rect.buffer.length,    // uncompressed byte length
@@ -147,7 +149,7 @@ for (const rect of frame.cropped.rects) {
   fileBufferLength += rect.buffer.length;
 }
 
-const mergedBuffer = Buffer.concat(rects.map(r => r.buffer));
+const mergedBuffer = Buffer.concat(fileBuffer);
 const compressed = lz4.compress(mergedBuffer);
 
 frameRefs.push({
@@ -174,15 +176,13 @@ if (frame.t === "m") {
 }
 
 // Cropped (delta) frame
+// See `applyRects` in src/lib/slidePreview/decodeEIAv1.ts for the reference implementation.
 if (frame.t === "c") {
   const compressed = dataSection.slice(frame.s, frame.s + frame.l);
   const delta = lz4.decompress(compressed, frame.u);
-  frameData = copyFrom(baseFrameData);
-  for (const part of frame.r) {
-    // part.s is an offset into the delta buffer (not compressed space)
-    const partPixels = delta.slice(part.s, part.s + part.l);
-    applyRect(frameData, partPixels, part.x, part.y, part.w, part.h, fw, bpp);
-  }
+  // Copy baseFrameData and overwrite each part of `frame.r` from the delta buffer.
+  // part.s is an offset into the delta buffer (not compressed space).
+  frameData = applyRects(baseFrameData, delta, frame.r, fw, format);
 }
 ```
 
