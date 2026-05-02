@@ -107,7 +107,9 @@ const AnimatedPreview: FC<AnimatedPreviewProps> = ({
     const items = FPS_OPTIONS.filter((fps) => fps < anim.fps && fps <= 15).map(
       (fps) => makeItem(fps, false),
     );
-    items.push(makeItem(anim.fps, true));
+    if (anim.fps <= 15) {
+      items.push(makeItem(anim.fps, true));
+    }
     return items;
   };
 
