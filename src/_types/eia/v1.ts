@@ -54,6 +54,11 @@ export type EIAAnimationRef = {
   h: number;
 };
 
+/**
+ * "lz4" is the standard compression method defined by the EIA v1 spec.
+ * "lz4-base64" is a non-standard extension where each block is LZ4-compressed
+ * then Base64-encoded, primarily used for text-based transport or embedding.
+ */
 export type EIACompressionMethod = "lz4" | "lz4-base64";
 
 export type EIAManifestV1 = {

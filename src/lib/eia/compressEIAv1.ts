@@ -203,6 +203,12 @@ const compressEIAv1Part = async (
       for (const [animIndex, anim] of animsData.entries()) {
         const animId = `anim_${slideIndex}_${animIndex}`;
 
+        if (!(anim.fps > 0) || !Number.isFinite(anim.fps)) {
+          throw new Error(
+            `Invalid animation fps at slide ${slideIndex}, animation ${animIndex}: fps must be a positive finite number, got ${anim.fps}`,
+          );
+        }
+
         if (anim.frames.length === 0) continue;
         usedFormats.add(anim.format);
         const bpp = getBytesPerPixel(anim.format);

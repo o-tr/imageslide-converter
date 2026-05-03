@@ -64,11 +64,25 @@ const applyRects = (
           })();
   const result = new Uint8Array(baseBuffer);
   const baseHeight = baseBuffer.length / (baseWidth * bpp);
+
+  // Validate decompressed buffer size against total parts length (spec §8.3)
+  const totalPartLength = rects.reduce((sum, r) => sum + r.l, 0);
+  if (totalPartLength !== decompressed.length) {
+    throw new Error(
+      `Decompressed buffer size mismatch: expected ${totalPartLength} (sum of part.l), got ${decompressed.length}`,
+    );
+  }
+
   for (const rect of rects) {
     if (rect.x + rect.w > baseWidth || rect.y + rect.h > baseHeight)
       throw new Error(
         `Rect at (${rect.x},${rect.y}) size ${rect.w}×${rect.h} exceeds frame bounds ${baseWidth}×${baseHeight}`,
       );
+    if (rect.s + rect.l > decompressed.length) {
+      throw new Error(
+        `Rect offset out of bounds: part.s (${rect.s}) + part.l (${rect.l}) > decompressed length (${decompressed.length})`,
+      );
+    }
     const rectData = decompressed.subarray(rect.s, rect.s + rect.l);
     const expectedBytes = rect.h * rect.w * bpp;
     if (rectData.length < expectedBytes)
@@ -131,6 +145,17 @@ const decodePoolFrame = (
 export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
   const uint8 = new Uint8Array(buffer);
   const textDecoder = new TextDecoder();
+
+  // Validate magic bytes "EIA^" (0x45 0x49 0x41 0x5e)
+  if (
+    uint8.length < 4 ||
+    uint8[0] !== 0x45 ||
+    uint8[1] !== 0x49 ||
+    uint8[2] !== 0x41 ||
+    uint8[3] !== 0x5e
+  ) {
+    throw new Error("Invalid EIA header: magic bytes 'EIA^' not found");
+  }
 
   // Find '$' (byte 36) that ends the manifest header
   let dollarPos = 4; // skip "EIA^"
@@ -238,10 +263,11 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
     let animations: SlideAnimation[] | undefined;
     if (item.e?.a) {
       if (!manifest.ac) {
-        console.warn(
+        throw new Error(
           `Slide "${item.n}" has animation refs but manifest.ac is missing`,
         );
-      } else if (binarySection === null) {
+      }
+      if (binarySection === null) {
         console.warn(
           `Animation data for frame "${item.n}" cannot be decoded under lz4-base64 compression`,
         );

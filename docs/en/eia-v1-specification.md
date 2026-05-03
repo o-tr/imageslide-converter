@@ -25,6 +25,17 @@ EIA v1 files are identified by:
 - Version number: `1`
 - Compression method: `"lz4"`
 
+### 1.3.1 Non-standard Extension: lz4-base64
+
+Some implementations may use a `"lz4-base64"` compression method for text-based transport or embedding. This is an extension of the standard specification and differs from `"lz4"` in the following ways:
+
+- Each block in the data section is LZ4-compressed and then Base64-encoded
+- `manifest.c` becomes `"lz4-base64"`
+- `file.l` represents the **character length** after Base64 encoding (whereas standard `"lz4"` uses compressed byte length)
+- Animation pool (`ac`) decoding cannot be performed in the standard way because no binary section exists; implementations using this extension must account for this limitation
+
+To maximize standard compatibility, `"lz4"` is recommended for new files.
+
 ## 2. File Structure
 
 ### 2.1 Overall Structure

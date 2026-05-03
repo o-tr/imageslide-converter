@@ -199,8 +199,8 @@ manifest.f.push("Feature:animation");
 
 Animation data is decoded from `manifest.ac`. Pool frames are decoded recursively while resolving dependencies.
 
-> **Implementation note (`manifest.c === "lz4-base64"`)**  
-> In the current `decodeEIAv1` runtime, when `manifest.c` is `"lz4-base64"` there is no binary section, so the code path that would call `decodePoolFrame` and run `lz4.decompress` for `manifest.ac.pool` is intentionally skipped. As a result, pooled animation frames in `manifest.ac` are not decoded at runtime under `lz4-base64`, even though the spec text describes decoding from `manifest.ac`.
+> **Implementation note (non-standard extension `manifest.c === "lz4-base64"`)**  
+> In the current `decodeEIAv1` runtime, when `manifest.c` is `"lz4-base64"` (a non-standard extension) there is no binary section, so the code path that would call `decodePoolFrame` and run `lz4.decompress` for `manifest.ac.pool` is intentionally skipped. As a result, pooled animation frames in `manifest.ac` are not decoded at runtime under `lz4-base64`, even though the spec text describes decoding from `manifest.ac`.
 
 ```typescript
 // Pool frame decoding (memoization + depth limit)
