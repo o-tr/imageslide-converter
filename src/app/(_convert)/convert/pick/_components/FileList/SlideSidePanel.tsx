@@ -4,6 +4,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Dropdown } from "antd";
 import type { MenuProps } from "antd";
+import { ImagePlay, TriangleAlert } from "lucide-react";
 import type { CSSProperties, FC } from "react";
 import { MdDeleteOutline } from "react-icons/md";
 import { Preview } from "./Preview";
@@ -65,7 +66,16 @@ const SlideItem: FC<SlideItemProps> = ({
         className="col-span-full grid grid-cols-subgrid cursor-pointer shrink-0"
         onClick={() => onSelect(index)}
       >
-        <span className={"text-xs text-gray-500 text-right"}>{index + 1}</span>
+        <div className="flex flex-col items-end gap-0.5">
+          <span className="text-xs text-gray-500 text-right">{index + 1}</span>
+          {((file.animations && file.animations.length > 0) ||
+            (file.skippedAnimations && file.skippedAnimations.length > 0)) && (
+            <ImagePlay className="text-xs text-blue-500 w-3 h-3" />
+          )}
+          {file.skippedAnimations && file.skippedAnimations.length > 0 && (
+            <TriangleAlert className="text-xs text-yellow-500 w-3 h-3" />
+          )}
+        </div>
         <Preview
           canvas={file.canvas}
           className={`w-full border-2 rounded overflow-hidden ${
