@@ -18,6 +18,52 @@ const MAX_FRAMES = 60;
 const MAX_SOURCE_FRAMES = 500;
 const MAX_PREVIEW_FPS = 15;
 
+export const computeGifCrop = (
+  gifWidth: number,
+  gifHeight: number,
+  cropProperties: {
+    leftOffset?: number;
+    rightOffset?: number;
+    topOffset?: number;
+    bottomOffset?: number;
+  },
+): { left: number; top: number; width: number; height: number } | null => {
+  const leftOffset = Math.min(1, Math.max(0, cropProperties.leftOffset ?? 0));
+  const rightOffset = Math.min(1, Math.max(0, cropProperties.rightOffset ?? 0));
+  const topOffset = Math.min(1, Math.max(0, cropProperties.topOffset ?? 0));
+  const bottomOffset = Math.min(
+    1,
+    Math.max(0, cropProperties.bottomOffset ?? 0),
+  );
+
+  if (leftOffset + rightOffset >= 1 || topOffset + bottomOffset >= 1) {
+    return null;
+  }
+
+  const cropLeft = Math.round(gifWidth * leftOffset);
+  const cropTop = Math.round(gifHeight * topOffset);
+  const cropWidth = Math.round(gifWidth * (1 - leftOffset - rightOffset));
+  const cropHeight = Math.round(gifHeight * (1 - topOffset - bottomOffset));
+
+  // Clamp to valid canvas bounds and ensure non-zero dimensions.
+  // Independent rounding can make left+width exceed gifWidth by 1,
+  // or round a tiny remainder down to 0.
+  const clampedLeft = Math.min(cropLeft, gifWidth - 1);
+  const clampedTop = Math.min(cropTop, gifHeight - 1);
+  const clampedWidth = Math.min(Math.max(1, cropWidth), gifWidth - clampedLeft);
+  const clampedHeight = Math.min(
+    Math.max(1, cropHeight),
+    gifHeight - clampedTop,
+  );
+
+  return {
+    left: clampedLeft,
+    top: clampedTop,
+    width: clampedWidth,
+    height: clampedHeight,
+  };
+};
+
 const isGif = (buffer: ArrayBuffer): boolean => {
   if (buffer.byteLength < 6) return false;
   const header = new Uint8Array(buffer, 0, 6);
@@ -492,62 +538,9 @@ export const extractGifAnimations = async (
       }
 
       const cropProps = element.image?.imageProperties?.cropProperties;
-      let crop: AnimatedGifCandidate["crop"] | undefined;
-      if (cropProps) {
-        const leftOffset = Math.min(1, Math.max(0, cropProps.leftOffset ?? 0));
-        const rightOffset = Math.min(
-          1,
-          Math.max(0, cropProps.rightOffset ?? 0),
-        );
-        const topOffset = Math.min(1, Math.max(0, cropProps.topOffset ?? 0));
-        const bottomOffset = Math.min(
-          1,
-          Math.max(0, cropProps.bottomOffset ?? 0),
-        );
-        if (leftOffset + rightOffset >= 1 || topOffset + bottomOffset >= 1) {
-          console.warn(
-            "extractGifAnimations: crop offsets sum to >= 1, skipping",
-          );
-          return null;
-        }
-        const cropLeft = Math.round(gifWidth * leftOffset);
-        const cropTop = Math.round(gifHeight * topOffset);
-        const cropWidth = Math.round(gifWidth * (1 - leftOffset - rightOffset));
-        const cropHeight = Math.round(
-          gifHeight * (1 - topOffset - bottomOffset),
-        );
-
-        // Clamp to valid canvas bounds and ensure non-zero dimensions.
-        // Independent rounding can make left+width exceed gifWidth by 1,
-        // or round a tiny remainder down to 0.
-        const clampedLeft = Math.min(cropLeft, gifWidth - 1);
-        const clampedTop = Math.min(cropTop, gifHeight - 1);
-        const clampedWidth = Math.min(
-          Math.max(1, cropWidth),
-          gifWidth - clampedLeft,
-        );
-        const clampedHeight = Math.min(
-          Math.max(1, cropHeight),
-          gifHeight - clampedTop,
-        );
-
-        if (
-          !Number.isFinite(clampedLeft) ||
-          !Number.isFinite(clampedTop) ||
-          !Number.isFinite(clampedWidth) ||
-          !Number.isFinite(clampedHeight)
-        ) {
-          console.warn("extractGifAnimations: invalid crop offsets, skipping");
-          return null;
-        }
-
-        crop = {
-          left: clampedLeft,
-          top: clampedTop,
-          width: clampedWidth,
-          height: clampedHeight,
-        };
-      }
+      const crop = cropProps
+        ? computeGifCrop(gifWidth, gifHeight, cropProps)
+        : undefined;
 
       return {
         element,
