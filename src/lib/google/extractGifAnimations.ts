@@ -177,6 +177,7 @@ const buildComposedFrames = (
   gifHeight: number,
   targetW: number,
   targetH: number,
+  crop?: { left: number; top: number; width: number; height: number },
 ): OffscreenCanvas[] => {
   const compositionCanvas = new OffscreenCanvas(gifWidth, gifHeight);
   const compositionCtx = compositionCanvas.getContext("2d");
@@ -268,7 +269,21 @@ const buildComposedFrames = (
       const result = new OffscreenCanvas(targetW, targetH);
       const resultCtx = result.getContext("2d");
       if (!resultCtx) throw new Error("Cannot get 2d context");
-      resultCtx.drawImage(compositionCanvas, 0, 0, targetW, targetH);
+      if (crop) {
+        resultCtx.drawImage(
+          compositionCanvas,
+          crop.left,
+          crop.top,
+          crop.width,
+          crop.height,
+          0,
+          0,
+          targetW,
+          targetH,
+        );
+      } else {
+        resultCtx.drawImage(compositionCanvas, 0, 0, targetW, targetH);
+      }
       output.push(result);
       samplePtr++;
       if (output.length >= MAX_FRAMES) break;
@@ -476,12 +491,40 @@ export const extractGifAnimations = async (
         return null;
       }
 
+      const cropProps = element.image?.imageProperties?.cropProperties;
+      let crop: AnimatedGifCandidate["crop"] | undefined;
+      if (cropProps) {
+        const leftOffset = Math.min(1, Math.max(0, cropProps.leftOffset ?? 0));
+        const rightOffset = Math.min(
+          1,
+          Math.max(0, cropProps.rightOffset ?? 0),
+        );
+        const topOffset = Math.min(1, Math.max(0, cropProps.topOffset ?? 0));
+        const bottomOffset = Math.min(
+          1,
+          Math.max(0, cropProps.bottomOffset ?? 0),
+        );
+        if (leftOffset + rightOffset >= 1 || topOffset + bottomOffset >= 1) {
+          console.warn(
+            "extractGifAnimations: crop offsets sum to >= 1, skipping",
+          );
+          return null;
+        }
+        crop = {
+          left: Math.round(gifWidth * leftOffset),
+          top: Math.round(gifHeight * topOffset),
+          width: Math.round(gifWidth * (1 - leftOffset - rightOffset)),
+          height: Math.round(gifHeight * (1 - topOffset - bottomOffset)),
+        };
+      }
+
       return {
         element,
         pixelRect,
         rawFrames,
         gifWidth,
         gifHeight,
+        crop,
       } satisfies AnimatedGifCandidate;
     } catch (e) {
       // Re-throw on abort so the batch loop exits immediately instead of
@@ -580,14 +623,14 @@ export const extractGifAnimations = async (
         rawFrames,
         gifWidth,
         gifHeight,
+        crop,
       }): SelectedFileAnimation | null => {
         try {
           const previewFps = derivePreviewFps(rawFrames);
           const sampleIndices = sampleFrameIndices(rawFrames, previewFps);
-          const { w: targetW, h: targetH } = clampDimensions(
-            gifWidth,
-            gifHeight,
-          );
+          const sourceW = crop ? crop.width : gifWidth;
+          const sourceH = crop ? crop.height : gifHeight;
+          const { w: targetW, h: targetH } = clampDimensions(sourceW, sourceH);
           const { w: storedFrameW, h: storedFrameH } = clampDimensions(
             pixelRect.w,
             pixelRect.h,
@@ -602,6 +645,7 @@ export const extractGifAnimations = async (
             gifHeight,
             targetW,
             targetH,
+            crop,
           );
           // compositeWithBackground bakes the full slide background (including
           // the static first frame of every other GIF) into each animation frame.
