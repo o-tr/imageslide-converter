@@ -1,4 +1,4 @@
-import type { SelectedFileAnimation } from "@/_types/file-picker";
+import type { SelectedFileAnimation, SkippedAnimation } from "@/_types/file-picker";
 import type { SlidePageElement } from "@/_types/google-slides-api";
 import type { AnimatedGifCandidate } from "@/_types/lib/google/gifAnimation";
 import type {
@@ -293,7 +293,8 @@ const buildComposedFrames = (
       );
     }
     const pixelCount = Math.min(srcData.length, dstData.length);
-    for (let p = 0; p < pixelCount; p += 4) {
+    const alignedPixelCount = pixelCount - (pixelCount % 4);
+    for (let p = 0; p < alignedPixelCount; p += 4) {
       const srcA = srcData[p + 3] / 255;
       if (srcA === 0) continue;
 
@@ -380,9 +381,160 @@ const compositeWithBackground = (
   return composited;
 };
 
+/**
+ * Compose all raw frames of an upper GIF incrementally and check the given
+ * intersection rectangles for fully-transparent pixels on sampled frames only.
+ * Returns an array of rects that contain at least one transparent pixel.
+ * Composing proceeds through every raw frame so disposal state stays correct,
+ * but the actual pixel check is skipped for non-sampled frames.
+ */
+const findTransparentOverlapRects = (
+  upper: AnimatedGifCandidate,
+  intersectionRects: PixelRect[],
+  sampledFrameIndices: Set<number>,
+): PixelRect[] => {
+  const {
+    rawFrames,
+    gifWidth,
+    gifHeight,
+    pixelRect: upperPixelRect,
+  } = upper;
+
+  // Slide-coordinate intersection → upper GIF logical-screen coordinates.
+  const scaleX = gifWidth / upperPixelRect.w;
+  const scaleY = gifHeight / upperPixelRect.h;
+
+  const regions = intersectionRects
+    .map((rect) => {
+      const localX = Math.floor((rect.x - upperPixelRect.x) * scaleX);
+      const localY = Math.floor((rect.y - upperPixelRect.y) * scaleY);
+      const localW = Math.max(1, Math.ceil(rect.w * scaleX));
+      const localH = Math.max(1, Math.ceil(rect.h * scaleY));
+
+      const clampedX = Math.max(0, localX);
+      const clampedY = Math.max(0, localY);
+      const clampedW = Math.max(
+        0,
+        Math.min(localX + localW, gifWidth) - clampedX,
+      );
+      const clampedH = Math.max(
+        0,
+        Math.min(localY + localH, gifHeight) - clampedY,
+      );
+
+      return { rect, clampedX, clampedY, clampedW, clampedH };
+    })
+    .filter((r) => r.clampedW > 0 && r.clampedH > 0);
+
+  if (regions.length === 0) return [];
+
+  const compositionCanvas = new OffscreenCanvas(gifWidth, gifHeight);
+  const compositionCtx = compositionCanvas.getContext("2d");
+  if (!compositionCtx) throw new Error("Cannot get 2d context");
+
+  const foundRects: PixelRect[] = [];
+  const foundSet = new Set<number>();
+
+  let prevDisposal = 0;
+  let prevDims: ParsedFrame["dims"] | null = null;
+  let prevSnapshot: ImageData | null = null;
+
+  for (let i = 0; i < rawFrames.length; i++) {
+    const frame = rawFrames[i];
+    const disposal = frame.disposalType ?? 0;
+
+    if (prevDims) {
+      if (prevDisposal === 2) {
+        compositionCtx.clearRect(
+          prevDims.left,
+          prevDims.top,
+          prevDims.width,
+          prevDims.height,
+        );
+      } else if (prevDisposal === 3 && prevSnapshot) {
+        compositionCtx.putImageData(prevSnapshot, prevDims.left, prevDims.top);
+        prevSnapshot = null;
+      }
+    }
+
+    if (disposal === 3) {
+      prevSnapshot = compositionCtx.getImageData(
+        frame.dims.left,
+        frame.dims.top,
+        frame.dims.width,
+        frame.dims.height,
+      );
+    }
+
+    const imageData = compositionCtx.getImageData(
+      frame.dims.left,
+      frame.dims.top,
+      frame.dims.width,
+      frame.dims.height,
+    );
+    const dstData = imageData.data;
+    const srcData = frame.patch;
+    const expectedLength = frame.dims.width * frame.dims.height * 4;
+    if (srcData.length < expectedLength) {
+      console.warn(
+        `GIF frame patch is smaller than expected: got ${srcData.length} bytes, expected ${expectedLength} (${frame.dims.width}×${frame.dims.height})`,
+      );
+    }
+    const pixelCount = Math.min(srcData.length, dstData.length);
+    const alignedPixelCount = pixelCount - (pixelCount % 4);
+    for (let p = 0; p < alignedPixelCount; p += 4) {
+      const srcA = srcData[p + 3] / 255;
+      if (srcA === 0) continue;
+      const dstA = dstData[p + 3] / 255;
+      const outA = srcA + dstA * (1 - srcA);
+      if (outA === 0) continue;
+      dstData[p] = Math.round(
+        (srcData[p] * srcA + dstData[p] * dstA * (1 - srcA)) / outA,
+      );
+      dstData[p + 1] = Math.round(
+        (srcData[p + 1] * srcA + dstData[p + 1] * dstA * (1 - srcA)) / outA,
+      );
+      dstData[p + 2] = Math.round(
+        (srcData[p + 2] * srcA + dstData[p + 2] * dstA * (1 - srcA)) / outA,
+      );
+      dstData[p + 3] = Math.round(outA * 255);
+    }
+    compositionCtx.putImageData(imageData, frame.dims.left, frame.dims.top);
+
+    prevDisposal = disposal;
+    prevDims = frame.dims;
+
+    // Only check pixels on frames that end up in the sampled animation output.
+    if (!sampledFrameIndices.has(i)) continue;
+
+    for (let rIdx = 0; rIdx < regions.length; rIdx++) {
+      if (foundSet.has(rIdx)) continue;
+      const { rect, clampedX, clampedY, clampedW, clampedH } = regions[rIdx];
+      const regionData = compositionCtx.getImageData(
+        clampedX,
+        clampedY,
+        clampedW,
+        clampedH,
+      );
+      const data = regionData.data;
+      for (let p = 3; p < data.length; p += 4) {
+        if (data[p] === 0) {
+          foundSet.add(rIdx);
+          foundRects.push(rect);
+          break;
+        }
+      }
+    }
+
+    if (foundSet.size === regions.length) break;
+  }
+
+  return foundRects;
+};
+
 export type ExtractGifAnimationsResult = {
   animations: SelectedFileAnimation[];
-  skipped: PixelRect[];
+  skipped: SkippedAnimation[];
 };
 
 export const extractGifAnimations = async (
@@ -640,14 +792,85 @@ export const extractGifAnimations = async (
     );
   }
 
-  const skippedRects: PixelRect[] = [];
+  const skippedRectsMap = new Map<string, SkippedAnimation>();
   for (const index of blockedByStaticIndices) {
-    skippedRects.push(animatedGifCandidates[index].pixelRect);
+    const rect = animatedGifCandidates[index].pixelRect;
+    skippedRectsMap.set(
+      `${rect.x},${rect.y},${rect.w},${rect.h},static-overlap`,
+      { ...rect, reason: "static-overlap" },
+    );
   }
 
   const nonIntersectingAnimatedCandidates = animatedGifCandidates.filter(
     (_, index) => !blockedByStaticIndices.has(index),
   );
+
+  // Check for transparent-pixel overlaps between surviving animated GIFs.
+  // Upper GIFs (higher Z) that have transparent pixels over a lower GIF
+  // produce visual artifacts with RGB24 encoding, so we record a warning.
+  const survivingSorted = nonIntersectingAnimatedCandidates
+    .map((candidate) => ({
+      candidate,
+      z: elementZOrder.get(candidate.element) ?? 0,
+    }))
+    .sort((a, b) => b.z - a.z);
+
+  for (let i = 0; i < survivingSorted.length; i++) {
+    const upper = survivingSorted[i];
+
+    // Collect all intersection rectangles for this upper candidate first,
+    // then perform the expensive composition once and check every rect.
+    const overlapRects: PixelRect[] = [];
+    for (let j = i + 1; j < survivingSorted.length; j++) {
+      const lower = survivingSorted[j];
+      if (!rectsIntersect(upper.candidate.pixelRect, lower.candidate.pixelRect))
+        continue;
+
+      const ix =
+        Math.max(
+          upper.candidate.pixelRect.x,
+          lower.candidate.pixelRect.x,
+        );
+      const iy =
+        Math.max(
+          upper.candidate.pixelRect.y,
+          lower.candidate.pixelRect.y,
+        );
+      const iw =
+        Math.min(
+          upper.candidate.pixelRect.x + upper.candidate.pixelRect.w,
+          lower.candidate.pixelRect.x + lower.candidate.pixelRect.w,
+        ) - ix;
+      const ih =
+        Math.min(
+          upper.candidate.pixelRect.y + upper.candidate.pixelRect.h,
+          lower.candidate.pixelRect.y + lower.candidate.pixelRect.h,
+        ) - iy;
+      if (iw <= 0 || ih <= 0) continue;
+
+      overlapRects.push({ x: ix, y: iy, w: iw, h: ih });
+    }
+
+    if (overlapRects.length === 0) continue;
+
+    const previewFps = derivePreviewFps(upper.candidate.rawFrames);
+    const sampledIndices = sampleFrameIndices(
+      upper.candidate.rawFrames,
+      previewFps,
+    );
+    const sampledFrameSet = new Set(sampledIndices);
+    const transparentRects = findTransparentOverlapRects(
+      upper.candidate,
+      overlapRects,
+      sampledFrameSet,
+    );
+    for (const rect of transparentRects) {
+      skippedRectsMap.set(
+        `${rect.x},${rect.y},${rect.w},${rect.h},transparent-gif-overlap`,
+        { ...rect, reason: "transparent-gif-overlap" },
+      );
+    }
+  }
 
   const results = nonIntersectingAnimatedCandidates
     .map(
@@ -715,5 +938,8 @@ export const extractGifAnimations = async (
     )
     .filter((r): r is SelectedFileAnimation => !!r);
 
-  return { animations: results, skipped: skippedRects };
+  return {
+    animations: results,
+    skipped: Array.from(skippedRectsMap.values()),
+  };
 };
