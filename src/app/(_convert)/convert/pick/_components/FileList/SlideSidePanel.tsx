@@ -49,7 +49,7 @@ const SlideItem: FC<SlideItemProps> = memo(
     if (hasAnimations) slideStatusParts.push("GIFアニメーションを含む");
     if (hasSkippedAnimations)
       slideStatusParts.push("一部のアニメーションがスキップされました");
-    const slideStatus = `${slideStatusParts.join("、")}。`;
+    const slideStatus = slideStatusParts.join("、");
 
     const menuItems: MenuProps["items"] = [
       {
