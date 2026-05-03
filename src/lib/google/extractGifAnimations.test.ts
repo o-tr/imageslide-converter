@@ -44,27 +44,43 @@ describe("computeGifCrop", () => {
     expect(crop.height).toBeGreaterThanOrEqual(1);
   });
 
-  it("clamps width so left + width <= gifWidth", () => {
-    // gifWidth = 3, leftOffset = 0.33, rightOffset = 0.33
-    // Math.round(3 * 0.33) = 1, Math.round(3 * 0.34) = 1
-    // 1 + 1 = 2 <= 3, but with different rounding it could exceed.
-    const crop = computeGifCrop(3, 10, {
-      leftOffset: 0.33,
-      rightOffset: 0.33,
-    });
+  it("clamps width so left + width <= gifWidth when rounding overflows", () => {
+    // 4 * 0.125 = 0.5 -> rounds to 1
+    // 4 * 0.875 = 3.5 -> rounds to 4
+    // 1 + 4 = 5 > 4, so clamping must reduce width to 3
+    const crop = computeGifCrop(4, 10, { leftOffset: 0.125, rightOffset: 0 });
     expect(crop).not.toBeNull();
     if (!crop) return;
-    expect(crop.left + crop.width).toBeLessThanOrEqual(3);
+    expect(crop.left).toBe(1);
+    expect(crop.width).toBe(3);
+    expect(crop.left + crop.width).toBeLessThanOrEqual(4);
   });
 
-  it("clamps height so top + height <= gifHeight", () => {
-    const crop = computeGifCrop(10, 3, {
-      topOffset: 0.33,
-      bottomOffset: 0.33,
-    });
+  it("clamps height so top + height <= gifHeight when rounding overflows", () => {
+    const crop = computeGifCrop(10, 4, { topOffset: 0.125, bottomOffset: 0 });
     expect(crop).not.toBeNull();
     if (!crop) return;
-    expect(crop.top + crop.height).toBeLessThanOrEqual(3);
+    expect(crop.top).toBe(1);
+    expect(crop.height).toBe(3);
+    expect(crop.top + crop.height).toBeLessThanOrEqual(4);
+  });
+
+  it("clamps cropLeft when rounding pushes it past the last pixel", () => {
+    const crop = computeGifCrop(2, 10, { leftOffset: 0.99 });
+    expect(crop).not.toBeNull();
+    if (!crop) return;
+    expect(crop.left).toBe(1); // Math.round(1.98)=2 clamped to 1
+    expect(crop.width).toBe(1);
+  });
+
+  it("clamps out-of-range offsets to [0, 1]", () => {
+    expect(
+      computeGifCrop(100, 100, { leftOffset: -0.5, rightOffset: 1.5 }),
+    ).toBeNull();
+  });
+
+  it("returns null for NaN offsets", () => {
+    expect(computeGifCrop(100, 100, { leftOffset: Number.NaN })).toBeNull();
   });
 
   it("handles a 1x1 GIF with zero offsets", () => {

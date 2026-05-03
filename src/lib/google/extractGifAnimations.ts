@@ -36,6 +36,15 @@ export const computeGifCrop = (
     Math.max(0, cropProperties.bottomOffset ?? 0),
   );
 
+  if (
+    !Number.isFinite(leftOffset) ||
+    !Number.isFinite(rightOffset) ||
+    !Number.isFinite(topOffset) ||
+    !Number.isFinite(bottomOffset)
+  ) {
+    return null;
+  }
+
   if (leftOffset + rightOffset >= 1 || topOffset + bottomOffset >= 1) {
     return null;
   }
@@ -539,7 +548,7 @@ export const extractGifAnimations = async (
 
       const cropProps = element.image?.imageProperties?.cropProperties;
       const crop = cropProps
-        ? computeGifCrop(gifWidth, gifHeight, cropProps)
+        ? (computeGifCrop(gifWidth, gifHeight, cropProps) ?? undefined)
         : undefined;
 
       return {
