@@ -177,6 +177,7 @@ const buildComposedFrames = (
   gifHeight: number,
   targetW: number,
   targetH: number,
+  maxOutputFrames: number = MAX_FRAMES,
 ): OffscreenCanvas[] => {
   const compositionCanvas = new OffscreenCanvas(gifWidth, gifHeight);
   const compositionCtx = compositionCanvas.getContext("2d");
@@ -237,7 +238,8 @@ const buildComposedFrames = (
       );
     }
     const pixelCount = Math.min(srcData.length, dstData.length);
-    for (let p = 0; p < pixelCount; p += 4) {
+    const alignedPixelCount = pixelCount - (pixelCount % 4);
+    for (let p = 0; p < alignedPixelCount; p += 4) {
       const srcA = srcData[p + 3] / 255;
       if (srcA === 0) continue;
 
@@ -271,10 +273,10 @@ const buildComposedFrames = (
       resultCtx.drawImage(compositionCanvas, 0, 0, targetW, targetH);
       output.push(result);
       samplePtr++;
-      if (output.length >= MAX_FRAMES) break;
+      if (output.length >= maxOutputFrames) break;
     }
 
-    if (output.length >= MAX_FRAMES) break;
+    if (output.length >= maxOutputFrames) break;
   }
 
   return output;
@@ -313,19 +315,13 @@ const compositeWithBackground = (
 const checkGifOverlapTransparency = (
   upper: AnimatedGifCandidate,
   intersectionRect: PixelRect,
+  composedFrames: OffscreenCanvas[],
 ): boolean => {
-  const { rawFrames, gifWidth, gifHeight, pixelRect: upperPixelRect } = upper;
-  const sampleIndices = rawFrames.map((_, i) => i);
-  const { w: targetW, h: targetH } = clampDimensions(gifWidth, gifHeight);
-
-  const composedFrames = buildComposedFrames(
-    rawFrames,
-    sampleIndices,
-    gifWidth,
-    gifHeight,
-    targetW,
-    targetH,
-  );
+  const { pixelRect: upperPixelRect } = upper;
+  const firstFrame = composedFrames[0];
+  if (!firstFrame) return false;
+  const targetW = firstFrame.width;
+  const targetH = firstFrame.height;
 
   // Slide-coordinate intersection → upper GIF composed-canvas coordinates
   const scaleX = targetW / upperPixelRect.w;
@@ -353,6 +349,7 @@ const checkGifOverlapTransparency = (
     );
     const data = imageData.data;
     for (let p = 3; p < data.length; p += 4) {
+      // Alpha === 0 means the lower GIF would show through in RGB24 output.
       if (data[p] === 0) return true;
     }
   }
@@ -613,12 +610,13 @@ export const extractGifAnimations = async (
     );
   }
 
-  const skippedRects: SkippedAnimation[] = [];
+  const skippedRectsMap = new Map<string, SkippedAnimation>();
   for (const index of blockedByStaticIndices) {
-    skippedRects.push({
-      ...animatedGifCandidates[index].pixelRect,
-      reason: "static-overlap",
-    });
+    const rect = animatedGifCandidates[index].pixelRect;
+    skippedRectsMap.set(
+      `${rect.x},${rect.y},${rect.w},${rect.h},static-overlap`,
+      { ...rect, reason: "static-overlap" },
+    );
   }
 
   const nonIntersectingAnimatedCandidates = animatedGifCandidates.filter(
@@ -635,12 +633,39 @@ export const extractGifAnimations = async (
     }))
     .sort((a, b) => b.z - a.z);
 
+  // Cache composed frames lazily: only build them for an upper candidate
+  // when it actually intersects with at least one lower candidate.
+  const transparencyCache = new Map<
+    SlidePageElement,
+    OffscreenCanvas[]
+  >();
+
   for (let i = 0; i < survivingSorted.length; i++) {
     const upper = survivingSorted[i];
+    let upperFrames = transparencyCache.get(upper.candidate.element);
+
     for (let j = i + 1; j < survivingSorted.length; j++) {
       const lower = survivingSorted[j];
       if (!rectsIntersect(upper.candidate.pixelRect, lower.candidate.pixelRect))
         continue;
+
+      if (!upperFrames) {
+        const sampleIndices = upper.candidate.rawFrames.map((_, idx) => idx);
+        const { w: targetW, h: targetH } = clampDimensions(
+          upper.candidate.gifWidth,
+          upper.candidate.gifHeight,
+        );
+        upperFrames = buildComposedFrames(
+          upper.candidate.rawFrames,
+          sampleIndices,
+          upper.candidate.gifWidth,
+          upper.candidate.gifHeight,
+          targetW,
+          targetH,
+          upper.candidate.rawFrames.length,
+        );
+        transparencyCache.set(upper.candidate.element, upperFrames);
+      }
 
       const ix =
         Math.max(
@@ -665,11 +690,17 @@ export const extractGifAnimations = async (
       if (iw <= 0 || ih <= 0) continue;
 
       const intersectionRect: PixelRect = { x: ix, y: iy, w: iw, h: ih };
-      if (checkGifOverlapTransparency(upper.candidate, intersectionRect)) {
-        skippedRects.push({
-          ...intersectionRect,
-          reason: "transparent-gif-overlap",
-        });
+      if (
+        checkGifOverlapTransparency(
+          upper.candidate,
+          intersectionRect,
+          upperFrames,
+        )
+      ) {
+        skippedRectsMap.set(
+          `${intersectionRect.x},${intersectionRect.y},${intersectionRect.w},${intersectionRect.h},transparent-gif-overlap`,
+          { ...intersectionRect, reason: "transparent-gif-overlap" },
+        );
       }
     }
   }
@@ -677,6 +708,7 @@ export const extractGifAnimations = async (
   const results = nonIntersectingAnimatedCandidates
     .map(
       ({
+        element,
         pixelRect,
         rawFrames,
         gifWidth,
@@ -695,15 +727,29 @@ export const extractGifAnimations = async (
             MAX_STORED_FRAME_DIMENSION,
           );
 
-          // Build composed GIF frames with proper inter-frame compositing
-          const composedFrames = buildComposedFrames(
-            rawFrames,
-            sampleIndices,
-            gifWidth,
-            gifHeight,
-            targetW,
-            targetH,
-          );
+          // Reuse full composed frames from transparencyCache when available.
+          const cachedFrames = transparencyCache.get(element);
+          let composedFrames: OffscreenCanvas[];
+          if (cachedFrames) {
+            composedFrames = sampleIndices.map((idx) => {
+              const frame = cachedFrames[idx];
+              if (!frame) {
+                throw new Error(
+                  `Cached frame index out of bounds: ${idx} >= ${cachedFrames.length}`,
+                );
+              }
+              return frame;
+            });
+          } else {
+            composedFrames = buildComposedFrames(
+              rawFrames,
+              sampleIndices,
+              gifWidth,
+              gifHeight,
+              targetW,
+              targetH,
+            );
+          }
           // compositeWithBackground bakes the full slide background (including
           // the static first frame of every other GIF) into each animation frame.
           // At runtime, when a higher-Z GIF has transparent pixels in an overlap
@@ -739,5 +785,8 @@ export const extractGifAnimations = async (
     )
     .filter((r): r is SelectedFileAnimation => !!r);
 
-  return { animations: results, skipped: skippedRects };
+  return {
+    animations: results,
+    skipped: Array.from(skippedRectsMap.values()),
+  };
 };

@@ -44,11 +44,21 @@ const SlideItem: FC<SlideItemProps> = memo(
 
     const hasAnimations = (file.animations?.length ?? 0) > 0;
     const hasSkippedAnimations = (file.skippedAnimations?.length ?? 0) > 0;
+    const hasHardSkips = file.skippedAnimations?.some(
+      (a) => a.reason === "static-overlap",
+    );
+    const hasTransparentGifOverlap = file.skippedAnimations?.some(
+      (a) => a.reason === "transparent-gif-overlap",
+    );
 
     const slideStatusParts: string[] = [];
     if (hasAnimations) slideStatusParts.push("GIFアニメーションを含む");
-    if (hasSkippedAnimations)
-      slideStatusParts.push("一部のアニメーションに警告があります");
+    if (hasSkippedAnimations) {
+      if (hasHardSkips)
+        slideStatusParts.push("一部のアニメーションがスキップされました");
+      if (hasTransparentGifOverlap)
+        slideStatusParts.push("一部のアニメーションに警告があります");
+    }
     const slideStatus = slideStatusParts.join("、");
 
     const menuItems: MenuProps["items"] = [
@@ -83,12 +93,12 @@ const SlideItem: FC<SlideItemProps> = memo(
             >
               {index + 1}
             </span>
-            {(hasAnimations || hasSkippedAnimations) && (
+            {hasAnimations && (
               <ImagePlay className="text-blue-500 w-3 h-3" aria-hidden="true" />
             )}
             {hasSkippedAnimations && (
               <TriangleAlert
-                className="text-yellow-500 w-3 h-3"
+                className={`w-3 h-3 ${hasHardSkips ? "text-red-500" : "text-yellow-500"}`}
                 aria-hidden="true"
               />
             )}
