@@ -151,27 +151,49 @@ const SkippedAnimationsOverlay: FC<{ file: SelectedFile }> = ({ file }) => {
   if (!file.skippedAnimations?.length) return null;
   return (
     <>
-      {file.skippedAnimations.map((anim, i) => (
-        <div
-          key={`skipped-${i}-${anim.x}-${anim.y}-${anim.w}-${anim.h}`}
-          className="absolute group border-2 border-red-500 pointer-events-auto"
-          style={{
-            left: `${(anim.x / file.canvas.width) * 100}%`,
-            top: `${(anim.y / file.canvas.height) * 100}%`,
-            width: `${(anim.w / file.canvas.width) * 100}%`,
-            height: `${(anim.h / file.canvas.height) * 100}%`,
-          }}
-        >
-          <div className="absolute inset-0 bg-red-500/0 group-hover:bg-red-500/20 transition-colors duration-150" />
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none">
-            <span className="text-[10px] leading-tight text-red-700 bg-white/90 px-1.5 py-0.5 rounded shadow text-center">
-              アニメーションが無効化されました
-              <br />
-              （重なっています）
-            </span>
+      {file.skippedAnimations.map((anim, i) => {
+        const isTransparentGifOverlap =
+          anim.reason === "transparent-gif-overlap";
+        return (
+          <div
+            key={`skipped-${i}-${anim.x}-${anim.y}-${anim.w}-${anim.h}`}
+            className={`absolute group border-2 pointer-events-auto ${
+              isTransparentGifOverlap ? "border-yellow-500" : "border-red-500"
+            }`}
+            style={{
+              left: `${(anim.x / file.canvas.width) * 100}%`,
+              top: `${(anim.y / file.canvas.height) * 100}%`,
+              width: `${(anim.w / file.canvas.width) * 100}%`,
+              height: `${(anim.h / file.canvas.height) * 100}%`,
+            }}
+          >
+            <div
+              className={`absolute inset-0 transition-colors duration-150 ${
+                isTransparentGifOverlap
+                  ? "bg-yellow-500/0 group-hover:bg-yellow-500/20"
+                  : "bg-red-500/0 group-hover:bg-red-500/20"
+              }`}
+            />
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none">
+              <span
+                className={`text-[10px] leading-tight bg-white/90 px-1.5 py-0.5 rounded shadow text-center ${
+                  isTransparentGifOverlap ? "text-yellow-700" : "text-red-700"
+                }`}
+              >
+                {isTransparentGifOverlap ? (
+                  <>透過GIF同士が重なっています</>
+                ) : (
+                  <>
+                    アニメーションが無効化されました
+                    <br />
+                    （重なっています）
+                  </>
+                )}
+              </span>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </>
   );
 };

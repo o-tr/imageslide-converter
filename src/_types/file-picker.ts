@@ -10,7 +10,9 @@ export type SelectedFileAnimation = {
   frames: OffscreenCanvas[];
 };
 
-export type SkippedAnimation = PixelRect;
+export type SkippedAnimation = PixelRect & {
+  reason: "static-overlap" | "transparent-gif-overlap";
+};
 
 export type SelectedFile = {
   id: string;

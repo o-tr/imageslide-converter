@@ -1,4 +1,4 @@
-import type { SelectedFileAnimation } from "@/_types/file-picker";
+import type { SelectedFileAnimation, SkippedAnimation } from "@/_types/file-picker";
 import type { SlidePageElement } from "@/_types/google-slides-api";
 import type { AnimatedGifCandidate } from "@/_types/lib/google/gifAnimation";
 import type {
@@ -310,9 +310,58 @@ const compositeWithBackground = (
   return composited;
 };
 
+const checkGifOverlapTransparency = (
+  upper: AnimatedGifCandidate,
+  intersectionRect: PixelRect,
+): boolean => {
+  const { rawFrames, gifWidth, gifHeight, pixelRect: upperPixelRect } = upper;
+  const sampleIndices = rawFrames.map((_, i) => i);
+  const { w: targetW, h: targetH } = clampDimensions(gifWidth, gifHeight);
+
+  const composedFrames = buildComposedFrames(
+    rawFrames,
+    sampleIndices,
+    gifWidth,
+    gifHeight,
+    targetW,
+    targetH,
+  );
+
+  // Slide-coordinate intersection → upper GIF composed-canvas coordinates
+  const scaleX = targetW / upperPixelRect.w;
+  const scaleY = targetH / upperPixelRect.h;
+  const localX = Math.floor((intersectionRect.x - upperPixelRect.x) * scaleX);
+  const localY = Math.floor((intersectionRect.y - upperPixelRect.y) * scaleY);
+  const localW = Math.max(1, Math.ceil(intersectionRect.w * scaleX));
+  const localH = Math.max(1, Math.ceil(intersectionRect.h * scaleY));
+
+  const clampedX = Math.max(0, localX);
+  const clampedY = Math.max(0, localY);
+  const clampedW = Math.min(localW, targetW - clampedX);
+  const clampedH = Math.min(localH, targetH - clampedY);
+
+  if (clampedW <= 0 || clampedH <= 0) return false;
+
+  for (const frame of composedFrames) {
+    const ctx = frame.getContext("2d");
+    if (!ctx) continue;
+    const imageData = ctx.getImageData(
+      clampedX,
+      clampedY,
+      clampedW,
+      clampedH,
+    );
+    const data = imageData.data;
+    for (let p = 3; p < data.length; p += 4) {
+      if (data[p] === 0) return true;
+    }
+  }
+  return false;
+};
+
 export type ExtractGifAnimationsResult = {
   animations: SelectedFileAnimation[];
-  skipped: PixelRect[];
+  skipped: SkippedAnimation[];
 };
 
 export const extractGifAnimations = async (
@@ -564,14 +613,66 @@ export const extractGifAnimations = async (
     );
   }
 
-  const skippedRects: PixelRect[] = [];
+  const skippedRects: SkippedAnimation[] = [];
   for (const index of blockedByStaticIndices) {
-    skippedRects.push(animatedGifCandidates[index].pixelRect);
+    skippedRects.push({
+      ...animatedGifCandidates[index].pixelRect,
+      reason: "static-overlap",
+    });
   }
 
   const nonIntersectingAnimatedCandidates = animatedGifCandidates.filter(
     (_, index) => !blockedByStaticIndices.has(index),
   );
+
+  // Check for transparent-pixel overlaps between surviving animated GIFs.
+  // Upper GIFs (higher Z) that have transparent pixels over a lower GIF
+  // produce visual artifacts with RGB24 encoding, so we record a warning.
+  const survivingSorted = nonIntersectingAnimatedCandidates
+    .map((candidate) => ({
+      candidate,
+      z: elementZOrder.get(candidate.element) ?? 0,
+    }))
+    .sort((a, b) => b.z - a.z);
+
+  for (let i = 0; i < survivingSorted.length; i++) {
+    const upper = survivingSorted[i];
+    for (let j = i + 1; j < survivingSorted.length; j++) {
+      const lower = survivingSorted[j];
+      if (!rectsIntersect(upper.candidate.pixelRect, lower.candidate.pixelRect))
+        continue;
+
+      const ix =
+        Math.max(
+          upper.candidate.pixelRect.x,
+          lower.candidate.pixelRect.x,
+        );
+      const iy =
+        Math.max(
+          upper.candidate.pixelRect.y,
+          lower.candidate.pixelRect.y,
+        );
+      const iw =
+        Math.min(
+          upper.candidate.pixelRect.x + upper.candidate.pixelRect.w,
+          lower.candidate.pixelRect.x + lower.candidate.pixelRect.w,
+        ) - ix;
+      const ih =
+        Math.min(
+          upper.candidate.pixelRect.y + upper.candidate.pixelRect.h,
+          lower.candidate.pixelRect.y + lower.candidate.pixelRect.h,
+        ) - iy;
+      if (iw <= 0 || ih <= 0) continue;
+
+      const intersectionRect: PixelRect = { x: ix, y: iy, w: iw, h: ih };
+      if (checkGifOverlapTransparency(upper.candidate, intersectionRect)) {
+        skippedRects.push({
+          ...intersectionRect,
+          reason: "transparent-gif-overlap",
+        });
+      }
+    }
+  }
 
   const results = nonIntersectingAnimatedCandidates
     .map(
