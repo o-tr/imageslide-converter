@@ -49,7 +49,7 @@ const SlideItem: FC<SlideItemProps> = memo(
     if (hasAnimations) slideStatusParts.push("GIFアニメーションを含む");
     if (hasSkippedAnimations)
       slideStatusParts.push("一部のアニメーションがスキップされました");
-    const slideStatus = slideStatusParts.join("、");
+    const slideStatus = `${slideStatusParts.join("、")}。`;
 
     const menuItems: MenuProps["items"] = [
       {
@@ -75,6 +75,7 @@ const SlideItem: FC<SlideItemProps> = memo(
             <span className="sr-only">
               {index + 1}番目のスライド
               {slideStatus ? `、${slideStatus}` : ""}
+              {isSelected ? "、選択中" : ""}
             </span>
             <span
               className="text-xs text-gray-500 text-right"
