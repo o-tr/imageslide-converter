@@ -177,7 +177,6 @@ const buildComposedFrames = (
   gifHeight: number,
   targetW: number,
   targetH: number,
-  maxOutputFrames: number = MAX_FRAMES,
 ): OffscreenCanvas[] => {
   const compositionCanvas = new OffscreenCanvas(gifWidth, gifHeight);
   const compositionCtx = compositionCanvas.getContext("2d");
@@ -273,10 +272,10 @@ const buildComposedFrames = (
       resultCtx.drawImage(compositionCanvas, 0, 0, targetW, targetH);
       output.push(result);
       samplePtr++;
-      if (output.length >= maxOutputFrames) break;
+      if (output.length >= MAX_FRAMES) break;
     }
 
-    if (output.length >= maxOutputFrames) break;
+    if (output.length >= MAX_FRAMES) break;
   }
 
   return output;
@@ -313,48 +312,58 @@ const compositeWithBackground = (
 };
 
 /**
- * Compose all raw frames of an upper GIF incrementally, checking the
- * intersection region for fully-transparent pixels after each composed frame.
- * Returns true as soon as one transparent pixel is found, avoiding the memory
- * cost of materialising every frame upfront.
+ * Compose all raw frames of an upper GIF incrementally and check the given
+ * intersection rectangles for fully-transparent pixels on sampled frames only.
+ * Returns an array of rects that contain at least one transparent pixel.
+ * Composing proceeds through every raw frame so disposal state stays correct,
+ * but the actual pixel check is skipped for non-sampled frames.
  */
-const hasTransparentPixelInOverlap = (
+const findTransparentOverlapRects = (
   upper: AnimatedGifCandidate,
-  intersectionRect: PixelRect,
-): boolean => {
+  intersectionRects: PixelRect[],
+  sampledFrameIndices: Set<number>,
+): PixelRect[] => {
   const {
     rawFrames,
     gifWidth,
     gifHeight,
     pixelRect: upperPixelRect,
   } = upper;
+
   // Slide-coordinate intersection → upper GIF logical-screen coordinates.
-  // We compose on the original gifWidth×gifHeight canvas (same as
-  // buildComposedFrames), so scale against the logical screen size, not the
-  // clamped target size.
   const scaleX = gifWidth / upperPixelRect.w;
   const scaleY = gifHeight / upperPixelRect.h;
-  const localX = Math.floor((intersectionRect.x - upperPixelRect.x) * scaleX);
-  const localY = Math.floor((intersectionRect.y - upperPixelRect.y) * scaleY);
-  const localW = Math.max(1, Math.ceil(intersectionRect.w * scaleX));
-  const localH = Math.max(1, Math.ceil(intersectionRect.h * scaleY));
 
-  const clampedX = Math.max(0, localX);
-  const clampedY = Math.max(0, localY);
-  const clampedW = Math.max(
-    0,
-    Math.min(localX + localW, gifWidth) - clampedX,
-  );
-  const clampedH = Math.max(
-    0,
-    Math.min(localY + localH, gifHeight) - clampedY,
-  );
+  const regions = intersectionRects
+    .map((rect) => {
+      const localX = Math.floor((rect.x - upperPixelRect.x) * scaleX);
+      const localY = Math.floor((rect.y - upperPixelRect.y) * scaleY);
+      const localW = Math.max(1, Math.ceil(rect.w * scaleX));
+      const localH = Math.max(1, Math.ceil(rect.h * scaleY));
 
-  if (clampedW <= 0 || clampedH <= 0) return false;
+      const clampedX = Math.max(0, localX);
+      const clampedY = Math.max(0, localY);
+      const clampedW = Math.max(
+        0,
+        Math.min(localX + localW, gifWidth) - clampedX,
+      );
+      const clampedH = Math.max(
+        0,
+        Math.min(localY + localH, gifHeight) - clampedY,
+      );
+
+      return { rect, clampedX, clampedY, clampedW, clampedH };
+    })
+    .filter((r) => r.clampedW > 0 && r.clampedH > 0);
+
+  if (regions.length === 0) return [];
 
   const compositionCanvas = new OffscreenCanvas(gifWidth, gifHeight);
   const compositionCtx = compositionCanvas.getContext("2d");
   if (!compositionCtx) throw new Error("Cannot get 2d context");
+
+  const foundRects: PixelRect[] = [];
+  const foundSet = new Set<number>();
 
   let prevDisposal = 0;
   let prevDims: ParsedFrame["dims"] | null = null;
@@ -425,20 +434,32 @@ const hasTransparentPixelInOverlap = (
     prevDisposal = disposal;
     prevDims = frame.dims;
 
-    // Check the intersection region on this composed frame
-    const regionData = compositionCtx.getImageData(
-      clampedX,
-      clampedY,
-      clampedW,
-      clampedH,
-    );
-    const data = regionData.data;
-    for (let p = 3; p < data.length; p += 4) {
-      if (data[p] === 0) return true;
+    // Only check pixels on frames that end up in the sampled animation output.
+    if (!sampledFrameIndices.has(i)) continue;
+
+    for (let rIdx = 0; rIdx < regions.length; rIdx++) {
+      if (foundSet.has(rIdx)) continue;
+      const { rect, clampedX, clampedY, clampedW, clampedH } = regions[rIdx];
+      const regionData = compositionCtx.getImageData(
+        clampedX,
+        clampedY,
+        clampedW,
+        clampedH,
+      );
+      const data = regionData.data;
+      for (let p = 3; p < data.length; p += 4) {
+        if (data[p] === 0) {
+          foundSet.add(rIdx);
+          foundRects.push(rect);
+          break;
+        }
+      }
     }
+
+    if (foundSet.size === regions.length) break;
   }
 
-  return false;
+  return foundRects;
 };
 
 export type ExtractGifAnimationsResult = {
@@ -721,6 +742,9 @@ export const extractGifAnimations = async (
   for (let i = 0; i < survivingSorted.length; i++) {
     const upper = survivingSorted[i];
 
+    // Collect all intersection rectangles for this upper candidate first,
+    // then perform the expensive composition once and check every rect.
+    const overlapRects: PixelRect[] = [];
     for (let j = i + 1; j < survivingSorted.length; j++) {
       const lower = survivingSorted[j];
       if (!rectsIntersect(upper.candidate.pixelRect, lower.candidate.pixelRect))
@@ -748,13 +772,27 @@ export const extractGifAnimations = async (
         ) - iy;
       if (iw <= 0 || ih <= 0) continue;
 
-      const intersectionRect: PixelRect = { x: ix, y: iy, w: iw, h: ih };
-      if (hasTransparentPixelInOverlap(upper.candidate, intersectionRect)) {
-        skippedRectsMap.set(
-          `${intersectionRect.x},${intersectionRect.y},${intersectionRect.w},${intersectionRect.h},transparent-gif-overlap`,
-          { ...intersectionRect, reason: "transparent-gif-overlap" },
-        );
-      }
+      overlapRects.push({ x: ix, y: iy, w: iw, h: ih });
+    }
+
+    if (overlapRects.length === 0) continue;
+
+    const previewFps = derivePreviewFps(upper.candidate.rawFrames);
+    const sampledIndices = sampleFrameIndices(
+      upper.candidate.rawFrames,
+      previewFps,
+    );
+    const sampledFrameSet = new Set(sampledIndices);
+    const transparentRects = findTransparentOverlapRects(
+      upper.candidate,
+      overlapRects,
+      sampledFrameSet,
+    );
+    for (const rect of transparentRects) {
+      skippedRectsMap.set(
+        `${rect.x},${rect.y},${rect.w},${rect.h},transparent-gif-overlap`,
+        { ...rect, reason: "transparent-gif-overlap" },
+      );
     }
   }
 
