@@ -123,36 +123,56 @@ const AnimatedPreview: FC<AnimatedPreviewProps> = ({
   };
 
   return (
-    <div className="w-full h-full flex items-center justify-center">
-      <div
-        className="relative"
-        style={{
-          aspectRatio: `${file.canvas.width} / ${file.canvas.height}`,
-          maxWidth: "100%",
-          maxHeight: "100%",
-        }}
-      >
-        <canvas ref={canvasRef} className="w-full h-full" />
-        {file.animations?.map((anim, i) => (
-          <Dropdown
-            key={`${i}-${anim.x}-${anim.y}-${anim.w}-${anim.h}`}
-            trigger={["contextMenu"]}
-            menu={{ items: buildFpsMenuItems(i, anim) }}
-          >
-            <div
-              className="absolute cursor-context-menu transition-all duration-150 hover:ring-2 hover:ring-inset hover:ring-blue-500/70 hover:bg-blue-500/10"
-              title="右クリックでFPS・解像度を変更"
-              style={{
-                left: `${(anim.x / file.canvas.width) * 100}%`,
-                top: `${(anim.y / file.canvas.height) * 100}%`,
-                width: `${(anim.w / file.canvas.width) * 100}%`,
-                height: `${(anim.h / file.canvas.height) * 100}%`,
-              }}
-            />
-          </Dropdown>
-        ))}
-      </div>
-    </div>
+    <>
+      <canvas ref={canvasRef} className="w-full h-full" />
+      {file.animations?.map((anim, i) => (
+        <Dropdown
+          key={`${i}-${anim.x}-${anim.y}-${anim.w}-${anim.h}`}
+          trigger={["contextMenu"]}
+          menu={{ items: buildFpsMenuItems(i, anim) }}
+        >
+          <div
+            className="absolute cursor-context-menu z-10 transition-all duration-150 hover:ring-2 hover:ring-inset hover:ring-blue-500/70 hover:bg-blue-500/10"
+            title="右クリックでFPS・解像度を変更"
+            style={{
+              left: `${(anim.x / file.canvas.width) * 100}%`,
+              top: `${(anim.y / file.canvas.height) * 100}%`,
+              width: `${(anim.w / file.canvas.width) * 100}%`,
+              height: `${(anim.h / file.canvas.height) * 100}%`,
+            }}
+          />
+        </Dropdown>
+      ))}
+    </>
+  );
+};
+
+const SkippedAnimationsOverlay: FC<{ file: SelectedFile }> = ({ file }) => {
+  if (!file.skippedAnimations?.length) return null;
+  return (
+    <>
+      {file.skippedAnimations.map((anim, i) => (
+        <div
+          key={`skipped-${i}-${anim.x}-${anim.y}-${anim.w}-${anim.h}`}
+          className="absolute group border-2 border-red-500 pointer-events-auto"
+          style={{
+            left: `${(anim.x / file.canvas.width) * 100}%`,
+            top: `${(anim.y / file.canvas.height) * 100}%`,
+            width: `${(anim.w / file.canvas.width) * 100}%`,
+            height: `${(anim.h / file.canvas.height) * 100}%`,
+          }}
+        >
+          <div className="absolute inset-0 bg-red-500/0 group-hover:bg-red-500/20 transition-colors duration-150" />
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none">
+            <span className="text-[10px] leading-tight text-red-700 bg-white/90 px-1.5 py-0.5 rounded shadow text-center">
+              アニメーションが無効化されました
+              <br />
+              （重なっています）
+            </span>
+          </div>
+        </div>
+      ))}
+    </>
   );
 };
 
@@ -181,15 +201,27 @@ export const MainPreviewArea: FC<MainPreviewAreaProps> = ({
         <div
           className={"w-full aspect-video bg-gray-100 rounded overflow-hidden"}
         >
-          {file.animations?.length ? (
-            <AnimatedPreview
-              key={file.id}
-              file={file}
-              onAnimationFpsChange={handleFpsChange}
-            />
-          ) : (
-            <Preview canvas={file.canvas} className={"w-full h-full"} />
-          )}
+          <div className="w-full h-full flex items-center justify-center">
+            <div
+              className="relative"
+              style={{
+                aspectRatio: `${file.canvas.width} / ${file.canvas.height}`,
+                maxWidth: "100%",
+                maxHeight: "100%",
+              }}
+            >
+              {file.animations?.length ? (
+                <AnimatedPreview
+                  key={file.id}
+                  file={file}
+                  onAnimationFpsChange={handleFpsChange}
+                />
+              ) : (
+                <Preview canvas={file.canvas} className={"w-full h-full"} />
+              )}
+              <SkippedAnimationsOverlay file={file} />
+            </div>
+          </div>
         </div>
       </div>
       <Flex vertical gap={4} className={""}>

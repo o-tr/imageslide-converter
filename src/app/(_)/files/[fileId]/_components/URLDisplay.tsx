@@ -60,20 +60,9 @@ export const URLDisplay: FC<{ fileId: string }> = ({ fileId }) => {
           </Flex>
         )}
       </Flex>
-      {urls && urls.length > 0 && file && file.format !== "DXT1" && (
-        <SlidePreview urls={urls} />
-      )}
+      {urls && urls.length > 0 && file && <SlidePreview urls={urls} />}
       <Flex vertical align={"start"} gap={"middle"}>
-        {file?.format === "DXT1" && (
-          <Alert
-            message={
-              "ImageSlide v0.2.x未満及び、Questではこのスライドを読み込むことができません"
-            }
-            type="info"
-            showIcon
-          />
-        )}
-        {file?.version === 1 && file?.format !== "DXT1" && (
+        {file?.version === 1 && (
           <Alert
             message={
               "ImageSlide v0.1.x未満ではこのスライドを読み込むことができません"

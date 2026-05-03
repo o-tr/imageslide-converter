@@ -310,13 +310,18 @@ const compositeWithBackground = (
   return composited;
 };
 
+export type ExtractGifAnimationsResult = {
+  animations: SelectedFileAnimation[];
+  skipped: PixelRect[];
+};
+
 export const extractGifAnimations = async (
   pageElements: SlidePageElement[],
   pageSize: PageSize,
   canvasSize: CanvasSize,
   baseSlideCanvas: OffscreenCanvas,
   signal?: AbortSignal,
-): Promise<SelectedFileAnimation[]> => {
+): Promise<ExtractGifAnimationsResult> => {
   const imageElements = pageElements
     .map((element) => {
       const contentUrl = element.image?.contentUrl;
@@ -559,64 +564,79 @@ export const extractGifAnimations = async (
     );
   }
 
+  const skippedRects: PixelRect[] = [];
+  for (const index of blockedByStaticIndices) {
+    skippedRects.push(animatedGifCandidates[index].pixelRect);
+  }
+
   const nonIntersectingAnimatedCandidates = animatedGifCandidates.filter(
     (_, index) => !blockedByStaticIndices.has(index),
   );
 
   const results = nonIntersectingAnimatedCandidates
-    .map(({ pixelRect, rawFrames, gifWidth, gifHeight }) => {
-      try {
-        const previewFps = derivePreviewFps(rawFrames);
-        const sampleIndices = sampleFrameIndices(rawFrames, previewFps);
-        const { w: targetW, h: targetH } = clampDimensions(gifWidth, gifHeight);
-        const { w: storedFrameW, h: storedFrameH } = clampDimensions(
-          pixelRect.w,
-          pixelRect.h,
-          MAX_STORED_FRAME_DIMENSION,
-        );
-
-        // Build composed GIF frames with proper inter-frame compositing
-        const composedFrames = buildComposedFrames(
-          rawFrames,
-          sampleIndices,
-          gifWidth,
-          gifHeight,
-          targetW,
-          targetH,
-        );
-        // compositeWithBackground bakes the full slide background (including
-        // the static first frame of every other GIF) into each animation frame.
-        // At runtime, when a higher-Z GIF has transparent pixels in an overlap
-        // region, those pixels reveal the lower GIF's static first frame baked
-        // into the background rather than its live animated frame. This is an
-        // inherent limitation of RGB24 encoding, which lacks an alpha channel.
-        const frames = composedFrames.map((frameCanvas) => {
-          const result = compositeWithBackground(
-            baseSlideCanvas,
-            frameCanvas,
-            pixelRect,
-            storedFrameW,
-            storedFrameH,
+    .map(
+      ({
+        pixelRect,
+        rawFrames,
+        gifWidth,
+        gifHeight,
+      }): SelectedFileAnimation | null => {
+        try {
+          const previewFps = derivePreviewFps(rawFrames);
+          const sampleIndices = sampleFrameIndices(rawFrames, previewFps);
+          const { w: targetW, h: targetH } = clampDimensions(
+            gifWidth,
+            gifHeight,
           );
-          // OffscreenCanvas has no close() — rely on GC for resource release.
-          return result;
-        });
+          const { w: storedFrameW, h: storedFrameH } = clampDimensions(
+            pixelRect.w,
+            pixelRect.h,
+            MAX_STORED_FRAME_DIMENSION,
+          );
 
-        return {
-          x: pixelRect.x,
-          y: pixelRect.y,
-          w: pixelRect.w,
-          h: pixelRect.h,
-          fps: previewFps,
-          fpsOverride: Math.min(5, previewFps),
-          frames,
-        } satisfies SelectedFileAnimation;
-      } catch (e) {
-        console.warn("Failed to build composed GIF frames:", e);
-        return null;
-      }
-    })
+          // Build composed GIF frames with proper inter-frame compositing
+          const composedFrames = buildComposedFrames(
+            rawFrames,
+            sampleIndices,
+            gifWidth,
+            gifHeight,
+            targetW,
+            targetH,
+          );
+          // compositeWithBackground bakes the full slide background (including
+          // the static first frame of every other GIF) into each animation frame.
+          // At runtime, when a higher-Z GIF has transparent pixels in an overlap
+          // region, those pixels reveal the lower GIF's static first frame baked
+          // into the background rather than its live animated frame. This is an
+          // inherent limitation of RGB24 encoding, which lacks an alpha channel.
+          const frames = composedFrames.map((frameCanvas) => {
+            const result = compositeWithBackground(
+              baseSlideCanvas,
+              frameCanvas,
+              pixelRect,
+              storedFrameW,
+              storedFrameH,
+            );
+            // OffscreenCanvas has no close() — rely on GC for resource release.
+            return result;
+          });
+
+          return {
+            x: pixelRect.x,
+            y: pixelRect.y,
+            w: pixelRect.w,
+            h: pixelRect.h,
+            fps: previewFps,
+            fpsOverride: Math.min(5, previewFps),
+            frames,
+          } satisfies SelectedFileAnimation;
+        } catch (e) {
+          console.warn("Failed to build composed GIF frames:", e);
+          return null;
+        }
+      },
+    )
     .filter((r): r is SelectedFileAnimation => !!r);
 
-  return results;
+  return { animations: results, skipped: skippedRects };
 };
