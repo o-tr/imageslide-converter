@@ -45,9 +45,7 @@ const SlideItem: FC<SlideItemProps> = memo(
     const hasAnimations = (file.animations?.length ?? 0) > 0;
     const hasSkippedAnimations = (file.skippedAnimations?.length ?? 0) > 0;
 
-    const imagePlayLabel = hasAnimations
-      ? "GIFアニメーションを含む"
-      : "元のGIFにアニメーションが含まれていたが、スキップされました";
+    const imagePlayLabel = "GIFアニメーションを含む";
 
     const menuItems: MenuProps["items"] = useMemo(
       () => [
