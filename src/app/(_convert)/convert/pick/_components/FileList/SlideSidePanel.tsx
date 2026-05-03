@@ -72,7 +72,11 @@ const SlideItem: FC<SlideItemProps> = memo(
             {(hasAnimations || hasSkipped) && (
               <ImagePlay
                 className="text-blue-500 w-3 h-3"
-                aria-label="GIFアニメーション情報あり"
+                aria-label={
+                  hasAnimations
+                    ? "GIFアニメーションを含む"
+                    : "元のGIFにアニメーションが含まれていた"
+                }
                 role="img"
               />
             )}
