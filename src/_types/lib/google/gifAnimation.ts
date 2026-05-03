@@ -8,4 +8,10 @@ export type AnimatedGifCandidate = {
   rawFrames: ParsedFrame[];
   gifWidth: number;
   gifHeight: number;
+  crop?: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
 };

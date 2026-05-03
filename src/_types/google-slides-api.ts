@@ -16,6 +16,14 @@ export type SlidePageElement = {
   image?: {
     contentUrl?: string;
     sourceUrl?: string;
+    imageProperties?: {
+      cropProperties?: {
+        leftOffset?: number;
+        rightOffset?: number;
+        topOffset?: number;
+        bottomOffset?: number;
+      };
+    };
   };
   shape?: {
     shapeType: string;
