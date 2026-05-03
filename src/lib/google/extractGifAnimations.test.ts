@@ -73,6 +73,14 @@ describe("computeGifCrop", () => {
     expect(crop.width).toBe(1);
   });
 
+  it("clamps cropTop when rounding pushes it past the last pixel", () => {
+    const crop = computeGifCrop(10, 2, { topOffset: 0.99 });
+    expect(crop).not.toBeNull();
+    if (!crop) return;
+    expect(crop.top).toBe(1); // Math.round(1.98)=2 clamped to 1
+    expect(crop.height).toBe(1);
+  });
+
   it("clamps out-of-range offsets to [0, 1]", () => {
     expect(
       computeGifCrop(100, 100, { leftOffset: -0.5, rightOffset: 1.5 }),
@@ -104,8 +112,8 @@ describe("computeGifCrop", () => {
     if (!crop) return;
     expect(crop.width).toBe(1);
     expect(crop.height).toBe(1);
-    expect(crop.left).toBeLessThanOrEqual(0);
-    expect(crop.top).toBeLessThanOrEqual(0);
+    expect(crop.left).toBe(0);
+    expect(crop.top).toBe(0);
   });
 
   it("returns finite values for all outputs", () => {
