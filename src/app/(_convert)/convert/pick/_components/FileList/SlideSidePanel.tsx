@@ -70,6 +70,7 @@ const SlideItem: FC<SlideItemProps> = memo(
           {...listeners}
           className="col-span-full grid grid-cols-subgrid cursor-pointer shrink-0"
           onClick={() => onSelect(index)}
+          aria-current={isSelected ? "true" : undefined}
         >
           <div className="flex flex-col items-end gap-0.5">
             <span className="sr-only">
@@ -100,6 +101,7 @@ const SlideItem: FC<SlideItemProps> = memo(
                 ? "border-blue-500"
                 : "border-transparent hover:border-gray-300"
             }`}
+            aria-hidden="true"
           />
         </div>
       </Dropdown>
