@@ -507,27 +507,6 @@ export const extractGifAnimations = async (
     (candidate): candidate is AnimatedGifCandidate => candidate !== null,
   );
 
-  const intersectingElementIndices = new Set<number>();
-  for (let i = 0; i < animatedGifCandidates.length; i++) {
-    for (let j = i + 1; j < animatedGifCandidates.length; j++) {
-      if (
-        rectsIntersect(
-          animatedGifCandidates[i].pixelRect,
-          animatedGifCandidates[j].pixelRect,
-        )
-      ) {
-        intersectingElementIndices.add(i);
-        intersectingElementIndices.add(j);
-      }
-    }
-  }
-
-  if (intersectingElementIndices.size > 0) {
-    console.warn(
-      `extractGifAnimations: skipping ${intersectingElementIndices.size} intersecting animated GIF element(s); overlapping animated rects are not supported with RGB24 animation encoding`,
-    );
-  }
-
   // Z-order: elements later in pageElements are drawn on top (higher Z).
   // Only elements drawn ABOVE the GIF can obscure it; elements below are already
   // baked into the base slide composite and do not cause artifacts.
@@ -536,52 +515,62 @@ export const extractGifAnimations = async (
     elementZOrder.set(pageElements[i], i);
   }
 
-  // Only GIFs that survived GIF-to-GIF intersection are still animated at render time.
-  // GIFs removed by that filter are now static pixels in the base canvas and must be
-  // treated as potential non-animated foreground blockers for surviving candidates.
-  // Invariant: survivors are pairwise non-overlapping (the pairwise check above marks
-  // BOTH i and j when their rects intersect), so survivingAnimatedElements.has() in the
-  // Z-order loop below can safely skip other survivors without missing any occlusion.
+  // All animated GIF candidates are kept (overlapping animated rects are now
+  // supported at runtime by drawing them in Z-order). We still skip candidates
+  // that have higher-Z static elements overlapping them — these include
+  // non-animated foreground elements and any animated GIFs that were blocked
+  // by such elements higher up — since static foreground cannot be represented
+  // correctly without baking it into every frame.
   const survivingAnimatedElements = new Set(
-    animatedGifCandidates
-      .filter((_, i) => !intersectingElementIndices.has(i))
-      .map((c) => c.element),
+    animatedGifCandidates.map((c) => c.element),
   );
-  const intersectingNonAnimatedIndices = new Set<number>();
-  for (let i = 0; i < animatedGifCandidates.length; i++) {
-    if (intersectingElementIndices.has(i)) continue; // already filtered, skip
-    const candidate = animatedGifCandidates[i];
+  const blockedByStaticIndices = new Set<number>();
+
+  // Iterate from highest Z to lowest so that a GIF blocked by a static
+  // foreground element is removed from survivingAnimatedElements *before* we
+  // check any lower-Z GIFs. Otherwise the blocked (now-static) GIF would still
+  // be treated as "animated" and wrongly protect lower GIFs from the same
+  // foreground blocker.
+  const sortedCandidates = animatedGifCandidates
+    .map((candidate, index) => ({ candidate, index }))
+    .sort((a, b) => {
+      const zA = elementZOrder.get(a.candidate.element) ?? 0;
+      const zB = elementZOrder.get(b.candidate.element) ?? 0;
+      return zB - zA;
+    });
+
+  for (const { candidate, index } of sortedCandidates) {
     const gifZ = elementZOrder.get(candidate.element) ?? 0;
+    let blocked = false;
     for (const positioned of positionedElements) {
       if (positioned.element === candidate.element) continue;
       if (survivingAnimatedElements.has(positioned.element)) continue;
       const posZ = elementZOrder.get(positioned.element) ?? 0;
       if (posZ <= gifZ) continue; // Below the GIF — composited into background, safe to ignore
       if (rectsIntersect(candidate.pixelRect, positioned.pixelRect)) {
-        intersectingNonAnimatedIndices.add(i);
+        blocked = true;
         break;
       }
     }
+    if (blocked) {
+      blockedByStaticIndices.add(index);
+      survivingAnimatedElements.delete(candidate.element);
+    }
   }
 
-  if (intersectingNonAnimatedIndices.size > 0) {
+  if (blockedByStaticIndices.size > 0) {
     console.warn(
-      `extractGifAnimations: skipping ${intersectingNonAnimatedIndices.size} animated GIF element(s) with higher-Z non-animated elements overlapping; foreground overlap is not supported with RGB24 animation encoding`,
+      `extractGifAnimations: skipping ${blockedByStaticIndices.size} animated GIF element(s) blocked by higher-Z static elements; foreground overlap is not supported with RGB24 animation encoding`,
     );
   }
 
   const skippedRects: PixelRect[] = [];
-  for (const index of intersectingElementIndices) {
-    skippedRects.push(animatedGifCandidates[index].pixelRect);
-  }
-  for (const index of intersectingNonAnimatedIndices) {
+  for (const index of blockedByStaticIndices) {
     skippedRects.push(animatedGifCandidates[index].pixelRect);
   }
 
   const nonIntersectingAnimatedCandidates = animatedGifCandidates.filter(
-    (_, index) =>
-      !intersectingElementIndices.has(index) &&
-      !intersectingNonAnimatedIndices.has(index),
+    (_, index) => !blockedByStaticIndices.has(index),
   );
 
   const results = nonIntersectingAnimatedCandidates
@@ -614,6 +603,12 @@ export const extractGifAnimations = async (
             targetW,
             targetH,
           );
+          // compositeWithBackground bakes the full slide background (including
+          // the static first frame of every other GIF) into each animation frame.
+          // At runtime, when a higher-Z GIF has transparent pixels in an overlap
+          // region, those pixels reveal the lower GIF's static first frame baked
+          // into the background rather than its live animated frame. This is an
+          // inherent limitation of RGB24 encoding, which lacks an alpha channel.
           const frames = composedFrames.map((frameCanvas) => {
             const result = compositeWithBackground(
               baseSlideCanvas,
