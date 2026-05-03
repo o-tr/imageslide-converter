@@ -45,6 +45,13 @@ const SlideItem: FC<SlideItemProps> = memo(
     const hasAnimations = (file.animations?.length ?? 0) > 0;
     const hasSkippedAnimations = (file.skippedAnimations?.length ?? 0) > 0;
 
+    const imagePlayLabel = [
+      hasAnimations && "GIFアニメーションを含む",
+      hasSkippedAnimations && "一部のアニメーションがスキップされています",
+    ]
+      .filter(Boolean)
+      .join("、");
+
     const menuItems: MenuProps["items"] = [
       {
         key: "delete",
@@ -72,19 +79,14 @@ const SlideItem: FC<SlideItemProps> = memo(
             {(hasAnimations || hasSkippedAnimations) && (
               <ImagePlay
                 className="text-blue-500 w-3 h-3"
-                aria-label={
-                  hasAnimations
-                    ? "GIFアニメーションを含む"
-                    : "スキップされたアニメーション情報あり"
-                }
+                aria-label={imagePlayLabel || undefined}
                 role="img"
               />
             )}
             {hasSkippedAnimations && (
               <TriangleAlert
                 className="text-yellow-500 w-3 h-3"
-                aria-label="一部のアニメーションがスキップされました"
-                role="img"
+                aria-hidden="true"
               />
             )}
           </div>
