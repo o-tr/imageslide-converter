@@ -510,11 +510,42 @@ export const extractGifAnimations = async (
           );
           return null;
         }
+        const cropLeft = Math.round(gifWidth * leftOffset);
+        const cropTop = Math.round(gifHeight * topOffset);
+        const cropWidth = Math.round(gifWidth * (1 - leftOffset - rightOffset));
+        const cropHeight = Math.round(
+          gifHeight * (1 - topOffset - bottomOffset),
+        );
+
+        // Clamp to valid canvas bounds and ensure non-zero dimensions.
+        // Independent rounding can make left+width exceed gifWidth by 1,
+        // or round a tiny remainder down to 0.
+        const clampedLeft = Math.min(cropLeft, gifWidth - 1);
+        const clampedTop = Math.min(cropTop, gifHeight - 1);
+        const clampedWidth = Math.min(
+          Math.max(1, cropWidth),
+          gifWidth - clampedLeft,
+        );
+        const clampedHeight = Math.min(
+          Math.max(1, cropHeight),
+          gifHeight - clampedTop,
+        );
+
+        if (
+          !Number.isFinite(clampedLeft) ||
+          !Number.isFinite(clampedTop) ||
+          !Number.isFinite(clampedWidth) ||
+          !Number.isFinite(clampedHeight)
+        ) {
+          console.warn("extractGifAnimations: invalid crop offsets, skipping");
+          return null;
+        }
+
         crop = {
-          left: Math.round(gifWidth * leftOffset),
-          top: Math.round(gifHeight * topOffset),
-          width: Math.round(gifWidth * (1 - leftOffset - rightOffset)),
-          height: Math.round(gifHeight * (1 - topOffset - bottomOffset)),
+          left: clampedLeft,
+          top: clampedTop,
+          width: clampedWidth,
+          height: clampedHeight,
         };
       }
 
