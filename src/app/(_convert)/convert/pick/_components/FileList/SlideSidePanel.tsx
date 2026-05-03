@@ -5,7 +5,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { Dropdown } from "antd";
 import type { MenuProps } from "antd";
 import { ImagePlay, TriangleAlert } from "lucide-react";
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import type { CSSProperties, FC } from "react";
 import { MdDeleteOutline } from "react-icons/md";
 import { Preview } from "./Preview";
@@ -45,15 +45,22 @@ const SlideItem: FC<SlideItemProps> = memo(
     const hasAnimations = (file.animations?.length ?? 0) > 0;
     const hasSkippedAnimations = (file.skippedAnimations?.length ?? 0) > 0;
 
-    const menuItems: MenuProps["items"] = [
-      {
-        key: "delete",
-        label: "削除",
-        danger: true,
-        icon: <MdDeleteOutline />,
-        onClick: () => onDelete(file.id),
-      },
-    ];
+    const imagePlayLabel = hasAnimations
+      ? "GIFアニメーションを含む"
+      : "元のGIFにアニメーションが含まれていたが、スキップされました";
+
+    const menuItems: MenuProps["items"] = useMemo(
+      () => [
+        {
+          key: "delete",
+          label: "削除",
+          danger: true,
+          icon: <MdDeleteOutline />,
+          onClick: () => onDelete(file.id),
+        },
+      ],
+      [file.id, onDelete],
+    );
 
     return (
       <Dropdown menu={{ items: menuItems }} trigger={["contextMenu"]}>
@@ -72,13 +79,7 @@ const SlideItem: FC<SlideItemProps> = memo(
             {(hasAnimations || hasSkippedAnimations) && (
               <ImagePlay
                 className="text-blue-500 w-3 h-3"
-                aria-label={
-                  hasAnimations && hasSkippedAnimations
-                    ? "GIFアニメーションを含む（一部スキップ）"
-                    : hasAnimations
-                      ? "GIFアニメーションを含む"
-                      : "元のGIFにアニメーションが含まれていたが、スキップされました"
-                }
+                aria-label={imagePlayLabel}
                 role="img"
               />
             )}
