@@ -68,16 +68,19 @@ const SlideItem: FC<SlideItemProps> = ({
       >
         <div className="flex flex-col items-end gap-0.5">
           <span className="text-xs text-gray-500 text-right">{index + 1}</span>
-          {(file.animations?.length || file.skippedAnimations?.length) && (
+          {((file.animations?.length ?? 0) > 0 ||
+            (file.skippedAnimations?.length ?? 0) > 0) && (
             <ImagePlay
               className="text-blue-500 w-3 h-3"
               aria-label="GIFアニメーションを含む"
+              role="img"
             />
           )}
-          {file.skippedAnimations?.length && (
+          {(file.skippedAnimations?.length ?? 0) > 0 && (
             <TriangleAlert
               className="text-yellow-500 w-3 h-3"
               aria-label="一部のアニメーションがスキップされました"
+              role="img"
             />
           )}
         </div>
