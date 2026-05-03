@@ -48,8 +48,8 @@ const SlideItem: FC<SlideItemProps> = memo(
     const parts: string[] = [];
     if (hasAnimations) parts.push("GIFアニメーションを含む");
     if (hasSkippedAnimations)
-      parts.push("一部のアニメーションがスキップされています");
-    const imagePlayLabel = parts.join("、");
+      parts.push("警告：一部のアニメーションがスキップされています");
+    const statusLabel = parts.join("、");
 
     const menuItems: MenuProps["items"] = [
       {
@@ -78,7 +78,7 @@ const SlideItem: FC<SlideItemProps> = memo(
             {(hasAnimations || hasSkippedAnimations) && (
               <ImagePlay
                 className="text-blue-500 w-3 h-3"
-                aria-label={imagePlayLabel}
+                aria-label={statusLabel}
                 role="img"
               />
             )}
