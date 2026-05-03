@@ -5,7 +5,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { Dropdown } from "antd";
 import type { MenuProps } from "antd";
 import { ImagePlay, TriangleAlert } from "lucide-react";
-import { memo, useMemo } from "react";
+import { memo } from "react";
 import type { CSSProperties, FC } from "react";
 import { MdDeleteOutline } from "react-icons/md";
 import { Preview } from "./Preview";
@@ -36,30 +36,24 @@ const SlideItem: FC<SlideItemProps> = memo(
       isDragging,
     } = useSortable({ id: file.id });
 
-    const style: CSSProperties = useMemo(
-      () => ({
-        transform: CSS.Transform.toString(transform),
-        transition,
-        ...(isDragging ? { opacity: 0.5, zIndex: 9999 } : {}),
-      }),
-      [transform, transition, isDragging],
-    );
+    const style: CSSProperties = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+      ...(isDragging ? { opacity: 0.5, zIndex: 9999 } : {}),
+    };
 
     const hasAnimations = (file.animations?.length ?? 0) > 0;
     const hasSkippedAnimations = (file.skippedAnimations?.length ?? 0) > 0;
 
-    const menuItems: MenuProps["items"] = useMemo(
-      () => [
-        {
-          key: "delete",
-          label: "削除",
-          danger: true,
-          icon: <MdDeleteOutline />,
-          onClick: () => onDelete(file.id),
-        },
-      ],
-      [file.id, onDelete],
-    );
+    const menuItems: MenuProps["items"] = [
+      {
+        key: "delete",
+        label: "削除",
+        danger: true,
+        icon: <MdDeleteOutline />,
+        onClick: () => onDelete(file.id),
+      },
+    ];
 
     return (
       <Dropdown menu={{ items: menuItems }} trigger={["contextMenu"]}>
@@ -83,7 +77,7 @@ const SlideItem: FC<SlideItemProps> = memo(
                     ? "GIFアニメーションを含む（一部スキップ）"
                     : hasAnimations
                       ? "GIFアニメーションを含む"
-                      : "元のGIFにアニメーションが含まれていた"
+                      : "元のGIFにアニメーションが含まれていたが、スキップされました"
                 }
                 role="img"
               />
