@@ -45,6 +45,12 @@ const SlideItem: FC<SlideItemProps> = memo(
     const hasAnimations = (file.animations?.length ?? 0) > 0;
     const hasSkippedAnimations = (file.skippedAnimations?.length ?? 0) > 0;
 
+    const slideStatusParts: string[] = [];
+    if (hasAnimations) slideStatusParts.push("GIFアニメーションを含む");
+    if (hasSkippedAnimations)
+      slideStatusParts.push("一部のアニメーションがスキップされました");
+    const slideStatus = slideStatusParts.join("、");
+
     const menuItems: MenuProps["items"] = [
       {
         key: "delete",
@@ -65,22 +71,20 @@ const SlideItem: FC<SlideItemProps> = memo(
           className="col-span-full grid grid-cols-subgrid cursor-pointer shrink-0"
           onClick={() => onSelect(index)}
         >
-          <div className="flex flex-col items-end gap-0.5">
+          <div
+            className="flex flex-col items-end gap-0.5"
+            aria-label={slideStatus || undefined}
+          >
             <span className="text-xs text-gray-500 text-right">
               {index + 1}
             </span>
             {(hasAnimations || hasSkippedAnimations) && (
-              <ImagePlay
-                className="text-blue-500 w-3 h-3"
-                aria-label="GIFアニメーションを含む"
-                role="img"
-              />
+              <ImagePlay className="text-blue-500 w-3 h-3" aria-hidden="true" />
             )}
             {hasSkippedAnimations && (
               <TriangleAlert
                 className="text-yellow-500 w-3 h-3"
-                aria-label="一部のアニメーションがスキップされました"
-                role="img"
+                aria-hidden="true"
               />
             )}
           </div>
