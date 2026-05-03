@@ -71,10 +71,8 @@ const SlideItem: FC<SlideItemProps> = memo(
           className="col-span-full grid grid-cols-subgrid cursor-pointer shrink-0"
           onClick={() => onSelect(index)}
         >
-          <div
-            className="flex flex-col items-end gap-0.5"
-            aria-label={slideStatus || undefined}
-          >
+          <div className="flex flex-col items-end gap-0.5">
+            {slideStatus && <span className="sr-only">{slideStatus}</span>}
             <span className="text-xs text-gray-500 text-right">
               {index + 1}
             </span>
