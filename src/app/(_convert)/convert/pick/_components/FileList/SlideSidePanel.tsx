@@ -5,7 +5,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { Dropdown } from "antd";
 import type { MenuProps } from "antd";
 import { ImagePlay, TriangleAlert } from "lucide-react";
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import type { CSSProperties, FC } from "react";
 import { MdDeleteOutline } from "react-icons/md";
 import { Preview } from "./Preview";
@@ -36,24 +36,30 @@ const SlideItem: FC<SlideItemProps> = memo(
       isDragging,
     } = useSortable({ id: file.id });
 
-    const style: CSSProperties = {
-      transform: CSS.Transform.toString(transform),
-      transition,
-      ...(isDragging ? { opacity: 0.5, zIndex: 9999 } : {}),
-    };
+    const style: CSSProperties = useMemo(
+      () => ({
+        transform: CSS.Transform.toString(transform),
+        transition,
+        ...(isDragging ? { opacity: 0.5, zIndex: 9999 } : {}),
+      }),
+      [transform, transition, isDragging],
+    );
 
     const hasAnimations = (file.animations?.length ?? 0) > 0;
-    const hasSkipped = (file.skippedAnimations?.length ?? 0) > 0;
+    const hasSkippedAnimations = (file.skippedAnimations?.length ?? 0) > 0;
 
-    const menuItems: MenuProps["items"] = [
-      {
-        key: "delete",
-        label: "削除",
-        danger: true,
-        icon: <MdDeleteOutline />,
-        onClick: () => onDelete(file.id),
-      },
-    ];
+    const menuItems: MenuProps["items"] = useMemo(
+      () => [
+        {
+          key: "delete",
+          label: "削除",
+          danger: true,
+          icon: <MdDeleteOutline />,
+          onClick: () => onDelete(file.id),
+        },
+      ],
+      [file.id, onDelete],
+    );
 
     return (
       <Dropdown menu={{ items: menuItems }} trigger={["contextMenu"]}>
@@ -69,18 +75,20 @@ const SlideItem: FC<SlideItemProps> = memo(
             <span className="text-xs text-gray-500 text-right">
               {index + 1}
             </span>
-            {(hasAnimations || hasSkipped) && (
+            {(hasAnimations || hasSkippedAnimations) && (
               <ImagePlay
                 className="text-blue-500 w-3 h-3"
                 aria-label={
-                  hasAnimations
-                    ? "GIFアニメーションを含む"
-                    : "元のGIFにアニメーションが含まれていた"
+                  hasAnimations && hasSkippedAnimations
+                    ? "GIFアニメーションを含む（一部スキップ）"
+                    : hasAnimations
+                      ? "GIFアニメーションを含む"
+                      : "元のGIFにアニメーションが含まれていた"
                 }
                 role="img"
               />
             )}
-            {hasSkipped && (
+            {hasSkippedAnimations && (
               <TriangleAlert
                 className="text-yellow-500 w-3 h-3"
                 aria-label="一部のアニメーションがスキップされました"
