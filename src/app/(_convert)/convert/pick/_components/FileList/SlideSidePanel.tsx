@@ -45,12 +45,11 @@ const SlideItem: FC<SlideItemProps> = memo(
     const hasAnimations = (file.animations?.length ?? 0) > 0;
     const hasSkippedAnimations = (file.skippedAnimations?.length ?? 0) > 0;
 
-    const imagePlayLabel = [
-      hasAnimations && "GIFアニメーションを含む",
-      hasSkippedAnimations && "一部のアニメーションがスキップされています",
-    ]
-      .filter(Boolean)
-      .join("、");
+    const parts: string[] = [];
+    if (hasAnimations) parts.push("GIFアニメーションを含む");
+    if (hasSkippedAnimations)
+      parts.push("一部のアニメーションがスキップされています");
+    const imagePlayLabel = parts.join("、");
 
     const menuItems: MenuProps["items"] = [
       {
@@ -79,7 +78,7 @@ const SlideItem: FC<SlideItemProps> = memo(
             {(hasAnimations || hasSkippedAnimations) && (
               <ImagePlay
                 className="text-blue-500 w-3 h-3"
-                aria-label={imagePlayLabel || undefined}
+                aria-label={imagePlayLabel}
                 role="img"
               />
             )}
