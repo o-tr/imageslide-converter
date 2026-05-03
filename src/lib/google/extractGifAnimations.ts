@@ -512,14 +512,16 @@ export const extractGifAnimations = async (
 
   // All animated GIF candidates are kept (overlapping animated rects are now
   // supported at runtime by drawing them in Z-order). We still skip candidates
-  // that have higher-Z non-animated elements overlapping them, since those
-  // cannot be represented correctly without baking the foreground into each frame.
+  // that have higher-Z static elements overlapping them — these include
+  // non-animated foreground elements and any animated GIFs that were blocked
+  // by such elements higher up — since static foreground cannot be represented
+  // correctly without baking it into every frame.
   const survivingAnimatedElements = new Set(
     animatedGifCandidates.map((c) => c.element),
   );
-  const intersectingNonAnimatedIndices = new Set<number>();
+  const blockedByStaticIndices = new Set<number>();
 
-  // Iterate from highest Z to lowest so that a GIF blocked by a non-animated
+  // Iterate from highest Z to lowest so that a GIF blocked by a static
   // foreground element is removed from survivingAnimatedElements *before* we
   // check any lower-Z GIFs. Otherwise the blocked (now-static) GIF would still
   // be treated as "animated" and wrongly protect lower GIFs from the same
@@ -546,19 +548,19 @@ export const extractGifAnimations = async (
       }
     }
     if (blocked) {
-      intersectingNonAnimatedIndices.add(index);
+      blockedByStaticIndices.add(index);
       survivingAnimatedElements.delete(candidate.element);
     }
   }
 
-  if (intersectingNonAnimatedIndices.size > 0) {
+  if (blockedByStaticIndices.size > 0) {
     console.warn(
-      `extractGifAnimations: skipping ${intersectingNonAnimatedIndices.size} animated GIF element(s) with higher-Z non-animated elements overlapping; foreground overlap is not supported with RGB24 animation encoding`,
+      `extractGifAnimations: skipping ${blockedByStaticIndices.size} animated GIF element(s) blocked by higher-Z static elements; foreground overlap is not supported with RGB24 animation encoding`,
     );
   }
 
   const nonIntersectingAnimatedCandidates = animatedGifCandidates.filter(
-    (_, index) => !intersectingNonAnimatedIndices.has(index),
+    (_, index) => !blockedByStaticIndices.has(index),
   );
 
   const results = nonIntersectingAnimatedCandidates
