@@ -4,6 +4,8 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Dropdown } from "antd";
 import type { MenuProps } from "antd";
+import { ImagePlay, TriangleAlert } from "lucide-react";
+import { memo } from "react";
 import type { CSSProperties, FC } from "react";
 import { MdDeleteOutline } from "react-icons/md";
 import { Preview } from "./Preview";
@@ -23,61 +25,89 @@ interface SlideItemProps {
   onDelete: (id: string) => void;
 }
 
-const SlideItem: FC<SlideItemProps> = ({
-  file,
-  index,
-  isSelected,
-  onSelect,
-  onDelete,
-}) => {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: file.id });
+const SlideItem: FC<SlideItemProps> = memo(
+  ({ file, index, isSelected, onSelect, onDelete }) => {
+    const {
+      attributes,
+      listeners,
+      setNodeRef,
+      transform,
+      transition,
+      isDragging,
+    } = useSortable({ id: file.id });
 
-  const style: CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    ...(isDragging ? { opacity: 0.5, zIndex: 9999 } : {}),
-  };
+    const style: CSSProperties = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+      ...(isDragging ? { opacity: 0.5, zIndex: 9999 } : {}),
+    };
 
-  const menuItems: MenuProps["items"] = [
-    {
-      key: "delete",
-      label: "削除",
-      danger: true,
-      icon: <MdDeleteOutline />,
-      onClick: () => onDelete(file.id),
-    },
-  ];
+    const hasAnimations = (file.animations?.length ?? 0) > 0;
+    const hasSkippedAnimations = (file.skippedAnimations?.length ?? 0) > 0;
 
-  return (
-    <Dropdown menu={{ items: menuItems }} trigger={["contextMenu"]}>
-      <div
-        ref={setNodeRef}
-        style={style}
-        {...attributes}
-        {...listeners}
-        className="col-span-full grid grid-cols-subgrid cursor-pointer shrink-0"
-        onClick={() => onSelect(index)}
-      >
-        <span className={"text-xs text-gray-500 text-right"}>{index + 1}</span>
-        <Preview
-          canvas={file.canvas}
-          className={`w-full border-2 rounded overflow-hidden ${
-            isSelected
-              ? "border-blue-500"
-              : "border-transparent hover:border-gray-300"
-          }`}
-        />
-      </div>
-    </Dropdown>
-  );
-};
+    const slideStatusParts: string[] = [];
+    if (hasAnimations) slideStatusParts.push("GIFアニメーションを含む");
+    if (hasSkippedAnimations)
+      slideStatusParts.push("一部のアニメーションがスキップされました");
+    const slideStatus = slideStatusParts.join("、");
+
+    const menuItems: MenuProps["items"] = [
+      {
+        key: "delete",
+        label: "削除",
+        danger: true,
+        icon: <MdDeleteOutline />,
+        onClick: () => onDelete(file.id),
+      },
+    ];
+
+    return (
+      <Dropdown menu={{ items: menuItems }} trigger={["contextMenu"]}>
+        <div
+          ref={setNodeRef}
+          style={style}
+          {...attributes}
+          {...listeners}
+          className="col-span-full grid grid-cols-subgrid cursor-pointer shrink-0"
+          onClick={() => onSelect(index)}
+        >
+          <div className="flex flex-col items-end gap-0.5">
+            <span className="sr-only">
+              {index + 1}番目のスライド
+              {slideStatus ? `、${slideStatus}` : ""}
+              {isSelected ? "、選択中" : ""}
+            </span>
+            <span
+              className="text-xs text-gray-500 text-right"
+              aria-hidden="true"
+            >
+              {index + 1}
+            </span>
+            {(hasAnimations || hasSkippedAnimations) && (
+              <ImagePlay className="text-blue-500 w-3 h-3" aria-hidden="true" />
+            )}
+            {hasSkippedAnimations && (
+              <TriangleAlert
+                className="text-yellow-500 w-3 h-3"
+                aria-hidden="true"
+              />
+            )}
+          </div>
+          <Preview
+            canvas={file.canvas}
+            className={`w-full border-2 rounded overflow-hidden ${
+              isSelected
+                ? "border-blue-500"
+                : "border-transparent hover:border-gray-300"
+            }`}
+          />
+        </div>
+      </Dropdown>
+    );
+  },
+);
+
+SlideItem.displayName = "SlideItem";
 
 export const SlideSidePanel: FC<SlideSidePanelProps> = ({
   files,
