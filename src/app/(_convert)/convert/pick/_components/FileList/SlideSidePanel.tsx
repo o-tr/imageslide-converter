@@ -72,8 +72,14 @@ const SlideItem: FC<SlideItemProps> = memo(
           onClick={() => onSelect(index)}
         >
           <div className="flex flex-col items-end gap-0.5">
-            {slideStatus && <span className="sr-only">{slideStatus}</span>}
-            <span className="text-xs text-gray-500 text-right">
+            <span className="sr-only">
+              {index + 1}番目のスライド
+              {slideStatus ? `、${slideStatus}` : ""}
+            </span>
+            <span
+              className="text-xs text-gray-500 text-right"
+              aria-hidden="true"
+            >
               {index + 1}
             </span>
             {(hasAnimations || hasSkippedAnimations) && (
