@@ -518,18 +518,36 @@ export const extractGifAnimations = async (
     animatedGifCandidates.map((c) => c.element),
   );
   const intersectingNonAnimatedIndices = new Set<number>();
-  for (let i = 0; i < animatedGifCandidates.length; i++) {
-    const candidate = animatedGifCandidates[i];
+
+  // Iterate from highest Z to lowest so that a GIF blocked by a non-animated
+  // foreground element is removed from survivingAnimatedElements *before* we
+  // check any lower-Z GIFs. Otherwise the blocked (now-static) GIF would still
+  // be treated as "animated" and wrongly protect lower GIFs from the same
+  // foreground blocker.
+  const sortedCandidates = animatedGifCandidates
+    .map((candidate, index) => ({ candidate, index }))
+    .sort((a, b) => {
+      const zA = elementZOrder.get(a.candidate.element) ?? 0;
+      const zB = elementZOrder.get(b.candidate.element) ?? 0;
+      return zB - zA;
+    });
+
+  for (const { candidate, index } of sortedCandidates) {
     const gifZ = elementZOrder.get(candidate.element) ?? 0;
+    let blocked = false;
     for (const positioned of positionedElements) {
       if (positioned.element === candidate.element) continue;
       if (survivingAnimatedElements.has(positioned.element)) continue;
       const posZ = elementZOrder.get(positioned.element) ?? 0;
       if (posZ <= gifZ) continue; // Below the GIF — composited into background, safe to ignore
       if (rectsIntersect(candidate.pixelRect, positioned.pixelRect)) {
-        intersectingNonAnimatedIndices.add(i);
+        blocked = true;
         break;
       }
+    }
+    if (blocked) {
+      intersectingNonAnimatedIndices.add(index);
+      survivingAnimatedElements.delete(candidate.element);
     }
   }
 
@@ -564,6 +582,12 @@ export const extractGifAnimations = async (
           targetW,
           targetH,
         );
+        // compositeWithBackground bakes the full slide background (including
+        // the static first frame of every other GIF) into each animation frame.
+        // At runtime, when a higher-Z GIF has transparent pixels in an overlap
+        // region, those pixels reveal the lower GIF's static first frame baked
+        // into the background rather than its live animated frame. This is an
+        // inherent limitation of RGB24 encoding, which lacks an alpha channel.
         const frames = composedFrames.map((frameCanvas) => {
           const result = compositeWithBackground(
             baseSlideCanvas,
