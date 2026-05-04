@@ -255,7 +255,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
   // so we scan forward and attempt JSON.parse at each candidate until one
   // succeeds. The first valid JSON object is the manifest.
   const MAX_HEADER_BYTES = 64 * 1024;
-  const headerLimit = Math.min(uint8.length, 4 + MAX_HEADER_BYTES);
+  const headerLimit = Math.min(uint8.length, 4 + MAX_HEADER_BYTES + 1);
   let dollarPos = 4; // skip "EIA^"
   let manifest: EIAManifestV1 | undefined;
   let unsupportedVersion: number | undefined;
@@ -570,6 +570,10 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
               }
 
               if (
+                !Number.isInteger(ref.x) ||
+                !Number.isInteger(ref.y) ||
+                !Number.isInteger(ref.w) ||
+                !Number.isInteger(ref.h) ||
                 !Number.isFinite(ref.x) ||
                 !Number.isFinite(ref.y) ||
                 !Number.isFinite(ref.w) ||
