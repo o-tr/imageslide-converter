@@ -81,21 +81,21 @@ The manifest is a JSON object with the following required fields:
 
 ```typescript
 type EIAManifestV1 = {
-  t: "eia";           // Type identifier (MUST be "eia")
-  c: "lz4";           // Compression method (MUST be "lz4")
-  v: 1;               // Version number (always 1)
-  f: string[];        // Features array
-  e: EIAExtension[];  // Extensions array
-  i: EIAFileV1[];     // Items array
-  m?: EIASignageManifest; // Optional signage manifest
-  ac?: EIAAnimationContainer; // Optional animation container
-}
+  t: "eia";                // Type identifier (MUST be "eia")
+  c: "lz4" | "lz4-base64"; // Compression method (standard is "lz4"; see §1.3.1 for the non-standard "lz4-base64" extension)
+  v: 1;                    // Version number (always 1)
+  f: string[];             // Features array
+  e: EIAExtension[];       // Extensions array
+  i: EIAFileV1[];          // Items array
+};
 ```
 
 **Version number:**
 - `1`: EIA v1 (the only valid value)
 
 Manifests that include the `ac` field are treated as a v1-compatible extension and do not require bumping `v`.
+
+When `c` is `"lz4-base64"`, `file.l` represents post-Base64 character length and animation pool decoding is constrained (see §1.3.1).
 
 #### 2.4.1 Features Array
 

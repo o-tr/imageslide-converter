@@ -50,7 +50,7 @@ EIA v1 uses a field named `s` in multiple contexts with different coordinate spa
 
 ### 2.1 File-level `s` (Compressed Space)
 
-`EIAFileV1Master.s`, `EIAFileV1Cropped.s`, and `EIAAnimationFrameRef*.s` are all **compressed-byte offsets** measured from the first byte after `$`.
+`EIAFileV1Master.s`, `EIAFileV1Cropped.s`, and `EIAAnimFramePoolItem*.s` are all **compressed-byte offsets** measured from the first byte after `$`.
 
 ```typescript
 // Encoder side: bufferLength accumulates as compressed blocks are appended
@@ -114,9 +114,46 @@ Large datasets are automatically split into multiple files:
 ```typescript
 const FileSizeLimit = 95 * 1024 * 1024; // 95MB per file
 
-// If the compressed size exceeds the limit, retry with more splits
+// If the compressed size exceeds the limit, retry by halving stepSize first,
+// then increasing the split count.
 if (compressedPart.length > FileSizeLimit) {
-  return compressEIAv1(data, signage, count + 1, stepSize, animationMap);
+  const reducedStepSize = Math.max(1, Math.floor(stepSize / 2));
+  const stepCandidates =
+    reducedStepSize < stepSize
+      ? [reducedStepSize, stepSize]
+      : [stepSize];
+
+  let nextSplit: { count: number; stepSize: number } | null = null;
+  for (const candidateStepSize of stepCandidates) {
+    // Implementation uses normalizedStepSize (stepSize clamped to data.length)
+    const startCount =
+      candidateStepSize === stepSize ? count + 1 : 1;
+    for (
+      let candidateCount = startCount;
+      candidateCount <= data.length;
+      candidateCount++
+    ) {
+      if (
+        calculatePartCount(candidateCount, candidateStepSize) < partCount
+      ) {
+        nextSplit = { count: candidateCount, stepSize: candidateStepSize };
+        break;
+      }
+    }
+    if (nextSplit) break;
+  }
+
+  if (!nextSplit) {
+    throw new Error("Unable to split oversized EIA part");
+  }
+
+  return compressEIAv1(
+    data,
+    signage,
+    nextSplit.count,
+    nextSplit.stepSize,
+    animationMap,
+  );
 }
 ```
 
@@ -152,11 +189,18 @@ for (const anim of animations) {
     const decoded = decodeAnimationFrame(frame, resolvedBuffers);
     resolvedBuffers.set(fi, decoded);
 
-    const existing = findMatchingPoolIndex(decoded, poolDecodedBuffers, frameW, frameH);
+    const requireExactMatch =
+      frame.cropped !== undefined || cropBaseIndices.has(fi);
+
+    const existing = findMatchingPoolIndex(
+      decoded, poolDecodedBuffers, frameW, frameH, bpp, requireExactMatch, anim.format,
+    );
     if (existing >= 0) {
       framePoolIndices.push(existing);
     } else {
-      const localExisting = findMatchingPoolIndex(decoded, newDecodedBuffers, frameW, frameH);
+      const localExisting = findMatchingPoolIndex(
+        decoded, newDecodedBuffers, frameW, frameH, bpp, requireExactMatch, anim.format,
+      );
       if (localExisting >= 0) {
         framePoolIndices.push(pool.length + localExisting);
       } else {
@@ -203,10 +247,12 @@ Animation data is decoded from `manifest.ac`. Pool frames are decoded recursivel
 > In the current `decodeEIAv1` runtime, when `manifest.c` is `"lz4-base64"` (a non-standard extension) there is no binary section, so the code path that would call `decodePoolFrame` and run `lz4.decompress` for `manifest.ac.pool` is intentionally skipped. As a result, pooled animation frames in `manifest.ac` are not decoded at runtime under `lz4-base64`, even though the spec text describes decoding from `manifest.ac`.
 
 ```typescript
-// Pool frame decoding (memoization + depth limit)
-const decodePoolFrame = (pool, binarySection, index, depth, memo) => {
+// Pool frame decoding (memoization + depth limit + cycle detection)
+const decodePoolFrame = (pool, binarySection, index, depth, memo, visited) => {
   if (depth > 64) throw new Error("Pool reference depth exceeded");
   if (memo.has(index)) return memo.get(index);
+  if (visited.has(index)) throw new Error("Circular pool reference detected");
+  visited.add(index);
 
   const item = pool[index];
   const compressed = binarySection.slice(item.s, item.s + item.l);
@@ -216,27 +262,20 @@ const decodePoolFrame = (pool, binarySection, index, depth, memo) => {
   if (item.t === "m") {
     result = decompressed;
   } else {
-    const base = decodePoolFrame(pool, binarySection, item.b, depth + 1, memo);
+    const base = decodePoolFrame(pool, binarySection, item.b, depth + 1, memo, visited);
     const copied = new Uint8Array(base); // copy base (MUST NOT modify in place)
     result = applyRects(copied, decompressed, item.r, item.w, item.f);
   }
   memo.set(index, result);
+  visited.delete(index);
   return result;
 };
 
 // Pre-decode all pool frames
 const poolDecoded = new Map();
 for (let i = 0; i < manifest.ac.pool.length; i++) {
-  decodePoolFrame(manifest.ac.pool, binarySection, i, 0, poolDecoded);
+  decodePoolFrame(manifest.ac.pool, binarySection, i, 0, poolDecoded, new Set());
 }
-
-// Frame index calculation (Unix epoch anchor for synchronized playback)
-const frameIndex = Math.floor((Date.now() / 1000) * fps) % seq.length;
-const poolIdx = anim.seq[frameIndex];
-const frameData = poolDecoded.get(poolIdx);
-
-// Render into display slot (scale if frame size differs from display size)
-ctx.drawImage(frameImage, ref.x, ref.y, ref.w, ref.h);
 ```
 
 ## 5. Format Compatibility
@@ -283,8 +322,13 @@ Processing Time: 2-5 seconds (depends on content complexity)
 ### 7.1 Validation Checklist
 
 ```typescript
-// Header validation
-if (data.slice(0, 4) !== 'EIA^') {
+// Header validation (for Uint8Array)
+if (
+  data[0] !== 0x45 ||
+  data[1] !== 0x49 ||
+  data[2] !== 0x41 ||
+  data[3] !== 0x5e
+) {
   throw new Error('Invalid EIA header');
 }
 
@@ -294,12 +338,24 @@ if (manifest.v !== 1) {
 }
 
 // File-level bounds check (compressed space)
-if (file.s + file.l > dataSection.length) {
+if (
+  !Number.isFinite(file.s) ||
+  !Number.isFinite(file.l) ||
+  file.s < 0 ||
+  file.l < 0 ||
+  file.s + file.l > dataSection.length
+) {
   throw new Error('File extends beyond data section');
 }
 
 // Part-level bounds check (decompressed space)
-if (part.s + part.l > file.u) {
+if (
+  !Number.isFinite(part.s) ||
+  !Number.isFinite(part.l) ||
+  part.s < 0 ||
+  part.l < 0 ||
+  part.s + part.l > file.u
+) {
   throw new Error('Part extends beyond decompressed buffer');
 }
 ```

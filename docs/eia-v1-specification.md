@@ -81,21 +81,21 @@ EIA^{manifest_json}$
 
 ```typescript
 type EIAManifestV1 = {
-  t: "eia";           // タイプ識別子（"eia"でなければならない）
-  c: "lz4";           // 圧縮方式（"lz4"でなければならない）
-  v: 1;               // バージョン番号（常に 1）
-  f: string[];        // 機能配列
-  e: EIAExtension[];  // 拡張配列
-  i: EIAFileV1[];     // アイテム配列
-  m?: EIASignageManifest; // オプションのサイネージマニフェスト
-  ac?: EIAAnimationContainer; // オプションのアニメーションコンテナ
-}
+  t: "eia";                // タイプ識別子（"eia"でなければならない）
+  c: "lz4" | "lz4-base64"; // 圧縮方式（標準は"lz4"、非標準拡張は§1.3.1参照）
+  v: 1;                    // バージョン番号（常に 1）
+  f: string[];             // 機能配列
+  e: EIAExtension[];       // 拡張配列
+  i: EIAFileV1[];          // アイテム配列
+};
 ```
 
 **バージョン番号:**
 - `1`: EIA v1（現行で唯一の値）
 
 `ac` フィールドを含むマニフェストも v1 互換の拡張として扱うため、`v` を bump する必要はありません。
+
+`c` が `"lz4-base64"` の場合、`file.l` は Base64 エンコード後の文字列長を表し、アニメーションプールのデコードには制限があります（§1.3.1 参照）。
 
 #### 2.4.1 機能配列
 

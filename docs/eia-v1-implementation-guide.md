@@ -50,7 +50,7 @@ EIA v1 において `s` という名前のフィールドは複数の座標系�
 
 ### 2.1 ファイルレベルの `s`（圧縮空間）
 
-`EIAFileV1Master.s`、`EIAFileV1Cropped.s`、`EIAAnimationFrameRef*.s` はすべて**圧縮済みバイト単位**で `$` 直後を起点とするオフセットです。
+`EIAFileV1Master.s`、`EIAFileV1Cropped.s`、`EIAAnimFramePoolItem*.s` はすべて**圧縮済みバイト単位**で `$` 直後を起点とするオフセットです。
 
 ```typescript
 // エンコーダ側: bufferLength は圧縮ブロックを追加するごとに加算
@@ -114,9 +114,45 @@ for (const part of file.r) {
 ```typescript
 const FileSizeLimit = 95 * 1024 * 1024; // ファイルあたり95MB
 
-// 圧縮後サイズが上限を超えた場合、より多くの分割数で再試行
+// 圧縮後サイズが上限を超えた場合、stepSize を半減してから count を増やす戦略で再試行
 if (compressedPart.length > FileSizeLimit) {
-  return compressEIAv1(data, signage, count + 1, stepSize, animationMap);
+  const reducedStepSize = Math.max(1, Math.floor(stepSize / 2));
+  const stepCandidates =
+    reducedStepSize < stepSize
+      ? [reducedStepSize, stepSize]
+      : [stepSize];
+
+  let nextSplit: { count: number; stepSize: number } | null = null;
+  for (const candidateStepSize of stepCandidates) {
+    // 実装では normalizedStepSize（stepSize を data.length で正規化した値）を使用
+    const startCount =
+      candidateStepSize === stepSize ? count + 1 : 1;
+    for (
+      let candidateCount = startCount;
+      candidateCount <= data.length;
+      candidateCount++
+    ) {
+      if (
+        calculatePartCount(candidateCount, candidateStepSize) < partCount
+      ) {
+        nextSplit = { count: candidateCount, stepSize: candidateStepSize };
+        break;
+      }
+    }
+    if (nextSplit) break;
+  }
+
+  if (!nextSplit) {
+    throw new Error("Unable to split oversized EIA part");
+  }
+
+  return compressEIAv1(
+    data,
+    signage,
+    nextSplit.count,
+    nextSplit.stepSize,
+    animationMap,
+  );
 }
 ```
 
@@ -152,11 +188,18 @@ for (const anim of animations) {
     const decoded = decodeAnimationFrame(frame, resolvedBuffers);
     resolvedBuffers.set(fi, decoded);
 
-    const existing = findMatchingPoolIndex(decoded, poolDecodedBuffers, frameW, frameH);
+    const requireExactMatch =
+      frame.cropped !== undefined || cropBaseIndices.has(fi);
+
+    const existing = findMatchingPoolIndex(
+      decoded, poolDecodedBuffers, frameW, frameH, bpp, requireExactMatch, anim.format,
+    );
     if (existing >= 0) {
       framePoolIndices.push(existing);
     } else {
-      const localExisting = findMatchingPoolIndex(decoded, newDecodedBuffers, frameW, frameH);
+      const localExisting = findMatchingPoolIndex(
+        decoded, newDecodedBuffers, frameW, frameH, bpp, requireExactMatch, anim.format,
+      );
       if (localExisting >= 0) {
         framePoolIndices.push(pool.length + localExisting);
       } else {
@@ -203,10 +246,12 @@ manifest.f.push("Feature:animation");
 > 現在の `decodeEIAv1` 実装では、`manifest.c` が `"lz4-base64"`（非標準拡張）の場合は `binarySection` が存在しないため、`manifest.ac` があっても `decodePoolFrame` を呼ばず、`lz4` ベースのプール復元（`lz4.decompress`）を実行しません。結果として、仕様文上は `manifest.ac` から復元可能でも、実行時にはプール化アニメーションのデコードを意図的にスキップします。
 
 ```typescript
-// フレームプールのデコード（メモ化 + 深さ制限）
-const decodePoolFrame = (pool, binarySection, index, depth, memo) => {
+// フレームプールのデコード（メモ化 + 深さ制限 + 循環検出）
+const decodePoolFrame = (pool, binarySection, index, depth, memo, visited) => {
   if (depth > 64) throw new Error("Pool reference depth exceeded");
   if (memo.has(index)) return memo.get(index);
+  if (visited.has(index)) throw new Error("Circular pool reference detected");
+  visited.add(index);
 
   const item = pool[index];
   const compressed = binarySection.slice(item.s, item.s + item.l);
@@ -216,31 +261,20 @@ const decodePoolFrame = (pool, binarySection, index, depth, memo) => {
   if (item.t === "m") {
     result = decompressed;
   } else {
-    const base = decodePoolFrame(pool, binarySection, item.b, depth + 1, memo);
+    const base = decodePoolFrame(pool, binarySection, item.b, depth + 1, memo, visited);
     const copied = new Uint8Array(base); // ベースをコピー（直接変更禁止）
     result = applyRects(copied, decompressed, item.r, item.w, item.f);
   }
   memo.set(index, result);
+  visited.delete(index);
   return result;
 };
 
 // すべてのプールフレームを事前デコード
 const poolDecoded = new Map();
 for (let i = 0; i < manifest.ac.pool.length; i++) {
-  decodePoolFrame(manifest.ac.pool, binarySection, i, 0, poolDecoded);
+  decodePoolFrame(manifest.ac.pool, binarySection, i, 0, poolDecoded, new Set());
 }
-
-// フレームインデックス計算（Unixエポック基点で同期再生）
-const frameIndex = Math.floor((Date.now() / 1000) * fps) % seq.length;
-const poolIdx = anim.seq[frameIndex];
-const frameData = poolDecoded.get(poolIdx);
-
-// 表示スロットに配置（フレームサイズと表示サイズが異なる場合はスケール）
-// drawImage を使用してスケーリング描画
-ctx.drawImage(
-  frameImage,
-  ref.x, ref.y, ref.w, ref.h,  // 表示スロット
-);
 ```
 
 ## 5. フォーマット互換性
@@ -287,8 +321,13 @@ EIA v1出力: 約20-60MB（80-94%削減）
 ### 7.1 検証チェックリスト
 
 ```typescript
-// ヘッダー検証
-if (data.slice(0, 4) !== 'EIA^') {
+// ヘッダー検証（Uint8Array の場合）
+if (
+  data[0] !== 0x45 ||
+  data[1] !== 0x49 ||
+  data[2] !== 0x41 ||
+  data[3] !== 0x5e
+) {
   throw new Error('無効なEIAヘッダー');
 }
 
@@ -298,12 +337,24 @@ if (manifest.v !== 1) {
 }
 
 // ファイルレベルの境界チェック（圧縮空間）
-if (file.s + file.l > dataSection.length) {
+if (
+  !Number.isFinite(file.s) ||
+  !Number.isFinite(file.l) ||
+  file.s < 0 ||
+  file.l < 0 ||
+  file.s + file.l > dataSection.length
+) {
   throw new Error('ファイルがデータセクションを超えています');
 }
 
 // パーツレベルの境界チェック（非圧縮空間）
-if (part.s + part.l > file.u) {
+if (
+  !Number.isFinite(part.s) ||
+  !Number.isFinite(part.l) ||
+  part.s < 0 ||
+  part.l < 0 ||
+  part.s + part.l > file.u
+) {
   throw new Error('パーツが展開バッファを超えています');
 }
 ```
