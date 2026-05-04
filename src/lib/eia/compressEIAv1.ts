@@ -355,15 +355,6 @@ const compressEIAv1Part = async (
         }
 
         for (let fi = 0; fi < anim.frames.length; fi++) {
-          validateCroppedFrame(
-            anim.frames[fi],
-            fi,
-            slideIndex,
-            animIndex,
-            frameW,
-            frameH,
-            bpp,
-          );
           const decodedFrame = resolveAnimationFrame(
             anim.frames,
             fi,
