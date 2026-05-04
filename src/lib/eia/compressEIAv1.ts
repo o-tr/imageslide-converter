@@ -35,6 +35,9 @@ export const compressEIAv1 = async (
   animationMap?: Map<number, RawAnimationData[]>,
 ): Promise<Buffer[]> => {
   if (data.length === 0) return [];
+  if (!Number.isInteger(count) || count <= 0) {
+    throw new Error(`Invalid count: ${count} (must be a positive integer)`);
+  }
 
   const normalizedStepSize = Math.max(1, Math.min(stepSize, data.length));
   const partCount =
@@ -569,9 +572,9 @@ const compressEIAv1Part = async (
 
   const manifestJson = JSON.stringify(manifest);
   const MAX_MANIFEST_BYTES = 64 * 1024;
-  if (manifestJson.length > MAX_MANIFEST_BYTES) {
+  if (Buffer.byteLength(manifestJson, "utf8") > MAX_MANIFEST_BYTES) {
     throw new Error(
-      `Manifest exceeds ${MAX_MANIFEST_BYTES} bytes (${manifestJson.length} bytes); reduce slide count or note lengths`,
+      `Manifest exceeds ${MAX_MANIFEST_BYTES} bytes; reduce slide count or note lengths`,
     );
   }
 
