@@ -88,17 +88,6 @@ const applyRects = (
   }
   const baseHeight = baseBuffer.length / (baseWidth * bpp);
 
-  // Validate decompressed buffer size against total parts length (spec §8.3).
-  // This aggregate check is complementary to the per-rect bounds checks below:
-  // an overlapping rect layout could make the sum match while a specific rect
-  // still overflows, so both guards are necessary.
-  const totalPartLength = rects.reduce((sum, r) => sum + r.l, 0);
-  if (totalPartLength !== decompressed.length) {
-    throw new Error(
-      `Decompressed buffer size mismatch: expected ${totalPartLength} (sum of part.l), got ${decompressed.length}`,
-    );
-  }
-
   for (const rect of rects) {
     if (
       !Number.isInteger(rect.x) ||
@@ -148,6 +137,18 @@ const applyRects = (
       );
     }
   }
+
+  // Validate decompressed buffer size against total parts length (spec §8.3).
+  // This aggregate check is complementary to the per-rect bounds checks above:
+  // an overlapping rect layout could make the sum match while a specific rect
+  // still overflows, so both guards are necessary.
+  const totalPartLength = rects.reduce((sum, r) => sum + r.l, 0);
+  if (totalPartLength !== decompressed.length) {
+    throw new Error(
+      `Decompressed buffer size mismatch: expected ${totalPartLength} (sum of part.l), got ${decompressed.length}`,
+    );
+  }
+
   return result;
 };
 

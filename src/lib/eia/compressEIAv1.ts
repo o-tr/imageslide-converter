@@ -34,10 +34,15 @@ export const compressEIAv1 = async (
   stepSize = 10,
   animationMap?: Map<number, RawAnimationData[]>,
 ): Promise<Buffer[]> => {
-  if (data.length === 0) return [];
   if (!Number.isInteger(count) || count <= 0) {
     throw new Error(`Invalid count: ${count} (must be a positive integer)`);
   }
+  if (!Number.isInteger(stepSize) || stepSize <= 0) {
+    throw new Error(
+      `Invalid stepSize: ${stepSize} (must be a positive integer)`,
+    );
+  }
+  if (data.length === 0) return [];
 
   const normalizedStepSize = Math.max(1, Math.min(stepSize, data.length));
   const partCount =
@@ -294,13 +299,13 @@ const compressEIAv1Part = async (
       for (const [animIndex, anim] of animsData.entries()) {
         const animId = `anim_${slideIndex}_${animIndex}`;
 
-        if (anim.frames.length === 0) continue;
-
         if (!(anim.fps > 0) || !Number.isFinite(anim.fps)) {
           throw new Error(
             `Invalid animation fps at slide ${slideIndex}, animation ${animIndex}: fps must be a positive finite number, got ${anim.fps}`,
           );
         }
+        if (anim.frames.length === 0) continue;
+
         usedFormats.add(anim.format);
         const bpp = getBytesPerPixel(anim.format);
 
@@ -319,6 +324,17 @@ const compressEIAv1Part = async (
               `Animation frame size mismatch at slide ${slideIndex}, animation ${animIndex}, frame ${frameIndex}: expected ${frameW}x${frameH}, got ${frame.rect.width}x${frame.rect.height}`,
             );
           }
+        }
+        for (const [frameIndex, frame] of anim.frames.entries()) {
+          validateCroppedFrame(
+            frame,
+            frameIndex,
+            slideIndex,
+            animIndex,
+            frameW,
+            frameH,
+            bpp,
+          );
         }
 
         // Pass 1: decode all frames in dependency order and assign pool indices (with dedup)
@@ -339,6 +355,15 @@ const compressEIAv1Part = async (
         }
 
         for (let fi = 0; fi < anim.frames.length; fi++) {
+          validateCroppedFrame(
+            anim.frames[fi],
+            fi,
+            slideIndex,
+            animIndex,
+            frameW,
+            frameH,
+            bpp,
+          );
           const decodedFrame = resolveAnimationFrame(
             anim.frames,
             fi,
@@ -415,6 +440,15 @@ const compressEIAv1Part = async (
             buffer.push(compressed);
             animBufferLength += compressed.length;
           } else {
+            validateCroppedFrame(
+              frame,
+              originalIndex,
+              slideIndex,
+              animIndex,
+              frameW,
+              frameH,
+              bpp,
+            );
             // baseIndex is an index into anim.frames (not newPoolFrames), and
             // framePoolIndices is built with the same anim.frames indexing.
             if (
@@ -584,6 +618,59 @@ const compressEIAv1Part = async (
   ]);
 
   return encodedBuffer;
+};
+
+const validateCroppedFrame = (
+  frame: RawImageObjV1Cropped,
+  frameIndex: number,
+  slideIndex: number,
+  animIndex: number,
+  frameW: number,
+  frameH: number,
+  bpp: number,
+): void => {
+  if (!frame.cropped) return;
+
+  if (
+    !Number.isInteger(frame.cropped.baseIndex) ||
+    frame.cropped.baseIndex < 0
+  ) {
+    throw new Error(
+      `Invalid animation base frame index ${frame.cropped.baseIndex} at slide ${slideIndex}, animation ${animIndex}`,
+    );
+  }
+
+  if (frame.cropped.rects.length === 0) {
+    throw new Error(
+      `Animation frame ${frameIndex} has empty rects at slide ${slideIndex}, animation ${animIndex}`,
+    );
+  }
+
+  for (const [rectIndex, rect] of frame.cropped.rects.entries()) {
+    if (
+      !Number.isInteger(rect.x) ||
+      !Number.isInteger(rect.y) ||
+      !Number.isInteger(rect.width) ||
+      !Number.isInteger(rect.height) ||
+      rect.x < 0 ||
+      rect.y < 0 ||
+      rect.width <= 0 ||
+      rect.height <= 0 ||
+      rect.x + rect.width > frameW ||
+      rect.y + rect.height > frameH
+    ) {
+      throw new Error(
+        `Invalid rect geometry for animation frame ${frameIndex} rect ${rectIndex}: (${rect.x},${rect.y}) size ${rect.width}x${rect.height} exceeds frame ${frameW}x${frameH}`,
+      );
+    }
+
+    const expectedBytes = rect.width * rect.height * bpp;
+    if (rect.buffer.length !== expectedBytes) {
+      throw new Error(
+        `Buffer length mismatch for animation frame ${frameIndex} rect (${rect.x},${rect.y}): expected ${expectedBytes}, got ${rect.buffer.length}`,
+      );
+    }
+  }
 };
 
 const resolveAnimationFrame = (
