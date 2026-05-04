@@ -130,6 +130,11 @@ const compressEIAv1Part = async (
   let bufferLength = 0;
 
   for (const image of data) {
+    if (!Number.isInteger(image.index) || image.index < 0) {
+      throw new Error(
+        `Invalid slide index: ${image.index} (must be a non-negative integer)`,
+      );
+    }
     const name = `${image.index}`;
     if (usedNames.has(name)) {
       throw new Error(`Duplicate slide name "${name}"`);
@@ -562,8 +567,16 @@ const compressEIAv1Part = async (
     ac,
   };
 
+  const manifestJson = JSON.stringify(manifest);
+  const MAX_MANIFEST_BYTES = 64 * 1024;
+  if (manifestJson.length > MAX_MANIFEST_BYTES) {
+    throw new Error(
+      `Manifest exceeds ${MAX_MANIFEST_BYTES} bytes (${manifestJson.length} bytes); reduce slide count or note lengths`,
+    );
+  }
+
   const encodedBuffer = Buffer.concat([
-    Buffer.from(`EIA^${JSON.stringify(manifest)}$`),
+    Buffer.from(`EIA^${manifestJson}$`),
     ...buffer,
   ]);
 
