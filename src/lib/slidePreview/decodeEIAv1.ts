@@ -216,7 +216,7 @@ const decodePoolFrame = (
           `mismatch base ${item.b} (f=${baseItem.f}, w=${baseItem.w}, h=${baseItem.h})`,
       );
     }
-    if (!item.r || item.r.length === 0) {
+    if (!Array.isArray(item.r) || item.r.length === 0) {
       throw new Error(`Pool frame ${index} has empty or missing rects`);
     }
     const base = decodePoolFrame(
@@ -266,7 +266,12 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
       const candidate = JSON.parse(
         textDecoder.decode(uint8.subarray(4, dollarPos)),
       ) as EIAManifestV1;
-      if (candidate && candidate.t === "eia" && candidate.v !== undefined) {
+      if (
+        candidate &&
+        candidate.t === "eia" &&
+        candidate.v !== undefined &&
+        candidate.v !== 1
+      ) {
         if (unsupportedVersion === undefined) unsupportedVersion = candidate.v;
       }
       if (candidate && candidate.t === "eia" && candidate.v === 1) {
@@ -312,6 +317,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
       throw new Error("Animation container anims must not be empty");
     }
     if (binarySection) {
+      const visited = new Set<number>();
       for (let i = 0; i < manifest.ac.pool.length; i++) {
         if (!poolDecoded.has(i)) {
           decodePoolFrame(
@@ -320,7 +326,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
             i,
             0,
             poolDecoded,
-            new Set<number>(),
+            visited,
           );
         }
       }
@@ -485,7 +491,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
     if (item.t === "m") {
       rawBuffer = decompressed;
     } else {
-      if (!item.r || item.r.length === 0) {
+      if (!Array.isArray(item.r) || item.r.length === 0) {
         throw new Error(`Cropped frame "${item.n}" has no rects`);
       }
       const baseBuffer = frameBuffers.get(item.b);
@@ -574,10 +580,6 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
                 !Number.isInteger(ref.y) ||
                 !Number.isInteger(ref.w) ||
                 !Number.isInteger(ref.h) ||
-                !Number.isFinite(ref.x) ||
-                !Number.isFinite(ref.y) ||
-                !Number.isFinite(ref.w) ||
-                !Number.isFinite(ref.h) ||
                 ref.x < 0 ||
                 ref.y < 0 ||
                 ref.w <= 0 ||

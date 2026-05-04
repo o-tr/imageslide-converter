@@ -311,6 +311,16 @@ const compressEIAv1Part = async (
 
         const frameW = anim.frames[0].rect.width;
         const frameH = anim.frames[0].rect.height;
+        if (
+          !Number.isInteger(frameW) ||
+          !Number.isInteger(frameH) ||
+          frameW <= 0 ||
+          frameH <= 0
+        ) {
+          throw new Error(
+            `Animation frame size invalid at slide ${slideIndex}, animation ${animIndex}: ${frameW}x${frameH} must be positive integers`,
+          );
+        }
 
         // Validation
         for (const [frameIndex, frame] of anim.frames.entries()) {
@@ -525,10 +535,10 @@ const compressEIAv1Part = async (
           );
         }
         if (
-          !Number.isFinite(anim.x) ||
-          !Number.isFinite(anim.y) ||
-          !Number.isFinite(anim.w) ||
-          !Number.isFinite(anim.h) ||
+          !Number.isInteger(anim.x) ||
+          !Number.isInteger(anim.y) ||
+          !Number.isInteger(anim.w) ||
+          !Number.isInteger(anim.h) ||
           anim.x < 0 ||
           anim.y < 0 ||
           anim.w <= 0 ||
