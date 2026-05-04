@@ -347,7 +347,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
         `Non-canonical slide name "${item.n}": must not have leading zeros or signs`,
       );
     }
-    if (Number.isInteger(idx)) {
+    if (item.n !== "" && Number.isInteger(idx)) {
       if (seenIndices.has(idx)) {
         throw new Error(
           `Duplicate slide index ${idx} from name "${item.n}" in manifest.i`,

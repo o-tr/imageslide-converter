@@ -555,7 +555,6 @@ const compressEIAv1Part = async (
     if (pool.length > 0 && anims.length > 0) {
       ac = { pool, anims };
       usedFeatures.add("Feature:animation");
-      usedExtensions.add("a");
     }
 
     // Attach animation refs to corresponding slide items
