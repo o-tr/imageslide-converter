@@ -54,20 +54,40 @@ export const compressEIAv1 = async (
   for (const image of data) imagesByIndex.set(image.index, image);
 
   for (let i = 0; i < count; i++) {
-    const part = data.slice(i * partCount, (i + 1) * partCount);
+    const partStart = i * partCount;
+    const partEnd = (i + 1) * partCount;
+    const part = data.slice(partStart, partEnd);
     if (part.length === 0) break;
+
+    const partIndices = new Set(part.map((image) => image.index));
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      for (const index of Array.from(partIndices)) {
+        const image = imagesByIndex.get(index);
+        if (image?.cropped && !partIndices.has(image.cropped.baseIndex)) {
+          partIndices.add(image.cropped.baseIndex);
+          expanded = true;
+        }
+      }
+    }
+    const partImages = data.filter((image) => partIndices.has(image.index));
 
     // Build animation map for this part's indices
     let partAnimMap: Map<number, RawAnimationData[]> | undefined;
     if (animationMap) {
       partAnimMap = new Map();
-      for (const image of part) {
+      for (const image of partImages) {
         const anims = animationMap.get(image.index);
         if (anims) partAnimMap.set(image.index, anims);
       }
       if (partAnimMap.size === 0) partAnimMap = undefined;
     }
-    const compressedPart = await compressEIAv1Part(part, signage, partAnimMap);
+    const compressedPart = await compressEIAv1Part(
+      partImages,
+      signage,
+      partAnimMap,
+    );
 
     if (compressedPart.length > FileSizeLimit) {
       if (part.length <= 1) {
@@ -131,6 +151,9 @@ const compressEIAv1Part = async (
   signage?: EIASignageManifest,
   animationMap?: Map<number, RawAnimationData[]>,
 ) => {
+  const imagesByIndex = new Map<number, RawImageObjV1Cropped>();
+  for (const image of data) imagesByIndex.set(image.index, image);
+
   const usedFormats = new Set<string>();
   const usedFeatures = new Set<string>();
   const usedExtensions = new Set<EIAExtension>();
