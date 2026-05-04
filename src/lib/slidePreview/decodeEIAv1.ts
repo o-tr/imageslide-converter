@@ -26,11 +26,22 @@ const base64ToUint8Array = (b64: string): Uint8Array => {
 
 const isRgb24 = (format: string): boolean => format === "RGB24";
 
+const MAX_UNCOMPRESSED_SIZE = 512 * 1024 * 1024; // 512 MB
+
 const lz4Decompress = (
   compressed: Uint8Array,
   uncompressedSize: number,
   frameName: string,
 ): Uint8Array => {
+  if (
+    !Number.isInteger(uncompressedSize) ||
+    uncompressedSize < 0 ||
+    uncompressedSize > MAX_UNCOMPRESSED_SIZE
+  ) {
+    throw new Error(
+      `Invalid uncompressedSize for frame "${frameName}": ${uncompressedSize}`,
+    );
+  }
   const raw = lz4.decompress(compressed, uncompressedSize);
   if (!raw || !(raw as ArrayLike<number>).length)
     throw new Error(`lz4 decompression failed for frame "${frameName}"`);
@@ -146,7 +157,7 @@ const decodePoolFrame = (
   index: number,
   depth: number,
   memo: Map<number, Uint8Array>,
-  visited?: Set<number>,
+  visited: Set<number>,
 ): Uint8Array => {
   // Depth 65 (next recursive call passes depth === 65) exceeds the documented
   // 64-level recursion budget; deepest allowed entry is depth 64.
@@ -156,12 +167,10 @@ const decodePoolFrame = (
   const cached = memo.get(index);
   if (cached !== undefined) return cached;
 
-  if (visited) {
-    if (visited.has(index)) {
-      throw new Error(`Circular pool reference detected at index ${index}`);
-    }
-    visited.add(index);
+  if (visited.has(index)) {
+    throw new Error(`Circular pool reference detected at index ${index}`);
   }
+  visited.add(index);
 
   const item = pool[index];
   if (!item) throw new Error(`Pool index ${index} out of bounds`);
@@ -219,9 +228,7 @@ const decodePoolFrame = (
   }
 
   memo.set(index, result);
-  if (visited) {
-    visited.delete(index);
-  }
+  visited.delete(index);
   return result;
 };
 
@@ -244,11 +251,21 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
   // The manifest JSON may legally contain '$' inside strings (e.g. notes),
   // so we scan forward and attempt JSON.parse at each candidate until one
   // succeeds. The first valid JSON object is the manifest.
+  const MAX_HEADER_BYTES = 64 * 1024;
+  const headerLimit = Math.min(uint8.length, 4 + MAX_HEADER_BYTES);
   let dollarPos = 4; // skip "EIA^"
   let manifest: EIAManifestV1 | undefined;
-  while (dollarPos < uint8.length) {
-    while (dollarPos < uint8.length && uint8[dollarPos] !== 36) dollarPos++;
-    if (dollarPos >= uint8.length) break;
+  let parseAttempts = 0;
+  const MAX_PARSE_ATTEMPTS = 64;
+  while (dollarPos < headerLimit) {
+    while (dollarPos < headerLimit && uint8[dollarPos] !== 36) dollarPos++;
+    if (dollarPos >= headerLimit) break;
+    parseAttempts++;
+    if (parseAttempts > MAX_PARSE_ATTEMPTS) {
+      throw new Error(
+        "EIA manifest not found within parse attempt limit; '$' delimiter may be inside a string value",
+      );
+    }
     try {
       manifest = JSON.parse(
         textDecoder.decode(uint8.subarray(4, dollarPos)),
@@ -411,7 +428,10 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
       const compressed = base64ToUint8Array(b64);
       decompressed = lz4Decompress(compressed, item.u, item.n);
     } else {
-      throw new Error(`Unsupported compression: ${manifest.c}`);
+      // This path is unreachable because manifest.c is validated earlier
+      // to be either "lz4" or "lz4-base64", which sets exactly one of
+      // binarySection or textSection. Kept for TypeScript exhaustiveness.
+      throw new Error("Internal error: decompression path not selected");
     }
 
     const bpp =
@@ -526,13 +546,17 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
                 ref.y < 0 ||
                 ref.w <= 0 ||
                 ref.h <= 0 ||
-                ref.x + ref.w > item.w ||
-                ref.y + ref.h > item.h
+                ref.x >= item.w ||
+                ref.y >= item.h
               ) {
                 throw new Error(
                   `Animation ref ${refIndex} has invalid bounds: (${ref.x},${ref.y}) size ${ref.w}×${ref.h} for slide ${item.w}×${item.h}`,
                 );
               }
+
+              // Clip to slide bounds as required by spec §7.4
+              const clipW = Math.min(ref.w, item.w - ref.x);
+              const clipH = Math.min(ref.h, item.h - ref.y);
 
               // Validate that all frames in seq share the same dimensions/format
               const firstPoolItem = animationContainer.pool[anim.seq[0]];
@@ -570,8 +594,8 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
               return {
                 x: ref.x,
                 y: ref.y,
-                w: ref.w,
-                h: ref.h,
+                w: clipW,
+                h: clipH,
                 fps: anim.fps,
                 frames: animFrames,
               };
