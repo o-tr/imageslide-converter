@@ -323,11 +323,26 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
     throw new Error("Invalid manifest: 'i' must be an array");
   }
 
-  // Validate slide names are unique (spec §2.4.3)
+  // Validate slide names are unique (spec §2.4.3) and canonical integers
   const seenNames = new Set<string>();
+  const seenIndices = new Set<number>();
   for (const item of manifest.i) {
     if (seenNames.has(item.n)) {
       throw new Error(`Duplicate slide name "${item.n}" in manifest.i`);
+    }
+    const idx = Number(item.n);
+    if (item.n !== "" && Number.isInteger(idx) && String(idx) !== item.n) {
+      throw new Error(
+        `Non-canonical slide name "${item.n}": must not have leading zeros or signs`,
+      );
+    }
+    if (Number.isInteger(idx)) {
+      if (seenIndices.has(idx)) {
+        throw new Error(
+          `Duplicate slide index ${idx} from name "${item.n}" in manifest.i`,
+        );
+      }
+      seenIndices.add(idx);
     }
     seenNames.add(item.n);
   }
@@ -536,6 +551,9 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
                 );
               }
 
+              if (!Array.isArray(anim.seq)) {
+                throw new Error(`Animation "${anim.id}" seq must be an array`);
+              }
               if (anim.seq.length === 0) {
                 throw new Error(`Animation "${anim.id}" has empty seq`);
               }
