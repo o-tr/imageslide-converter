@@ -125,9 +125,8 @@ const applyRects = (
   }
 
   // Validate decompressed buffer size against total parts length (spec §8.3).
-  // This aggregate check is complementary to the per-rect bounds checks above:
-  // an overlapping rect layout could make the sum match while a specific rect
-  // still overflows, so both guards are necessary.
+  // This holds for both slide payloads and pool frames because both call sites
+  // decompress to `item.u`, and the encoder enforces `sum(r.l) === item.u`.
   const totalPartLength = rects.reduce((sum, r) => sum + r.l, 0);
   if (totalPartLength !== decompressed.length) {
     throw new Error(
@@ -268,7 +267,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
         textDecoder.decode(uint8.subarray(4, dollarPos)),
       ) as EIAManifestV1;
       if (candidate && candidate.t === "eia" && candidate.v !== undefined) {
-        unsupportedVersion = candidate.v;
+        if (unsupportedVersion === undefined) unsupportedVersion = candidate.v;
       }
       if (candidate && candidate.t === "eia" && candidate.v === 1) {
         manifest = candidate;

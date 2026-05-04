@@ -431,15 +431,7 @@ const compressEIAv1Part = async (
             buffer.push(compressed);
             animBufferLength += compressed.length;
           } else {
-            validateCroppedFrame(
-              frame,
-              originalIndex,
-              slideIndex,
-              animIndex,
-              frameW,
-              frameH,
-              bpp,
-            );
+            // Cropped frames were already fully validated in Pass 1.
             // baseIndex is an index into anim.frames (not newPoolFrames), and
             // framePoolIndices is built with the same anim.frames indexing.
             if (
