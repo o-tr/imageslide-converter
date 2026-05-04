@@ -87,6 +87,8 @@ type EIAManifestV1 = {
   f: string[];             // Features array
   e: EIAExtension[];       // Extensions array
   i: EIAFileV1[];          // Items array
+  m?: EIASignageManifest;  // Optional signage manifest
+  ac?: EIAAnimationContainer; // Optional animation container
 };
 ```
 

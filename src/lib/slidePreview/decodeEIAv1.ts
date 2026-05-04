@@ -101,17 +101,17 @@ const applyRects = (
 
   for (const rect of rects) {
     if (
-      !Number.isFinite(rect.x) ||
-      !Number.isFinite(rect.y) ||
-      !Number.isFinite(rect.w) ||
-      !Number.isFinite(rect.h) ||
+      !Number.isInteger(rect.x) ||
+      !Number.isInteger(rect.y) ||
+      !Number.isInteger(rect.w) ||
+      !Number.isInteger(rect.h) ||
       rect.x < 0 ||
       rect.y < 0 ||
       rect.w <= 0 ||
       rect.h <= 0
     ) {
       throw new Error(
-        `Rect has invalid geometry at (${rect.x},${rect.y}) size ${rect.w}×${rect.h}; expected x≥0, y≥0, w>0, h>0`,
+        `Rect has invalid geometry at (${rect.x},${rect.y}) size ${rect.w}×${rect.h}; expected x≥0, y≥0, w>0, h>0 (integers)`,
       );
     }
     if (rect.x + rect.w > baseWidth || rect.y + rect.h > baseHeight)
@@ -196,7 +196,7 @@ const decodePoolFrame = (
     // by future callers.
     result = new Uint8Array(decompressed);
   } else {
-    if (!Number.isFinite(item.b)) {
+    if (!Number.isInteger(item.b) || item.b < 0) {
       throw new Error(`Pool frame ${index} has invalid base index: ${item.b}`);
     }
     const baseItem = pool[item.b];
@@ -310,11 +310,14 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
           );
         }
       }
-    } else {
-      throw new Error(
-        "Animation pool decoding requires binarySection; lz4-base64 mode does not support animation pools",
-      );
     }
+    // When binarySection is absent (e.g. lz4-base64), pool frames cannot be
+    // decoded.  The per-slide e.a fallback further down skips animation
+    // decoding when poolDecoded is empty, so we simply leave it empty here.
+  }
+
+  if (!Array.isArray(manifest.i)) {
+    throw new Error("Invalid manifest: 'i' must be an array");
   }
 
   // Validate slide names are unique (spec §2.4.3)

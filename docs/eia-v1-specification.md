@@ -87,6 +87,8 @@ type EIAManifestV1 = {
   f: string[];             // 機能配列
   e: EIAExtension[];       // 拡張配列
   i: EIAFileV1[];          // アイテム配列
+  m?: EIASignageManifest;  // オプションのサイネージマニフェスト
+  ac?: EIAAnimationContainer; // オプションのアニメーションコンテナ
 };
 ```
 

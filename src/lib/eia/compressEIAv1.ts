@@ -197,8 +197,8 @@ const compressEIAv1Part = async (
 
       for (const rect of cropped.rects) {
         if (
-          !Number.isFinite(rect.x) ||
-          !Number.isFinite(rect.y) ||
+          !Number.isInteger(rect.x) ||
+          !Number.isInteger(rect.y) ||
           !Number.isInteger(rect.width) ||
           !Number.isInteger(rect.height) ||
           rect.x < 0 ||
@@ -434,6 +434,22 @@ const compressEIAv1Part = async (
             const fileBuffer: Buffer[] = [];
 
             for (const rect of frame.cropped.rects) {
+              if (
+                !Number.isInteger(rect.x) ||
+                !Number.isInteger(rect.y) ||
+                !Number.isInteger(rect.width) ||
+                !Number.isInteger(rect.height) ||
+                rect.x < 0 ||
+                rect.y < 0 ||
+                rect.width <= 0 ||
+                rect.height <= 0 ||
+                rect.x + rect.width > frameW ||
+                rect.y + rect.height > frameH
+              ) {
+                throw new Error(
+                  `Invalid rect geometry for animation frame ${originalIndex}: (${rect.x},${rect.y}) size ${rect.width}x${rect.height} exceeds frame ${frameW}x${frameH}`,
+                );
+              }
               const expectedBytes = rect.width * rect.height * bpp;
               if (rect.buffer.length !== expectedBytes) {
                 throw new Error(
