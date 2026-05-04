@@ -192,9 +192,22 @@ const decodePoolFrame = (
   }
   const compressed = binarySection.subarray(item.s, item.s + item.l);
   const decompressed = lz4Decompress(compressed, item.u, `pool_${index}`);
+  const bpp =
+    item.f === "RGBA32"
+      ? 4
+      : item.f === "RGB24"
+        ? 3
+        : (() => {
+            throw new Error(`Unsupported image format: "${item.f}"`);
+          })();
 
   let result: Uint8Array;
   if (item.t === "m") {
+    if (decompressed.length !== item.w * item.h * bpp) {
+      throw new Error(
+        `Pool master frame ${index} size mismatch: expected ${item.w * item.h * bpp}, got ${decompressed.length}`,
+      );
+    }
     // Keep memoized master frames isolated from accidental in-place mutation
     // by future callers.
     result = new Uint8Array(decompressed);
