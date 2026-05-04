@@ -259,6 +259,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
   const headerLimit = Math.min(uint8.length, 4 + MAX_HEADER_BYTES);
   let dollarPos = 4; // skip "EIA^"
   let manifest: EIAManifestV1 | undefined;
+  let unsupportedVersion: number | undefined;
   while (dollarPos < headerLimit) {
     while (dollarPos < headerLimit && uint8[dollarPos] !== 36) dollarPos++;
     if (dollarPos >= headerLimit) break;
@@ -266,6 +267,9 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
       const candidate = JSON.parse(
         textDecoder.decode(uint8.subarray(4, dollarPos)),
       ) as EIAManifestV1;
+      if (candidate && candidate.t === "eia" && candidate.v !== undefined) {
+        unsupportedVersion = candidate.v;
+      }
       if (candidate && candidate.t === "eia" && candidate.v === 1) {
         manifest = candidate;
         break;
@@ -276,6 +280,9 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
     dollarPos++;
   }
   if (!manifest) {
+    if (unsupportedVersion !== undefined) {
+      throw new Error(`Unsupported EIA version: ${unsupportedVersion}`);
+    }
     throw new Error("EIA file is malformed: manifest delimiter '$' not found");
   }
   if (manifest.c !== "lz4" && manifest.c !== "lz4-base64")
@@ -298,6 +305,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
         "Invalid animation container: pool and anims must be arrays",
       );
     }
+    // Spec §7.3 requires a non-empty pool/anims pair for animation containers.
     if (manifest.ac.pool.length === 0) {
       throw new Error("Animation container pool must not be empty");
     }
