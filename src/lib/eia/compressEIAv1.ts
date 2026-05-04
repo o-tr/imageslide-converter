@@ -418,6 +418,9 @@ const compressEIAv1Part = async (
                 `Invalid animation base frame index ${frame.cropped.baseIndex} at slide ${slideIndex}, animation ${animIndex}`,
               );
             }
+            // Explicit self-reference guard; pass-1 resolveAnimationFrame also
+            // catches this via `inProgress`, but the early throw here gives a
+            // clearer error message before any compression work begins.
             if (frame.cropped.baseIndex === originalIndex) {
               throw new Error(
                 `Animation frame ${originalIndex} references itself at slide ${slideIndex}, animation ${animIndex}`,

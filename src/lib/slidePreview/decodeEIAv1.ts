@@ -294,8 +294,11 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
         "Invalid animation container: pool and anims must be arrays",
       );
     }
-    if (manifest.ac.pool.length === 0 || manifest.ac.anims.length === 0) {
-      throw new Error("Animation container pool and anims must not be empty");
+    if (manifest.ac.pool.length === 0) {
+      throw new Error("Animation container pool must not be empty");
+    }
+    if (manifest.ac.anims.length === 0) {
+      throw new Error("Animation container anims must not be empty");
     }
     if (binarySection) {
       for (let i = 0; i < manifest.ac.pool.length; i++) {
