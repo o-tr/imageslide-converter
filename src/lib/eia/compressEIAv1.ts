@@ -439,30 +439,29 @@ const compressEIAv1Part = async (
 
         // Validate and clip animation ref bounds against slide dimensions
         const slide = data.find((d) => d.index === slideIndex);
-        if (slide) {
-          if (
-            !Number.isFinite(anim.x) ||
-            !Number.isFinite(anim.y) ||
-            !Number.isFinite(anim.w) ||
-            !Number.isFinite(anim.h) ||
-            anim.x < 0 ||
-            anim.y < 0 ||
-            anim.w <= 0 ||
-            anim.h <= 0 ||
-            anim.x >= slide.rect.width ||
-            anim.y >= slide.rect.height
-          ) {
-            throw new Error(
-              `Animation ref bounds invalid at slide ${slideIndex}, animation ${animIndex}: (${anim.x},${anim.y}) size ${anim.w}×${anim.h} for slide ${slide.rect.width}×${slide.rect.height}`,
-            );
-          }
+        if (!slide) {
+          throw new Error(
+            `Slide ${slideIndex} not found in data for animation ref validation`,
+          );
         }
-        const clipW = slide
-          ? Math.min(anim.w, slide.rect.width - anim.x)
-          : anim.w;
-        const clipH = slide
-          ? Math.min(anim.h, slide.rect.height - anim.y)
-          : anim.h;
+        if (
+          !Number.isFinite(anim.x) ||
+          !Number.isFinite(anim.y) ||
+          !Number.isFinite(anim.w) ||
+          !Number.isFinite(anim.h) ||
+          anim.x < 0 ||
+          anim.y < 0 ||
+          anim.w <= 0 ||
+          anim.h <= 0 ||
+          anim.x >= slide.rect.width ||
+          anim.y >= slide.rect.height
+        ) {
+          throw new Error(
+            `Animation ref bounds invalid at slide ${slideIndex}, animation ${animIndex}: (${anim.x},${anim.y}) size ${anim.w}×${anim.h} for slide ${slide.rect.width}×${slide.rect.height}`,
+          );
+        }
+        const clipW = Math.min(anim.w, slide.rect.width - anim.x);
+        const clipH = Math.min(anim.h, slide.rect.height - anim.y);
 
         anims.push({ id: animId, fps: anim.fps, seq });
         refs.push({ id: animId, x: anim.x, y: anim.y, w: clipW, h: clipH });

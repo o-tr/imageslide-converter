@@ -255,22 +255,17 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
   const headerLimit = Math.min(uint8.length, 4 + MAX_HEADER_BYTES);
   let dollarPos = 4; // skip "EIA^"
   let manifest: EIAManifestV1 | undefined;
-  let parseAttempts = 0;
-  const MAX_PARSE_ATTEMPTS = 64;
   while (dollarPos < headerLimit) {
     while (dollarPos < headerLimit && uint8[dollarPos] !== 36) dollarPos++;
     if (dollarPos >= headerLimit) break;
-    parseAttempts++;
-    if (parseAttempts > MAX_PARSE_ATTEMPTS) {
-      throw new Error(
-        "EIA manifest not found within parse attempt limit; '$' delimiter may be inside a string value",
-      );
-    }
     try {
-      manifest = JSON.parse(
+      const candidate = JSON.parse(
         textDecoder.decode(uint8.subarray(4, dollarPos)),
       ) as EIAManifestV1;
-      if (manifest && manifest.t === "eia" && manifest.v === 1) break;
+      if (candidate && candidate.t === "eia" && candidate.v === 1) {
+        manifest = candidate;
+        break;
+      }
     } catch {
       /* invalid JSON — '$' was inside a string value */
     }
