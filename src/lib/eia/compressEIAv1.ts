@@ -167,11 +167,51 @@ const compressEIAv1Part = async (
       bufferLength += compressed.length;
     } else {
       const cropped = image.cropped;
+      if (cropped.rects.length === 0) {
+        throw new Error(`Slide ${image.index} is cropped but has no rects`);
+      }
+      if (cropped.baseIndex === image.index) {
+        throw new Error(
+          `Slide ${image.index} references itself as a base image`,
+        );
+      }
+
+      // Detect crop reference cycles
+      const visitedIndices = new Set<number>();
+      let currentIndex: number | undefined = image.index;
+      while (currentIndex !== undefined) {
+        if (visitedIndices.has(currentIndex)) {
+          throw new Error(
+            `Circular crop reference detected involving slide ${image.index}`,
+          );
+        }
+        visitedIndices.add(currentIndex);
+        const currentImage = data.find((d) => d.index === currentIndex);
+        if (!currentImage || !currentImage.cropped) break;
+        currentIndex = currentImage.cropped.baseIndex;
+      }
+
       let fileBufferLength = 0;
       const fileBuffer: Buffer[] = [];
       const parts: EIAFileV1CroppedPart[] = [];
 
       for (const rect of cropped.rects) {
+        if (
+          !Number.isFinite(rect.x) ||
+          !Number.isFinite(rect.y) ||
+          !Number.isInteger(rect.width) ||
+          !Number.isInteger(rect.height) ||
+          rect.x < 0 ||
+          rect.y < 0 ||
+          rect.width <= 0 ||
+          rect.height <= 0 ||
+          rect.x + rect.width > image.rect.width ||
+          rect.y + rect.height > image.rect.height
+        ) {
+          throw new Error(
+            `Invalid rect geometry for slide ${image.index}: (${rect.x},${rect.y}) size ${rect.width}x${rect.height} exceeds frame ${image.rect.width}x${image.rect.height}`,
+          );
+        }
         const expectedBytes = rect.width * rect.height * bpp;
         if (rect.buffer.length !== expectedBytes) {
           throw new Error(
@@ -189,10 +229,6 @@ const compressEIAv1Part = async (
           l: rect.buffer.length,
         });
         fileBufferLength += rect.buffer.length;
-      }
-
-      if (cropped.rects.length === 0) {
-        throw new Error(`Slide ${image.index} is cropped but has no rects`);
       }
 
       const baseImage = data.find((d) => d.index === cropped.baseIndex);

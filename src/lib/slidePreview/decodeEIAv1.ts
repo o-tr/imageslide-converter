@@ -213,8 +213,8 @@ const decodePoolFrame = (
           `mismatch base ${item.b} (f=${baseItem.f}, w=${baseItem.w}, h=${baseItem.h})`,
       );
     }
-    if (item.r.length === 0) {
-      throw new Error(`Pool frame ${index} has empty rects`);
+    if (!item.r || item.r.length === 0) {
+      throw new Error(`Pool frame ${index} has empty or missing rects`);
     }
     const base = decodePoolFrame(
       pool,
@@ -274,8 +274,6 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
   if (!manifest) {
     throw new Error("EIA file is malformed: manifest delimiter '$' not found");
   }
-  if (manifest.v !== 1)
-    throw new Error(`Unsupported EIA version: ${manifest.v}`);
   if (manifest.c !== "lz4" && manifest.c !== "lz4-base64")
     throw new Error(`Unsupported compression: ${manifest.c}`);
   const dataOffset = dollarPos + 1;
@@ -312,6 +310,10 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
           );
         }
       }
+    } else {
+      throw new Error(
+        "Animation pool decoding requires binarySection; lz4-base64 mode does not support animation pools",
+      );
     }
   }
 
