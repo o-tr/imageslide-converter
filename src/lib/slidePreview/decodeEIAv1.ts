@@ -526,8 +526,8 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
                 ref.y < 0 ||
                 ref.w <= 0 ||
                 ref.h <= 0 ||
-                ref.x >= item.w ||
-                ref.y >= item.h
+                ref.x + ref.w > item.w ||
+                ref.y + ref.h > item.h
               ) {
                 throw new Error(
                   `Animation ref ${refIndex} has invalid bounds: (${ref.x},${ref.y}) size ${ref.w}×${ref.h} for slide ${item.w}×${item.h}`,
