@@ -50,6 +50,8 @@ export const compressEIAv1 = async (
   const calculatePartCount = (targetCount: number, targetStepSize: number) =>
     Math.ceil(data.length / (targetCount * targetStepSize)) * targetStepSize;
   const result: Buffer[] = [];
+  const imagesByIndex = new Map<number, RawImageObjV1Cropped>();
+  for (const image of data) imagesByIndex.set(image.index, image);
 
   for (let i = 0; i < count; i++) {
     const part = data.slice(i * partCount, (i + 1) * partCount);
@@ -199,7 +201,7 @@ const compressEIAv1Part = async (
           );
         }
         visitedIndices.add(currentIndex);
-        const currentImage = data.find((d) => d.index === currentIndex);
+        const currentImage = imagesByIndex.get(currentIndex);
         if (!currentImage || !currentImage.cropped) break;
         currentIndex = currentImage.cropped.baseIndex;
       }
@@ -244,7 +246,7 @@ const compressEIAv1Part = async (
         fileBufferLength += rect.buffer.length;
       }
 
-      const baseImage = data.find((d) => d.index === cropped.baseIndex);
+      const baseImage = imagesByIndex.get(cropped.baseIndex);
       if (!baseImage) {
         throw new Error(
           `Base image ${cropped.baseIndex} not found for slide ${image.index}`,

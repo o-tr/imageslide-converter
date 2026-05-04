@@ -330,9 +330,9 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
       throw new Error("Animation container anims must not be empty");
     }
     if (binarySection) {
-      const visited = new Set<number>();
       for (let i = 0; i < manifest.ac.pool.length; i++) {
         if (!poolDecoded.has(i)) {
+          const visited = new Set<number>();
           decodePoolFrame(
             manifest.ac.pool,
             binarySection,
