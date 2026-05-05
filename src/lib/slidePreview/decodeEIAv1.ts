@@ -551,125 +551,117 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
           `Slide "${item.n}" has animation refs but manifest.ac is missing`,
         );
       }
-      if (poolDecoded.size === 0) {
+      const refsField = item.e.a;
+      let animRefs: EIAAnimationRef[];
+      if (Array.isArray(refsField)) {
+        animRefs = refsField as EIAAnimationRef[];
+      } else if (typeof refsField === "string") {
         console.warn(
-          `Animation data for frame "${item.n}" cannot be decoded because no pool frames were decoded`,
+          `Slide "${item.n}" has legacy JSON-string animation refs in e.a; decode skipped (expected EIAAnimationRef[]).`,
         );
+        animRefs = [];
       } else {
-        const refsField = item.e.a;
-        let animRefs: EIAAnimationRef[];
-        if (Array.isArray(refsField)) {
-          animRefs = refsField as EIAAnimationRef[];
-        } else if (typeof refsField === "string") {
-          console.warn(
-            `Slide "${item.n}" has legacy JSON-string animation refs in e.a; decode skipped (expected EIAAnimationRef[]).`,
-          );
-          animRefs = [];
-        } else {
-          animRefs = [];
-        }
-        const animationContainer = manifest.ac;
-        const decodedAnimations = animRefs
-          .map((ref, refIndex): SlideAnimation | null => {
-            try {
-              const anim = animationContainer.anims.find(
-                (a) => a.id === ref.id,
+        animRefs = [];
+      }
+      const animationContainer = manifest.ac;
+      const decodedAnimations = animRefs
+        .map((ref, refIndex): SlideAnimation | null => {
+          try {
+            const anim = animationContainer.anims.find((a) => a.id === ref.id);
+            if (!anim) {
+              throw new Error(
+                `Animation id "${ref.id}" not found in manifest.ac.anims`,
               );
-              if (!anim) {
-                throw new Error(
-                  `Animation id "${ref.id}" not found in manifest.ac.anims`,
-                );
-              }
+            }
 
-              if (!(anim.fps > 0) || !Number.isFinite(anim.fps)) {
-                throw new Error(
-                  `Animation "${anim.id}" has invalid fps: ${anim.fps}`,
-                );
-              }
+            if (!(anim.fps > 0) || !Number.isFinite(anim.fps)) {
+              throw new Error(
+                `Animation "${anim.id}" has invalid fps: ${anim.fps}`,
+              );
+            }
 
-              if (!Array.isArray(anim.seq)) {
-                throw new Error(`Animation "${anim.id}" seq must be an array`);
-              }
-              if (anim.seq.length === 0) {
-                throw new Error(`Animation "${anim.id}" has empty seq`);
-              }
+            if (!Array.isArray(anim.seq)) {
+              throw new Error(`Animation "${anim.id}" seq must be an array`);
+            }
+            if (anim.seq.length === 0) {
+              throw new Error(`Animation "${anim.id}" has empty seq`);
+            }
 
+            if (
+              !Number.isInteger(ref.x) ||
+              !Number.isInteger(ref.y) ||
+              !Number.isInteger(ref.w) ||
+              !Number.isInteger(ref.h) ||
+              ref.x < 0 ||
+              ref.y < 0 ||
+              ref.w <= 0 ||
+              ref.h <= 0 ||
+              ref.x >= item.w ||
+              ref.y >= item.h
+            ) {
+              throw new Error(
+                `Animation ref ${refIndex} has invalid bounds: (${ref.x},${ref.y}) size ${ref.w}×${ref.h} for slide ${item.w}×${item.h}`,
+              );
+            }
+
+            // Clip to slide bounds as required by spec §7.4
+            const clipW = Math.min(ref.w, item.w - ref.x);
+            const clipH = Math.min(ref.h, item.h - ref.y);
+
+            // Validate that all frames in seq share the same dimensions/format
+            const firstPoolItem = animationContainer.pool[anim.seq[0]];
+            if (!firstPoolItem) {
+              throw new Error(`Invalid pool index ${anim.seq[0]} in seq`);
+            }
+            for (let si = 1; si < anim.seq.length; si++) {
+              const poolItem = animationContainer.pool[anim.seq[si]];
+              if (!poolItem) {
+                throw new Error(`Invalid pool index ${anim.seq[si]} in seq`);
+              }
               if (
-                !Number.isInteger(ref.x) ||
-                !Number.isInteger(ref.y) ||
-                !Number.isInteger(ref.w) ||
-                !Number.isInteger(ref.h) ||
-                ref.x < 0 ||
-                ref.y < 0 ||
-                ref.w <= 0 ||
-                ref.h <= 0 ||
-                ref.x >= item.w ||
-                ref.y >= item.h
+                poolItem.w !== firstPoolItem.w ||
+                poolItem.h !== firstPoolItem.h ||
+                poolItem.f !== firstPoolItem.f
               ) {
                 throw new Error(
-                  `Animation ref ${refIndex} has invalid bounds: (${ref.x},${ref.y}) size ${ref.w}×${ref.h} for slide ${item.w}×${item.h}`,
+                  `Frame dimension/format mismatch in seq at index ${si}`,
                 );
               }
-
-              // Clip to slide bounds as required by spec §7.4
-              const clipW = Math.min(ref.w, item.w - ref.x);
-              const clipH = Math.min(ref.h, item.h - ref.y);
-
-              // Validate that all frames in seq share the same dimensions/format
-              const firstPoolItem = animationContainer.pool[anim.seq[0]];
-              if (!firstPoolItem) {
-                throw new Error(`Invalid pool index ${anim.seq[0]} in seq`);
-              }
-              for (let si = 1; si < anim.seq.length; si++) {
-                const poolItem = animationContainer.pool[anim.seq[si]];
-                if (!poolItem) {
-                  throw new Error(`Invalid pool index ${anim.seq[si]} in seq`);
-                }
-                if (
-                  poolItem.w !== firstPoolItem.w ||
-                  poolItem.h !== firstPoolItem.h ||
-                  poolItem.f !== firstPoolItem.f
-                ) {
-                  throw new Error(
-                    `Frame dimension/format mismatch in seq at index ${si}`,
-                  );
-                }
-              }
-
-              const animFrames: ImageData[] = [];
-              for (const poolIdx of anim.seq) {
-                const frameData = poolDecoded.get(poolIdx);
-                if (!frameData) {
-                  throw new Error(`Pool frame ${poolIdx} not decoded`);
-                }
-                const poolItem = animationContainer.pool[poolIdx];
-                animFrames.push(
-                  rawToImageData(frameData, poolItem.w, poolItem.h, poolItem.f),
-                );
-              }
-
-              return {
-                x: ref.x,
-                y: ref.y,
-                w: clipW,
-                h: clipH,
-                fps: anim.fps,
-                frames: animFrames,
-              };
-            } catch (e) {
-              console.warn(
-                `Failed to decode animation ref index ${refIndex} for frame "${item.n}":`,
-                ref,
-                e,
-              );
-              return null;
             }
-          })
-          .filter((anim): anim is SlideAnimation => anim !== null);
 
-        if (decodedAnimations.length > 0) {
-          animations = decodedAnimations;
-        }
+            const animFrames: ImageData[] = [];
+            for (const poolIdx of anim.seq) {
+              const frameData = poolDecoded.get(poolIdx);
+              if (!frameData) {
+                throw new Error(`Pool frame ${poolIdx} not decoded`);
+              }
+              const poolItem = animationContainer.pool[poolIdx];
+              animFrames.push(
+                rawToImageData(frameData, poolItem.w, poolItem.h, poolItem.f),
+              );
+            }
+
+            return {
+              x: ref.x,
+              y: ref.y,
+              w: clipW,
+              h: clipH,
+              fps: anim.fps,
+              frames: animFrames,
+            };
+          } catch (e) {
+            console.warn(
+              `Failed to decode animation ref index ${refIndex} for frame "${item.n}":`,
+              ref,
+              e,
+            );
+            return null;
+          }
+        })
+        .filter((anim): anim is SlideAnimation => anim !== null);
+
+      if (decodedAnimations.length > 0) {
+        animations = decodedAnimations;
       }
     }
 
