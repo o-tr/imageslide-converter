@@ -333,10 +333,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
       throw new Error("Animation container anims must not be empty");
     }
     if (binarySection !== null || textSection !== null) {
-      const section = binarySection ?? textSection;
-      if (section === null) {
-        throw new Error("Internal error: animation pool section not selected");
-      }
+      const section = (binarySection ?? textSection) as Uint8Array | string;
       for (let i = 0; i < manifest.ac.pool.length; i++) {
         if (!poolDecoded.has(i)) {
           const visited = new Set<number>();
