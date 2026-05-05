@@ -332,9 +332,9 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
     if (manifest.ac.anims.length === 0) {
       throw new Error("Animation container anims must not be empty");
     }
-    if (binarySection || textSection) {
+    if (binarySection !== null || textSection !== null) {
       const section = binarySection ?? textSection;
-      if (!section) {
+      if (section === null) {
         throw new Error("Internal error: animation pool section not selected");
       }
       for (let i = 0; i < manifest.ac.pool.length; i++) {
