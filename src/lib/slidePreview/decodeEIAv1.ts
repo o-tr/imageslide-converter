@@ -278,6 +278,13 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
   while (dollarPos < headerLimit) {
     while (dollarPos < headerLimit && uint8[dollarPos] !== 36) dollarPos++;
     if (dollarPos >= headerLimit) break;
+    // The manifest is a JSON object, so the byte immediately before the
+    // delimiter '$' must be '}'. Filtering on this avoids repeated
+    // full-prefix JSON.parse attempts when note fields contain '$'.
+    if (uint8[dollarPos - 1] !== 0x7d) {
+      dollarPos++;
+      continue;
+    }
     try {
       const candidate = JSON.parse(
         textDecoder.decode(uint8.subarray(4, dollarPos)),
@@ -347,9 +354,11 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
     throw new Error("Invalid manifest: 'i' must be an array");
   }
 
-  // Validate slide names are unique (spec §2.4.3) and canonical integers
+  // Validate slide names are unique (spec §2.4.3) and canonical integers.
+  // Index uniqueness follows from name uniqueness + canonicality: two names
+  // mapping to the same canonical integer would be byte-identical strings,
+  // which seenNames already rejects.
   const seenNames = new Set<string>();
-  const seenIndices = new Set<number>();
   for (const item of manifest.i) {
     if (seenNames.has(item.n)) {
       throw new Error(`Duplicate slide name "${item.n}" in manifest.i`);
@@ -359,14 +368,6 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
       throw new Error(
         `Non-canonical slide name "${item.n}": must not have leading zeros or signs`,
       );
-    }
-    if (item.n !== "" && Number.isInteger(idx)) {
-      if (seenIndices.has(idx)) {
-        throw new Error(
-          `Duplicate slide index ${idx} from name "${item.n}" in manifest.i`,
-        );
-      }
-      seenIndices.add(idx);
     }
     seenNames.add(item.n);
   }
