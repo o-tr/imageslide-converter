@@ -309,15 +309,24 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
     throw new Error(`Unsupported compression: ${manifest.c}`);
   const dataOffset = dollarPos + 1;
 
-  // Decode the data section once, typed by compression method
+  // Decode the data section once, typed by compression method.
+  // manifest.c was validated above to be exactly "lz4" or "lz4-base64",
+  // so exactly one of binarySection/textSection is non-null.
   const binarySection =
     manifest.c === "lz4" ? uint8.subarray(dataOffset) : null;
   const textSection =
     manifest.c === "lz4-base64"
       ? textDecoder.decode(uint8.subarray(dataOffset))
       : null;
+  const dataSection: Uint8Array | string = (binarySection ?? textSection) as
+    | Uint8Array
+    | string;
 
-  // Pre-decode animation pool if present
+  // Validate animation pool structure if present. Pool frame *contents* are
+  // decoded lazily as anim.seq entries reference them (see below), so a pool
+  // frame that is never referenced by any animation is not required to
+  // decode successfully — matching the per-animation-ref tolerance enforced
+  // by the try/catch around each ref.
   const poolDecoded = new Map<number, Uint8Array>();
   if (manifest.ac) {
     if (!Array.isArray(manifest.ac.pool) || !Array.isArray(manifest.ac.anims)) {
@@ -332,24 +341,6 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
     if (manifest.ac.anims.length === 0) {
       throw new Error("Animation container anims must not be empty");
     }
-    if (binarySection !== null || textSection !== null) {
-      const section = (binarySection ?? textSection) as Uint8Array | string;
-      for (let i = 0; i < manifest.ac.pool.length; i++) {
-        if (!poolDecoded.has(i)) {
-          const visited = new Set<number>();
-          decodePoolFrame(
-            manifest.ac.pool,
-            section,
-            i,
-            0,
-            poolDecoded,
-            visited,
-          );
-        }
-      }
-    }
-    // When only textSection is available (lz4-base64), decode pool frames from
-    // the base64 text payload so animation previews still work.
   }
 
   if (!Array.isArray(manifest.i)) {
@@ -628,9 +619,16 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
 
             const animFrames: ImageData[] = [];
             for (const poolIdx of anim.seq) {
-              const frameData = poolDecoded.get(poolIdx);
+              let frameData = poolDecoded.get(poolIdx);
               if (!frameData) {
-                throw new Error(`Pool frame ${poolIdx} not decoded`);
+                frameData = decodePoolFrame(
+                  animationContainer.pool,
+                  dataSection,
+                  poolIdx,
+                  0,
+                  poolDecoded,
+                  new Set<number>(),
+                );
               }
               const poolItem = animationContainer.pool[poolIdx];
               animFrames.push(
