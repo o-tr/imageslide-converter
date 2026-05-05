@@ -72,19 +72,33 @@ export const compressEIAv1 = async (
       }
     }
     const partImages = data.filter((image) => partIndices.has(image.index));
+    const partImageSet = new Set(partImages.map((image) => image.index));
+    const partIndexMap = new Map(
+      partImages.map((image) => [image.index, image]),
+    );
+    const orderedPartImages: RawImageObjV1Cropped[] = [];
+    const orderedVisited = new Set<number>();
+    const visitImage = (index: number) => {
+      if (orderedVisited.has(index) || !partImageSet.has(index)) return;
+      orderedVisited.add(index);
+      const image = partIndexMap.get(index);
+      if (image?.cropped) visitImage(image.cropped.baseIndex);
+      orderedPartImages.push(image ?? (undefined as never));
+    };
+    for (const image of partImages) visitImage(image.index);
 
     // Build animation map for this part's indices
     let partAnimMap: Map<number, RawAnimationData[]> | undefined;
     if (animationMap) {
       partAnimMap = new Map();
-      for (const image of partImages) {
+      for (const image of orderedPartImages) {
         const anims = animationMap.get(image.index);
         if (anims) partAnimMap.set(image.index, anims);
       }
       if (partAnimMap.size === 0) partAnimMap = undefined;
     }
     const compressedPart = await compressEIAv1Part(
-      partImages,
+      orderedPartImages,
       signage,
       partAnimMap,
     );

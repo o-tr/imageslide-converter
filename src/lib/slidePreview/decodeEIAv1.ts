@@ -156,7 +156,7 @@ const applyRects = (
 
 const decodePoolFrame = (
   pool: EIAAnimFramePoolItem[],
-  binarySection: Uint8Array,
+  section: Uint8Array | string,
   index: number,
   depth: number,
   memo: Map<number, Uint8Array>,
@@ -183,14 +183,17 @@ const decodePoolFrame = (
     !Number.isFinite(item.l) ||
     item.s < 0 ||
     item.l < 0 ||
-    item.s + item.l > binarySection.length
+    item.s + item.l > section.length
   ) {
     throw new Error(
       `Pool frame ${index} data out of bounds: offset ${item.s} + length ${item.l} ` +
-        `exceeds binary section size ${binarySection.length}`,
+        `exceeds ${typeof section === "string" ? "text" : "binary"} section size ${section.length}`,
     );
   }
-  const compressed = binarySection.subarray(item.s, item.s + item.l);
+  const compressed =
+    typeof section === "string"
+      ? base64ToUint8Array(section.substring(item.s, item.s + item.l))
+      : section.subarray(item.s, item.s + item.l);
   const decompressed = lz4Decompress(compressed, item.u, `pool_${index}`);
   const bpp =
     item.f === "RGBA32"
@@ -234,7 +237,7 @@ const decodePoolFrame = (
     }
     const base = decodePoolFrame(
       pool,
-      binarySection,
+      section,
       item.b,
       depth + 1,
       memo,
@@ -329,13 +332,17 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
     if (manifest.ac.anims.length === 0) {
       throw new Error("Animation container anims must not be empty");
     }
-    if (binarySection) {
+    if (binarySection || textSection) {
+      const section = binarySection ?? textSection;
+      if (!section) {
+        throw new Error("Internal error: animation pool section not selected");
+      }
       for (let i = 0; i < manifest.ac.pool.length; i++) {
         if (!poolDecoded.has(i)) {
           const visited = new Set<number>();
           decodePoolFrame(
             manifest.ac.pool,
-            binarySection,
+            section,
             i,
             0,
             poolDecoded,
@@ -344,9 +351,8 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
         }
       }
     }
-    // When binarySection is absent (e.g. lz4-base64), pool frames cannot be
-    // decoded.  The per-slide e.a fallback further down skips animation
-    // decoding when poolDecoded is empty, so we simply leave it empty here.
+    // When only textSection is available (lz4-base64), decode pool frames from
+    // the base64 text payload so animation previews still work.
   }
 
   if (!Array.isArray(manifest.i)) {
@@ -545,9 +551,9 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
           `Slide "${item.n}" has animation refs but manifest.ac is missing`,
         );
       }
-      if (binarySection === null) {
+      if (poolDecoded.size === 0) {
         console.warn(
-          `Animation data for frame "${item.n}" cannot be decoded under lz4-base64 compression`,
+          `Animation data for frame "${item.n}" cannot be decoded because no pool frames were decoded`,
         );
       } else {
         const refsField = item.e.a;
