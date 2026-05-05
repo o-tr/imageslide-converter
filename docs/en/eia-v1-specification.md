@@ -25,6 +25,17 @@ EIA v1 files are identified by:
 - Version number: `1`
 - Compression method: `"lz4"`
 
+### 1.3.1 Non-standard Extension: lz4-base64
+
+Some implementations may use a `"lz4-base64"` compression method for text-based transport or embedding. This is an extension of the standard specification and differs from `"lz4"` in the following ways:
+
+- Each block in the data section is LZ4-compressed and then Base64-encoded
+- `manifest.c` becomes `"lz4-base64"`
+- `file.l` represents the **character length** after Base64 encoding (whereas standard `"lz4"` uses compressed byte length)
+- Animation pool (`ac`) decoding cannot be performed in the standard way because no binary section exists; implementations using this extension must account for this limitation
+
+To maximize standard compatibility, `"lz4"` is recommended for new files.
+
 ## 2. File Structure
 
 ### 2.1 Overall Structure
@@ -70,21 +81,23 @@ The manifest is a JSON object with the following required fields:
 
 ```typescript
 type EIAManifestV1 = {
-  t: "eia";           // Type identifier (MUST be "eia")
-  c: "lz4";           // Compression method (MUST be "lz4")
-  v: 1;               // Version number (always 1)
-  f: string[];        // Features array
-  e: EIAExtension[];  // Extensions array
-  i: EIAFileV1[];     // Items array
-  m?: EIASignageManifest; // Optional signage manifest
+  t: "eia";                // Type identifier (MUST be "eia")
+  c: "lz4" | "lz4-base64"; // Compression method (standard is "lz4"; see §1.3.1 for the non-standard "lz4-base64" extension)
+  v: 1;                    // Version number (always 1)
+  f: string[];             // Features array
+  e: EIAExtension[];       // Extensions array
+  i: EIAFileV1[];          // Items array
+  m?: EIASignageManifest;  // Optional signage manifest
   ac?: EIAAnimationContainer; // Optional animation container
-}
+};
 ```
 
 **Version number:**
 - `1`: EIA v1 (the only valid value)
 
 Manifests that include the `ac` field are treated as a v1-compatible extension and do not require bumping `v`.
+
+When `c` is `"lz4-base64"`, `file.l` represents post-Base64 character length and animation pool decoding is constrained (see §1.3.1).
 
 #### 2.4.1 Features Array
 
