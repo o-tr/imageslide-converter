@@ -541,17 +541,12 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
         );
       }
       const refsField = item.e.a;
-      let animRefs: EIAAnimationRef[];
-      if (Array.isArray(refsField)) {
-        animRefs = refsField as EIAAnimationRef[];
-      } else if (typeof refsField === "string") {
-        console.warn(
-          `Slide "${item.n}" has legacy JSON-string animation refs in e.a; decode skipped (expected EIAAnimationRef[]).`,
+      if (!Array.isArray(refsField)) {
+        throw new Error(
+          `Slide "${item.n}" has invalid e.a: expected EIAAnimationRef[], got ${typeof refsField}`,
         );
-        animRefs = [];
-      } else {
-        animRefs = [];
       }
+      const animRefs = refsField as EIAAnimationRef[];
       const animationContainer = manifest.ac;
       const decodedAnimations = animRefs
         .map((ref, refIndex): SlideAnimation | null => {
