@@ -9,6 +9,7 @@ export const s3NormalClient = new S3Client({
   region: "auto",
   endpoint: S3_NORMAL_ENDPOINT,
   forcePathStyle: true,
+  requestChecksumCalculation: "WHEN_REQUIRED",
   credentials: {
     accessKeyId: S3_NORMAL_ACCESS_KEY,
     secretAccessKey: S3_NORMAL_SECRET_KEY,
