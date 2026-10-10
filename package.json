@@ -1,6 +1,6 @@
 {
   "name": "image-slide-converter",
-  "version": "0.0.18",
+  "version": "0.0.19",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -71,6 +71,8 @@
       "cookie@<0.7.0": ">=0.7.0",
       "source-map-js@<1.2.2": "1.2.2"
     },
-    "ignoredBuiltDependencies": ["sharp"]
+    "ignoredBuiltDependencies": [
+      "sharp"
+    ]
   }
 }
