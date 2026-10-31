@@ -1,5 +1,9 @@
 import type { RawImageObjV1CroppedPart } from "@/_types/text-zip/v1";
 import { compressLz4Best } from "./lz4Search";
+import {
+  type Lz4SizeBoundWorkspace,
+  lz4FrameSizeLowerBound,
+} from "./lz4SizeBound";
 
 /**
  * Per-conversion cache. Inputs and rectangle arrays must stay immutable until
@@ -11,8 +15,13 @@ export class EiaCompressionCache {
     RawImageObjV1CroppedPart[],
     Uint8Array
   >();
+  private readonly sizeBoundWorkspace: Lz4SizeBoundWorkspace = {};
 
   constructor(private readonly encode = compressLz4Best) {}
+
+  frameSizeLowerBound(input: Uint8Array, stopAt: number): number {
+    return lz4FrameSizeLowerBound(input, stopAt, this.sizeBoundWorkspace);
+  }
 
   compressImage(input: Uint8Array): Uint8Array {
     const cached = this.images.get(input);

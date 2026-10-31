@@ -7,6 +7,7 @@ import { optimizeBoundingBox } from "@/lib/crop/optimizeBoundingBox";
 import { shrinkOverlapBoundingBox } from "@/lib/crop/shrinkOverlapBoundingBox";
 import type { EiaCompressionCache } from "@/lib/eia/compressionCache";
 import { compressLz4Best } from "@/lib/eia/lz4Search";
+import { lz4FrameSizeLowerBound } from "@/lib/eia/lz4SizeBound";
 import { computeThumbnail } from "./computeThumbnail";
 import { type ParentCandidate, selectBestParent } from "./selectBestParent";
 
@@ -226,25 +227,69 @@ export const cropImages = (
         offset += rect.buffer.length;
         return part;
       });
-      const masterLength = (
-        options.compressionCache?.compressImage(currentImage.buffer) ??
-        compressLz4Best(currentImage.buffer)
-      ).length;
       const deltaLength = (
         options.compressionCache?.compressRects(rects, payload) ??
         compressLz4Best(payload)
       ).length;
       // The braces in this JSON have the same size as the two field separators
       // introduced into the item; l and u may also change decimal width.
-      const deltaOverhead =
+      const deltaFixedCost =
+        deltaLength +
         Buffer.byteLength(
           JSON.stringify({ b: `${bestParent.parent.index}`, r: parts }),
         ) +
         String(deltaLength).length -
-        String(masterLength).length +
         String(payload.length).length -
         String(currentImage.buffer.length).length;
-      if (masterLength <= deltaLength + deltaOverhead) {
+      // Every standard LZ4 input byte accounts for at most 255 decoded bytes:
+      // length extensions contribute at most 255 each, while a token's
+      // implicit literal and match lengths total at most 34. Thus this is a
+      // conservative lower bound even for an optimally compressed master.
+      // Adding its decimal digit count is monotonic, so a delta below this
+      // bound wins without compressing the full image merely to compare it.
+      const minimumMasterLength = Math.ceil(currentImage.buffer.length / 255);
+      let certainlyDelta =
+        minimumMasterLength + String(minimumMasterLength).length >
+        deltaFixedCost;
+      // A sequence with no matching four-byte prefix in the prior LZ4 window
+      // also contributes to a conservative size bound. Avoid even scanning
+      // when that bound could not possibly prove the delta smaller.
+      const maximumUnique = Math.max(0, currentImage.buffer.length - 3);
+      if (
+        !certainlyDelta &&
+        maximumUnique + String(maximumUnique).length > deltaFixedCost
+      ) {
+        // Find the first lower bound whose value plus decimal digit count
+        // exceeds the delta cost; this also lets the scan stop when that
+        // target is provably unreachable.
+        let stopAt = Math.max(
+          1,
+          deltaFixedCost - String(deltaFixedCost).length + 1,
+        );
+        while (stopAt + String(stopAt).length <= deltaFixedCost) stopAt++;
+        while (
+          stopAt > 1 &&
+          stopAt - 1 + String(stopAt - 1).length > deltaFixedCost
+        )
+          stopAt--;
+        const strongerBound =
+          options.compressionCache?.frameSizeLowerBound(
+            currentImage.buffer,
+            stopAt,
+          ) ?? lz4FrameSizeLowerBound(currentImage.buffer, stopAt);
+        certainlyDelta =
+          strongerBound + String(strongerBound).length > deltaFixedCost;
+      }
+      const masterLength = certainlyDelta
+        ? undefined
+        : (
+            options.compressionCache?.compressImage(currentImage.buffer) ??
+            compressLz4Best(currentImage.buffer)
+          ).length;
+      if (
+        masterLength !== undefined &&
+        masterLength + String(masterLength).length <= deltaFixedCost
+      ) {
         addAsMaster(currentImage, currentThumbnail, i);
         evictOldEntries(i);
         continue;

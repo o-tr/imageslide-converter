@@ -2,7 +2,6 @@ import type { Rect } from "@/_types/text-zip";
 import type { RawImageObjV1, RawImageObjV1Cropped } from "@/_types/text-zip/v1";
 import { rgb242diff } from "@/lib/rawImage2Diff/rgb242diff";
 import { computeThumbnailSimilarity } from "./computeThumbnailSimilarity";
-import { countDiffPixels } from "./countDiffPixels";
 
 export type ParentCandidate = {
   index: number;
@@ -62,13 +61,18 @@ export const selectBestParent = (
       buffer: buffer,
     };
 
-    const diff = rgb242diff(parentProxy, currentImage);
-    const diffCount = countDiffPixels(diff);
+    // An equal score retains the earlier parent, so this candidate can be
+    // discarded as soon as it reaches the current best count.
+    const stats = { count: 0, stopAt: bestDiffCount };
+    const diff = rgb242diff(parentProxy, currentImage, stats);
+    const diffCount = stats.count;
     evaluated++;
 
     if (diffCount < bestDiffCount) {
       bestDiffCount = diffCount;
       bestResult = { parent: candidate, diff };
+      // Counts cannot be negative, and equal scores retain the first parent.
+      if (diffCount === 0) break;
     }
   }
 

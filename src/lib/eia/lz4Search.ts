@@ -12,27 +12,54 @@ const BLOCK_SIZE = 4 * 1024 * 1024;
 const WINDOW = 65536;
 const SEARCH_DEPTH = 64;
 const HEADER = [4, 34, 77, 24, 64, 112, 223];
+const POWER_SHIFT = 11;
+const POWER_STRIDE = 1 << POWER_SHIFT;
+const FULL_POWER_LIMIT = 1024 * 1024;
+const LOW_POWERS = new Uint32Array(POWER_STRIDE);
+LOW_POWERS[0] = 1;
+for (let i = 1; i < LOW_POWERS.length; i++) {
+  LOW_POWERS[i] = Math.imul(LOW_POWERS[i - 1], 257) >>> 0;
+}
+
+type PowerTable = {
+  maxLength: number;
+  values: Uint32Array;
+  split: boolean;
+};
 
 type MatchContext = {
   words: DataView;
   prefix: Uint32Array;
-  powers: Uint32Array;
+  powers: PowerTable;
 };
 
 function createMatchContext(
   input: Uint8Array,
-  sharedPowers?: Uint32Array,
+  sharedPowers?: PowerTable,
 ): MatchContext {
   const prefix = new Uint32Array(input.length + 1);
-  const powers =
-    sharedPowers && sharedPowers.length > input.length
-      ? sharedPowers
-      : new Uint32Array(input.length + 1);
-  const makePowers = powers !== sharedPowers;
-  if (makePowers) powers[0] = 1;
+  let powers = sharedPowers;
+  let newFull: Uint32Array | undefined;
+  if (!powers || powers.maxLength < input.length) {
+    if (input.length <= FULL_POWER_LIMIT) {
+      newFull = new Uint32Array(input.length + 1);
+      newFull[0] = 1;
+      powers = { maxLength: input.length, values: newFull, split: false };
+    } else {
+      // 257^n = 257^(q * 2048) * 257^r (mod 2^32). Storing the
+      // quotient and remainder tables needs about 16 KiB for a 4 MiB block.
+      const high = new Uint32Array((input.length >>> POWER_SHIFT) + 1);
+      high[0] = 1;
+      const stride = Math.imul(LOW_POWERS[POWER_STRIDE - 1], 257) >>> 0;
+      for (let i = 1; i < high.length; i++) {
+        high[i] = Math.imul(high[i - 1], stride) >>> 0;
+      }
+      powers = { maxLength: input.length, values: high, split: true };
+    }
+  }
   for (let i = 0; i < input.length; i++) {
     prefix[i + 1] = (Math.imul(prefix[i], 257) + input[i]) >>> 0;
-    if (makePowers) powers[i + 1] = Math.imul(powers[i], 257) >>> 0;
+    if (newFull) newFull[i + 1] = Math.imul(newFull[i], 257) >>> 0;
   }
   return {
     words: new DataView(input.buffer, input.byteOffset, input.byteLength),
@@ -54,8 +81,23 @@ function compressBlock(
   const { words, prefix, powers } = context;
   // Hash mismatches prove a prefix differs; hash matches are still checked
   // byte-for-byte, so collisions cannot change the compressed output.
-  const rangeHash = (start: number, length: number) =>
-    (prefix[start + length] - Math.imul(prefix[start], powers[length])) >>> 0;
+  // Comparing the difference of the two hashes needs one multiplication
+  // rather than calculating each hash separately, modulo 2^32.
+  const values = powers.values;
+  const sameRange = powers.split
+    ? (left: number, right: number, length: number) => {
+        const power = Math.imul(
+          values[length >>> POWER_SHIFT],
+          LOW_POWERS[length & (POWER_STRIDE - 1)],
+        );
+        return (
+          (prefix[left + length] - prefix[right + length]) >>> 0 ===
+          Math.imul(prefix[left] - prefix[right], power) >>> 0
+        );
+      }
+    : (left: number, right: number, length: number) =>
+        (prefix[left + length] - prefix[right + length]) >>> 0 ===
+        Math.imul(prefix[left] - prefix[right], values[length]) >>> 0;
   const output = new Uint8Array(end + Math.ceil(end / 255) + 32);
   const heads = new Int32Array(WINDOW);
   const previous = new Int32Array(WINDOW);
@@ -106,7 +148,7 @@ function compressBlock(
         // A mismatch here cannot tie or improve the best length already found.
         (bestLength <= 4 ||
           (input[candidate + bestLength - 1] === input[at + bestLength - 1] &&
-            rangeHash(candidate, bestLength) === rangeHash(at, bestLength)))
+            sameRange(candidate, at, bestLength)))
       ) {
         let length = 4;
         while (
@@ -422,8 +464,16 @@ export function compressLz4Best(input: Uint8Array): Uint8Array {
         }
       }
     }
-    best = mergeLz4Literals(best, input, sizeLimit, (candidate) =>
-      vmCost(decodeWork(candidate)),
+    // Match indices are no longer used by the literal post-pass. Release
+    // references before it allocates its own per-match working state.
+    contexts.clear();
+    best = mergeLz4Literals(
+      best,
+      input,
+      sizeLimit,
+      (candidate) => vmCost(decodeWork(candidate)),
+      vmCost,
+      { linkedBoundary: input.length > BLOCK_SIZE, extendMatches: true },
     );
   }
   return best;

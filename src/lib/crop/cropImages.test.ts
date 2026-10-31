@@ -98,6 +98,41 @@ describe("EIA crop selection", () => {
     }
   });
 
+  it("skips full-image compression when a delta is provably smaller", () => {
+    const pixels = randomImage(1234, 256 * 256 * 3);
+    for (const change of [false, true]) {
+      const second = Buffer.from(pixels);
+      if (change) second[(128 * 256 + 128) * 3] ^= 255;
+      const encode = vi.fn((value: Uint8Array) => lz4.compress(value));
+      const cache = new EiaCompressionCache(encode);
+      const output = cropImages(
+        [image(0, pixels, 256, 256), image(1, second, 256, 256)],
+        { optimizeEia: true, compressionCache: cache },
+      );
+      expect(output[1].cropped?.baseIndex).toBe(0);
+      expect(encode).toHaveBeenCalledTimes(1);
+      expect(encode.mock.calls[0][0].length).toBeLessThan(pixels.length);
+    }
+  });
+
+  it("uses the stronger match-history bound for a larger image delta", () => {
+    const pixels = randomImage(9876, 256 * 256 * 3);
+    const changed = Buffer.from(pixels);
+    for (let y = 96; y < 136; y++)
+      for (let x = 96; x < 136; x++) changed[(y * 256 + x) * 3] ^= 255;
+    const encode = vi.fn((value: Uint8Array) => lz4.compress(value));
+    const output = cropImages(
+      [image(0, pixels, 256, 256), image(1, changed, 256, 256)],
+      { optimizeEia: true, compressionCache: new EiaCompressionCache(encode) },
+    );
+    expect(output[1].cropped?.baseIndex).toBe(0);
+    expect(encode).toHaveBeenCalledTimes(1);
+    // This delta is too large for the inexpensive expansion-ratio bound.
+    expect(encode.mock.calls[0][0].length).toBeGreaterThan(
+      Math.ceil(pixels.length / 255),
+    );
+  });
+
   it("uses a master when a small compressed image beats a delta plus its metadata", () => {
     const original = Buffer.alloc(32 * 32 * 3, 0);
     const changed = Buffer.from(original);

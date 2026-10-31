@@ -37,6 +37,77 @@ The existing keyframe and maximum reference-depth limits still apply. The
 existing color-difference threshold is unchanged; a threshold-suppressed but
 non-identical image is not replaced by the no-op delta.
 
+When comparing a delta with a master, a conservative LZ4 expansion bound can
+prove that the delta wins before encoding the master: a compressed byte can
+account for at most 255 decoded bytes, including the implicit lengths in a
+token. The comparison also accounts for the decimal widths of the metadata.
+If the bound is inconclusive the master is compressed and compared normally.
+Thus the same parent or master is selected without always compressing both.
+In 60 synthetic comparisons against the preceding crop implementation, using
+lz4js to encode payloads, every selection was identical. For two identical
+256×256 random RGB images with the production encoder, seven warmed,
+alternating Node runs had median crop-stage CPU times of 103.2 → 1.4 ms.
+This measurement excludes later serialization, rendering and the compression
+of the first image; the saving depends on the source and parent selection.
+When the expansion bound alone is inconclusive, a second conservative bound
+counts four-byte prefixes with no matching hash in the preceding 65,535-byte
+window. Such positions must be literal bytes, except for at most the final
+three bytes of each match, which are covered by that match's token and offset
+bytes. Hash collisions can only weaken the bound. The scan stops early once
+the bound proves the delta wins, and reuses a bounded (at most 1 MiB) hash
+table within a conversion. It also stops when even treating every remaining
+prefix as unique could not reach the target. Across the
+same 60 synthetic selections, the old implementation encoded 120 payloads
+and the two bounds reduced this to 80, without changing any selection. The
+bound was also checked against valid frames on 2,500 synthetic inputs and all
+28 private payloads. It applies to the converter's frames without an external
+dictionary; if inconclusive, normal master compression still runs. For a
+synthetic 256×256 random RGB image with a changed 40×40 region, seven warmed
+alternating Node runs using the production encoder measured crop-stage CPU
+times of 138.6 → 9.8 ms. This excludes later serialization and the first
+image's compression; results depend on the images and delta.
+The prefix count is combined with the expansion bound: if decoded length is
+`N` and the conservative unmatched-prefix count is `U`, frame size is at
+least `U + ceil(max(0, 3N - 19U) / 765)`. This follows by accounting for at
+least three encoded bytes per match, at most 19 implicit matched bytes per
+match, and at most 255 decoded bytes per remaining length-extension byte.
+On one 4.95 MB private input, a 35,000-byte proof target was inconclusive
+with the prefix count alone (26,693) but reached 35,143 with the combined
+bound; seven warmed alternating Node batches of ten scans had median CPU
+times of 11.4 → 6.7 ms because the combined scan stopped earlier. The
+saved work depends on the target and data distribution.
+A prototype also combined three-byte and four-byte uniqueness bounds. It
+tightened the bound on 26 of the 28 private payloads, but required another
+bounded hash table and scan. In 60 synthetic crop selections it did not prove
+any additional delta winner beyond the existing bound, so it was not enabled.
+This is a bounded workload observation rather than a proof that it cannot
+help other inputs.
+Parent selection also stops evaluating candidates once the changed-pixel
+count is zero: no later candidate can improve that score, and the existing
+tie policy keeps the first. The RGB diff scan now follows row-major buffer
+order. A 200-case comparison across differing image dimensions matched the
+previous masks byte-for-byte. For a synthetic 1920×1080 pair, seven warmed
+alternating Node runs had median diff-stage CPU times of 8.8 → 6.9 ms; this
+does not include parent selection, compression, or browser overhead.
+Counting changed pixels is now fused into that scan rather than rereading the
+mask. In a separate seven-run alternating Node comparison on the same synthetic
+dimensions, the row-major diff plus counting took 9.7 → 9.1 ms median CPU
+time. These are individual local measurements, not end-to-end timings.
+When checking later parent candidates, the scan can also stop as soon as its
+changed-pixel count reaches the current best: a tie keeps the existing
+parent, and a larger count cannot win. Such a partial mask is discarded.
+Across 120 synthetic candidate sets and four top-K values, parent choices and
+winning masks matched the complete-scan implementation. With a good first
+parent followed by two dissimilar candidates at 1920×1080, seven warmed
+alternating Node runs had median parent-selection CPU times of 24.6 → 9.4 ms;
+three tied candidates measured 26.8 → 24.3 ms. Real slides and browsers may
+behave differently.
+The thumbnail averaging loop also advances a byte offset across each row
+instead of recomputing it for every pixel. It produced identical thumbnail
+bytes in 300 synthetic dimension/grid combinations. On a synthetic
+1920×1080 image, nine warmed alternating Node measurements had median CPU
+times of 2.49 → 2.36 ms for thumbnail generation alone.
+
 ## Measurement (2026-11-01)
 
 Four frames from an existing private EIA archive were independently decoded
@@ -192,6 +263,75 @@ Those experiments establish diminishing returns for these samples, not a
 mathematical optimum. Conversion can take substantially longer because the
 decoder is prioritized over encoder time.
 
+### Zero-byte match elimination
+
+After the budgeted literal merge, a second pass checks whether removing a
+short match can merge adjacent literals without increasing the LZ4 frame size.
+It accounts for token and length-extension bytes and the decoder's sequence,
+copy and extension work. A removal can make a neighboring match free, so the
+pass revisits that neighbor. The final frame is kept only when its measured
+cost decreases and its length does not increase. This adds two temporary
+32-bit link arrays per compressed block, proportional to its match count.
+Only four-byte matches need examining: combining two literal lengths can
+remove at most one extension byte, so replacing a longer match necessarily
+increases the encoded size. Narrowing the pass this way preserved output on
+the 28-frame corpus and 1,000 synthetic cases. In three private-frame Node
+measurements, five warmed alternating batches of ten passes gave median CPU
+times of 0.65 → 0.49 ms, 5.07 → 4.58 ms, and 2.75 → 2.53 ms per pass.
+
+For the same 28 private frames, five changed and none grew. The actual
+udon-rs instruction count across the corpus fell from 846,604,261 to
+843,076,795 (0.42%); the five changed frames individually fell by 0.12% to
+3.71%. Their ten before/after frames were also decoded byte-for-byte with
+liblz4 and the original UdonSharp decoder in Unity 2022.3.22f1 / Worlds SDK
+3.6.1. A further 1,000 synthetic cases round-tripped without increasing the
+estimated cost or size. On one changed private frame the additional pass
+used a median 10.4 ms of Node CPU time across seven warmed runs. Actual
+encoding overhead and decoder improvements depend on input and environment.
+
+The frame header already sets the LZ4 block-independence flag to zero. In a
+later compressed block, if its first literal and its offset-one match repeat
+the previous block's last byte, the match can start one byte earlier. The
+existing [LZ4 frame specification](https://github.com/lz4/lz4/blob/dev/doc/lz4_Frame_format.md)
+permits references to the preceding window for linked blocks. This rewrite is
+performed in the same post-pass as zero-byte match elimination and accepted
+only when the frame is no larger and the estimated cost decreases. Three
+full-HD payloads in the 28-frame corpus each became one byte smaller. liblz4
+and the udon-rs probe decoded all six before/after frames exactly, as did the
+original UdonSharp decoder in Unity 2022.3.22f1 / Worlds SDK 3.6.1. udon-rs
+instruction counts were unchanged, so no decoder speedup is claimed.
+
+### Extending matches into preceding literals
+
+After zero-byte match removal, each retained match can be extended backwards
+when the preceding bytes agree at the same offset. Its end remains fixed, so
+later matches retain their positions. The pass considers only extensions that
+do not increase the encoded size, decoder copy count, or length-extension
+byte count; it then checks the complete frame before accepting it. Linked
+blocks may use preceding block history, and the usual final literal and match
+constraints remain satisfied.
+
+Compared with the zero-byte and boundary passes, all 28 private frames became
+smaller: 7,324,091 → 7,322,649 bytes in total. The udon-rs count was
+843,076,795 → 843,073,843 instructions, with no individual increase in this
+corpus. The original UdonSharp decoder and liblz4 both recovered all 28
+payloads exactly. Tests also covered 1,872 constructed combinations around
+match, offset and length-extension boundaries. In five warmed alternating
+Node batches of ten post-passes on four private inputs, median CPU times were
+1.33 → 1.89, 6.26 → 7.21, 6.25 → 7.88 and 2.59 → 3.48 ms per pass. These
+measurements exclude the preceding match searches and do not establish
+browser or end-to-end performance.
+
+The budgeted merge and the subsequent zero-byte/boundary rewrites share their
+parsed match records rather than decoding the frame structure a second time.
+The selected frame's block headers are checked because a block may become raw
+after the budgeted merge. Combined and separate passes produced identical
+output for 32 private frames under four budgets each. On one match-heavy frame
+with 5,000 spare bytes, five warmed alternating Node batches of five passes
+had median post-pass CPU times of 56.3 → 42.0 ms. Four smaller private inputs
+varied by roughly 0–0.5 ms in either direction; these measurements exclude the
+preceding candidate searches and are not browser measurements.
+
 ### Original UdonSharp decoder
 
 The 28 final frames were also decoded by the original UdonSharp UdonLZ4
@@ -236,3 +376,82 @@ On one private slide payload, two CPU-time comparisons in opposite order
 were 32.1 → 34.6 seconds and 36.9 → 37.3 seconds. This sample did not show
 an improvement; the check itself and measurement variation have a cost when
 few searches can be skipped. The measurements do not represent all slides.
+
+For match-search blocks larger than 1 MiB, powers of the rolling-hash base are
+stored as separate quotient and remainder tables. Their product gives the
+same 32-bit power; the hash comparison is rearranged algebraically and still
+verifies matching bytes. The tables need about 16 KiB rather than 16 MiB for a
+4 MiB block. Smaller blocks keep a full table to favor CPU time. All 4,194,305
+possible powers through 4 MiB were checked exactly, as were 500 synthetic
+encodings and three private frames. One isolated Node run of the 4.95 MB
+input's 64-depth search had peak RSS of 124,948 → 108,568 KiB; this is not a
+browser-memory measurement. Single full-encoder CPU comparisons on three
+private inputs were 34.1 → 32.1, 41.9 → 41.6 and 43.6 → 43.9 seconds. CPU
+time varies with input and runtime, and the last sample was slightly slower.
+In reverse-order measurements, two inputs showed 47.3 vs 36.1 and 61.5 vs
+42.6 seconds (new vs old), while separate concurrent cold processes for the
+first input measured 40.6/41.4 seconds new and 42.2/42.3 seconds old. The
+order and environment effects prevent a firm CPU-time conclusion.
+
+### Measuring literal-merge candidates without allocating frames
+
+The literal-merge post-pass now calculates the encoded size of each binary
+search candidate without allocating its frame. For the production decoder
+cost model, it also counts the candidate's sequence dispatches, copy calls and
+extension bytes directly, and encodes only the selected result. The generic
+callback path still encodes candidates before calling an arbitrary scorer.
+The size and scoring checks preserve the previous search and tie behavior.
+
+For 28 private frames, four size budgets per frame and the production cost
+model produced byte-identical output to the preceding implementation. The
+size-only path was also checked with 4,200 randomized candidate comparisons,
+and the work-counting path with 3,500 randomized comparisons. On three of
+those private inputs with 5,000 spare bytes, seven warmed alternating Node
+measurements had median post-pass CPU times of 13.1 → 2.2 ms, 8.1 → 2.7 ms,
+and 125.4 → 49.2 ms. This measures the post-pass alone with that budget;
+complete compression can still take much longer, and device results vary.
+
+The selected frame is written directly into its final buffer using the block
+sizes already measured for candidate selection. This avoids allocating a
+raw-block-sized temporary buffer for every compressed block and copying the
+encoded payload a second time. The frame bytes matched the preceding writer
+in 128 comparisons over 32 private frames and four size budgets. In one Node
+memory observation on a 2.46 MB input with two frame writes, the increase in
+`arrayBuffers` was about 7.0 MB before and 2.0 MB after; this is not a peak
+browser-memory measurement. On three private inputs, warmed alternating Node
+batches measured post-pass CPU times of 3.20 → 2.30 ms, 1.71 → 1.93 ms, and
+49.1 → 52.4 ms. The latter two samples traded some CPU time for less temporary
+buffer allocation; whole-conversion results can differ.
+
+An exploratory offset-remapping pass examined all 37,703 overlapping matches
+of at most 64 bytes in the same 28 outputs. For each match it searched up to
+256 earlier positions in a four-byte hash chain for an equivalent match that
+would require fewer doubling-copy calls. It found no improvement in this
+corpus. This bounded experiment does not rule out improvements from deeper
+searches, other inputs, or longer matches; the pass was not enabled.
+
+A separate tie-break experiment preferred the shorter frame when two deep
+search candidates had exactly the same estimated decoder cost. It changed no
+output on 500 small synthetic inputs. Because this result does not establish a
+benefit on representative slides, and changing the intermediate parse can
+affect the later literal-merge choice, the production selection remains
+unchanged.
+
+A 16-bit rolling-hash prefilter was also tested. Exact byte comparison still
+preserved output, but collisions increased encoder CPU time: two private
+inputs took 34.0 → 38.1 and 42.5 → 46.5 seconds, and a crafted collision-heavy
+input took 70 → 133 ms. It was not adopted. These are individual Node
+measurements rather than a complete browser benchmark.
+
+A forward-extension experiment checked whether an existing match could be
+extended into the literals that follow it without increasing either decoder
+copies or extension bytes. It found no opportunities in the 28 current
+frames, consistent with the encoder already extending matches forwards until
+they differ. The extra pass was not enabled; this result does not rule out
+opportunities in frames produced by other encoders.
+
+Caching the current match's rolling-hash value was also tried as a way to
+reduce hash arithmetic. The prototype preserved the output on 500 short
+inputs, but one representative private payload used 46.2 seconds of Node CPU
+time versus 34.8 seconds without the cache. The experiment was stopped and
+not adopted; the measurement is a single sample, not a browser benchmark.

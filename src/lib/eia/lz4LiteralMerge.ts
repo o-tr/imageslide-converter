@@ -7,7 +7,18 @@ type Match = {
   rank: number;
   priority: number;
 };
-type Block = { start: number; end: number; raw: boolean; matches: Match[] };
+type Block = {
+  start: number;
+  end: number;
+  raw: boolean;
+  payloadLength: number;
+  matches: Match[];
+};
+export type Lz4DecodeWork = {
+  sequences: number;
+  copies: number;
+  extensions: number;
+};
 
 const HEADER = [4, 34, 77, 24, 64, 112, 223];
 
@@ -33,12 +44,14 @@ function parseFrame(
       start: written,
       end: 0,
       raw: !!(header & 0x80000000),
+      payloadLength: end - position,
       matches: [],
     };
     if (block.raw) {
       written += end - position;
       position = end;
     } else {
+      let hasLiteralTail = false;
       const readLength = (initial: number): number | undefined => {
         let length = initial;
         if (initial === 15) {
@@ -57,7 +70,10 @@ function parseFrame(
         if (literal === undefined || position + literal > end) return;
         position += literal;
         written += literal;
-        if (position === end) break;
+        if (position === end) {
+          hasLiteralTail = true;
+          break;
+        }
         if (position + 2 > end) return;
         const offset = view.getUint16(position, true);
         position += 2;
@@ -74,6 +90,7 @@ function parseFrame(
         });
         written += length;
       }
+      if (!hasLiteralTail) return;
     }
     if (written > expectedLength) return;
     block.end = written;
@@ -82,76 +99,171 @@ function parseFrame(
   return;
 }
 
+const lengthBytes = (length: number) =>
+  length < 15 ? 0 : Math.floor((length - 15) / 255) + 1;
+
+function encodedBlockLength(block: Block, removeCount: number): number {
+  let length = 0;
+  let anchor = block.start;
+  for (const match of block.matches) {
+    if (match.rank < removeCount) continue;
+    const literal = match.start - anchor;
+    length +=
+      1 + lengthBytes(literal) + literal + 2 + lengthBytes(match.length - 4);
+    anchor = match.start + match.length;
+  }
+  const tail = block.end - anchor;
+  return length + 1 + lengthBytes(tail) + tail;
+}
+
+function currentPayloadLengths(blocks: Block[]): Uint32Array {
+  const lengths = new Uint32Array(blocks.length);
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    lengths[i] = Math.min(block.payloadLength, block.end - block.start);
+  }
+  return lengths;
+}
+
 function encodeBlocks(
   blocks: Block[],
   input: Uint8Array,
   removeCount: number,
+  measuredLengths?: Uint32Array,
 ): Uint8Array {
-  const parts: Uint8Array[] = [Uint8Array.from(HEADER)];
+  const lengths = measuredLengths ?? new Uint32Array(blocks.length);
   let total = HEADER.length + 4;
-  for (const block of blocks) {
-    const original = input.subarray(block.start, block.end);
-    if (block.raw) {
-      const header = new Uint8Array(4);
-      new DataView(header.buffer).setUint32(
-        0,
-        (original.length | 0x80000000) >>> 0,
-        true,
-      );
-      parts.push(header, original);
-      total += 4 + original.length;
+  for (let i = 0; i < blocks.length; i++) {
+    if (!measuredLengths) {
+      const block = blocks[i];
+      const rawLength = block.end - block.start;
+      const compressedLength = block.raw
+        ? rawLength
+        : encodedBlockLength(block, removeCount);
+      lengths[i] = compressedLength < rawLength ? compressedLength : rawLength;
+    }
+    total += 4 + lengths[i];
+  }
+
+  // Write directly into the final frame; no full-size intermediate buffer or
+  // second payload copy is needed for each compressed block.
+  const frame = new Uint8Array(total);
+  frame.set(HEADER);
+  const view = new DataView(frame.buffer);
+  let position = HEADER.length;
+  const writeLength = (value: number) => {
+    let remaining = value;
+    while (remaining >= 255) {
+      frame[position++] = 255;
+      remaining -= 255;
+    }
+    frame[position++] = remaining;
+  };
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    const rawLength = block.end - block.start;
+    const compressed = !block.raw && lengths[i] < rawLength;
+    view.setUint32(
+      position,
+      compressed ? lengths[i] : (rawLength | 0x80000000) >>> 0,
+      true,
+    );
+    position += 4;
+    if (!compressed) {
+      frame.set(input.subarray(block.start, block.end), position);
+      position += rawLength;
       continue;
     }
-    const encoded = new Uint8Array(
-      original.length + Math.ceil(original.length / 255) + 32,
-    );
-    let position = 0;
     let anchor = block.start;
-    const writeLength = (value: number) => {
-      let remaining = value;
-      while (remaining >= 255) {
-        encoded[position++] = 255;
-        remaining -= 255;
-      }
-      encoded[position++] = remaining;
-    };
     for (const match of block.matches) {
       if (match.rank < removeCount) continue;
       const literal = match.start - anchor;
       const matchCode = match.length - 4;
-      encoded[position++] =
+      frame[position++] =
         (Math.min(literal, 15) << 4) | Math.min(matchCode, 15);
       if (literal >= 15) writeLength(literal - 15);
-      encoded.set(input.subarray(anchor, match.start), position);
+      frame.set(input.subarray(anchor, match.start), position);
       position += literal;
-      encoded[position++] = match.offset & 255;
-      encoded[position++] = match.offset >>> 8;
+      frame[position++] = match.offset & 255;
+      frame[position++] = match.offset >>> 8;
       if (matchCode >= 15) writeLength(matchCode - 15);
       anchor = match.start + match.length;
     }
     const tail = block.end - anchor;
-    encoded[position++] = Math.min(tail, 15) << 4;
+    frame[position++] = Math.min(tail, 15) << 4;
     if (tail >= 15) writeLength(tail - 15);
-    encoded.set(input.subarray(anchor, block.end), position);
+    frame.set(input.subarray(anchor, block.end), position);
     position += tail;
-    const compressed = position < original.length;
-    const payload = compressed ? encoded.subarray(0, position) : original;
-    const header = new Uint8Array(4);
-    new DataView(header.buffer).setUint32(
-      0,
-      compressed ? position : (original.length | 0x80000000) >>> 0,
-      true,
-    );
-    parts.push(header, payload);
-    total += 4 + payload.length;
-  }
-  const frame = new Uint8Array(total);
-  let position = 0;
-  for (const part of parts) {
-    frame.set(part, position);
-    position += part.length;
   }
   return frame;
+}
+
+// Binary-search probes only need the encoded size, not the frame bytes. Avoid
+// allocating and copying all literals for each probe; final candidates still
+// go through encodeBlocks and the caller's normal decoder-cost function.
+function measureBlocks(
+  blocks: Block[],
+  removeCount: number,
+  lengths?: Uint32Array,
+): number {
+  let total = HEADER.length + 4;
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    const rawLength = block.end - block.start;
+    const length = block.raw
+      ? rawLength
+      : Math.min(encodedBlockLength(block, removeCount), rawLength);
+    if (lengths) lengths[i] = length;
+    total += 4 + length;
+  }
+  return total;
+}
+
+// The production decoder-cost model counts these operations from an encoded
+// frame. Count the same operations directly while considering a candidate so
+// only the chosen frame needs to be materialized.
+function measureWork(blocks: Block[], removeCount: number): Lz4DecodeWork {
+  const result = { sequences: 0, copies: 0, extensions: 0 };
+  const lengthBytes = (length: number) =>
+    length < 15 ? 0 : Math.floor((length - 15) / 255) + 1;
+  for (const block of blocks) {
+    if (block.raw) {
+      result.copies++;
+      continue;
+    }
+    let length = 0;
+    let anchor = block.start;
+    let sequences = 0;
+    let copies = 0;
+    let extensions = 0;
+    for (const match of block.matches) {
+      if (match.rank < removeCount) continue;
+      const literal = match.start - anchor;
+      const extra = lengthBytes(literal) + lengthBytes(match.length - 4);
+      length += 1 + extra + literal + 2;
+      extensions += extra;
+      sequences++;
+      if (literal) copies++;
+      let copied = Math.min(match.offset, match.length);
+      copies++;
+      while (copied < match.length) {
+        copied += Math.min(copied, match.length - copied);
+        copies++;
+      }
+      anchor = match.start + match.length;
+    }
+    const tail = block.end - anchor;
+    const extra = lengthBytes(tail);
+    length += 1 + extra + tail;
+    if (length >= block.end - block.start) {
+      result.copies++;
+    } else {
+      result.sequences += sequences + 1;
+      result.copies += copies + (tail ? 1 : 0);
+      result.extensions += extensions + extra;
+    }
+  }
+  return result;
 }
 
 /**
@@ -163,13 +275,36 @@ export function mergeLz4Literals(
   input: Uint8Array,
   sizeLimit: number,
   estimateCost: (candidate: Uint8Array) => number,
+  estimateWork?: (work: Lz4DecodeWork) => number,
+  followUp?: { linkedBoundary: boolean; extendMatches?: boolean },
 ): Uint8Array {
   const blocks = parseFrame(frame, input.length);
-  if (!blocks || frame.length > sizeLimit) return frame;
+  if (!blocks) return frame;
+  if (frame.length > sizeLimit)
+    return followUp
+      ? mergeZeroFromBlocks(
+          blocks,
+          frame,
+          input,
+          estimateCost,
+          followUp.linkedBoundary,
+          followUp.extendMatches ?? false,
+        )
+      : frame;
   const ranked = blocks
     .flatMap((block) => block.matches)
     .filter((match) => match.length <= 64);
-  if (!ranked.length) return frame;
+  if (!ranked.length)
+    return followUp
+      ? mergeZeroFromBlocks(
+          blocks,
+          frame,
+          input,
+          estimateCost,
+          followUp.linkedBoundary,
+          followUp.extendMatches ?? false,
+        )
+      : frame;
   for (const match of ranked) {
     let copied = Math.min(match.offset, match.length);
     let copies = 1;
@@ -188,8 +323,7 @@ export function mergeLz4Literals(
   let high = ranked.length;
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);
-    const candidate = encodeBlocks(blocks, input, middle);
-    if (candidate.length <= sizeLimit) {
+    if (measureBlocks(blocks, middle) <= sizeLimit) {
       low = middle;
     } else {
       high = middle - 1;
@@ -197,18 +331,321 @@ export function mergeLz4Literals(
   }
   let best = frame;
   let bestCost = estimateCost(frame);
+  let bestCount = 0;
+  let bestLengths: Uint32Array | undefined;
   for (
     let count = Math.max(1, low - 2);
     count <= Math.min(ranked.length, low + 2);
     count++
   ) {
-    const candidate = encodeBlocks(blocks, input, count);
-    if (candidate.length > sizeLimit) continue;
-    const cost = estimateCost(candidate);
+    const lengths = new Uint32Array(blocks.length);
+    if (measureBlocks(blocks, count, lengths) > sizeLimit) continue;
+    const candidate = estimateWork
+      ? undefined
+      : encodeBlocks(blocks, input, count, lengths);
+    const cost = estimateWork
+      ? estimateWork(measureWork(blocks, count))
+      : estimateCost(candidate ?? encodeBlocks(blocks, input, count, lengths));
     if (cost < bestCost) {
-      best = candidate;
+      if (candidate) best = candidate;
+      bestCount = count;
+      bestLengths = lengths;
       bestCost = cost;
     }
   }
-  return best;
+  const selected =
+    estimateWork && bestCount
+      ? encodeBlocks(blocks, input, bestCount, bestLengths)
+      : best;
+  if (!followUp) return selected;
+  // Reuse the parsed matches for the follow-up pass. An encoded candidate can
+  // switch an incompressible block to raw, so inspect the selected headers and
+  // discard matches from such blocks before applying any further rewrites.
+  if (!prepareSelectedBlocks(blocks, selected, bestCount))
+    return optimizeLz4Matches(
+      selected,
+      input,
+      estimateCost,
+      followUp.linkedBoundary,
+      followUp.extendMatches ?? false,
+    );
+  return mergeZeroFromBlocks(
+    blocks,
+    selected,
+    input,
+    estimateCost,
+    followUp.linkedBoundary,
+    followUp.extendMatches ?? false,
+  );
+}
+
+function prepareSelectedBlocks(
+  blocks: Block[],
+  frame: Uint8Array,
+  removeCount: number,
+): boolean {
+  const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
+  let position = HEADER.length;
+  for (const block of blocks) {
+    if (position + 4 > frame.length) return false;
+    const header = view.getUint32(position, true);
+    if (header === 0) return false;
+    position += 4 + (header & 0x7fffffff);
+    if (position > frame.length) return false;
+    block.raw = !!(header & 0x80000000);
+    block.payloadLength = header & 0x7fffffff;
+    const matches = block.matches;
+    let kept = 0;
+    if (!block.raw) {
+      for (const match of matches) {
+        if (match.rank < removeCount) continue;
+        match.rank = Number.POSITIVE_INFINITY;
+        matches[kept++] = match;
+      }
+    }
+    matches.length = kept;
+  }
+  return position + 4 === frame.length && view.getUint32(position, true) === 0;
+}
+
+function mergeZeroFromBlocks(
+  blocks: Block[],
+  frame: Uint8Array,
+  input: Uint8Array,
+  estimateCost: (candidate: Uint8Array) => number,
+  includeLinkedBoundary: boolean,
+  extendMatches: boolean,
+): Uint8Array {
+  const lengthBytes = (length: number) =>
+    length < 15 ? 0 : Math.floor((length - 15) / 255) + 1;
+  let removed = 0;
+
+  for (const block of blocks) {
+    const matches = block.matches;
+    if (block.raw || !matches.some((match) => match.length === 4)) continue;
+    const previous = new Int32Array(matches.length);
+    const next = new Int32Array(matches.length);
+    for (let i = 0; i < matches.length; i++) {
+      previous[i] = i - 1;
+      next[i] = i + 1;
+    }
+    let i = 0;
+    while (i < matches.length) {
+      const match = matches[i];
+      const before = previous[i];
+      const after = next[i];
+      // Combining two literal lengths can save at most one extension byte.
+      // A match longer than four bytes therefore always increases the frame
+      // when converted to literals, even after its own extension is removed.
+      if (match.length !== 4) {
+        i = after;
+        continue;
+      }
+      const left =
+        match.start -
+        (before >= 0
+          ? matches[before].start + matches[before].length
+          : block.start);
+      const right =
+        (after < matches.length ? matches[after].start : block.end) -
+        (match.start + match.length);
+      const merged = left + match.length + right;
+      const oldExtra = lengthBytes(left) + lengthBytes(right);
+      const newExtra = lengthBytes(merged);
+      const sizeDelta = 1 - oldExtra + newExtra;
+      if (sizeDelta === 0) {
+        match.rank = 0;
+        removed++;
+        if (before >= 0) next[before] = after;
+        if (after < matches.length) previous[after] = before;
+        // A removal can make its preceding match free as well.
+        i = before >= 0 ? before : after;
+      } else {
+        i = after;
+      }
+    }
+  }
+  const extended =
+    extendMatches &&
+    extendMatchesBackward(blocks, input, includeLinkedBoundary);
+  const linked =
+    includeLinkedBoundary && shiftLinkedBoundaries(blocks, input, 1);
+  if (!removed && !extended && !linked) return frame;
+  const candidate = encodeBlocks(
+    blocks,
+    input,
+    1,
+    currentPayloadLengths(blocks),
+  );
+  if (candidate.length > frame.length) return frame;
+  const candidateCost = estimateCost(candidate);
+  const originalCost = estimateCost(frame);
+  return candidateCost < originalCost ||
+    (candidateCost === originalCost && candidate.length < frame.length)
+    ? candidate
+    : frame;
+}
+
+function optimizeLz4Matches(
+  frame: Uint8Array,
+  input: Uint8Array,
+  estimateCost: (candidate: Uint8Array) => number,
+  includeLinkedBoundary = false,
+  extendMatches = false,
+): Uint8Array {
+  const blocks = parseFrame(frame, input.length);
+  return blocks
+    ? mergeZeroFromBlocks(
+        blocks,
+        frame,
+        input,
+        estimateCost,
+        includeLinkedBoundary,
+        extendMatches,
+      )
+    : frame;
+}
+
+/** Remove additional short matches when merging them costs no encoded bytes. */
+export function mergeZeroCostMatches(
+  frame: Uint8Array,
+  input: Uint8Array,
+  estimateCost: (candidate: Uint8Array) => number,
+  includeLinkedBoundary = false,
+): Uint8Array {
+  return optimizeLz4Matches(frame, input, estimateCost, includeLinkedBoundary);
+}
+
+// Extend a match backwards into its preceding literals when the bytes agree.
+// The match end stays fixed, so every later offset and match remains valid.
+function extendMatchesBackward(
+  blocks: Block[],
+  input: Uint8Array,
+  allowCrossBlock: boolean,
+): boolean {
+  const lengthBytes = (length: number) =>
+    length < 15 ? 0 : Math.floor((length - 15) / 255) + 1;
+  let changed = false;
+  for (const block of blocks) {
+    if (block.raw) continue;
+    let anchor = block.start;
+    const sourceLimit = allowCrossBlock ? 0 : block.start;
+    for (const match of block.matches) {
+      if (match.rank < 1) continue;
+      const literals = match.start - anchor;
+      const lastLiteral = match.start - 1;
+      const previousByte = lastLiteral - match.offset;
+      if (
+        literals === 0 ||
+        previousByte < sourceLimit ||
+        input[lastLiteral] !== input[previousByte]
+      ) {
+        anchor = match.start + match.length;
+        continue;
+      }
+      const originalLength = match.length;
+      const originalExtra =
+        lengthBytes(literals) + lengthBytes(originalLength - 4);
+      let capacity = match.offset;
+      let copies = 1;
+      while (capacity < originalLength) {
+        capacity *= 2;
+        copies++;
+      }
+      const originalCopies = copies;
+      let bestLength = 0;
+      let bestCostDelta = 0;
+      let bestSizeDelta = 0;
+      for (let length = 1; length <= literals; length++) {
+        const target = match.start - length;
+        const source = target - match.offset;
+        if (source < sourceLimit || input[target] !== input[source]) break;
+        const matchLength = originalLength + length;
+        if (matchLength > capacity) {
+          capacity *= 2;
+          copies++;
+        }
+        const extraDelta =
+          lengthBytes(literals - length) +
+          lengthBytes(matchLength - 4) -
+          originalExtra;
+        const copyDelta =
+          copies -
+          originalCopies +
+          (literals - length > 0 ? 1 : 0) -
+          (literals > 0 ? 1 : 0);
+        const costDelta = 2 * copyDelta + extraDelta;
+        const sizeDelta = -length + extraDelta;
+        if (
+          sizeDelta <= 0 &&
+          extraDelta <= 0 &&
+          copyDelta <= 0 &&
+          (costDelta < bestCostDelta ||
+            (costDelta === bestCostDelta && sizeDelta < bestSizeDelta))
+        ) {
+          bestLength = length;
+          bestCostDelta = costDelta;
+          bestSizeDelta = sizeDelta;
+        }
+      }
+      if (bestLength) {
+        match.start -= bestLength;
+        match.length += bestLength;
+        block.payloadLength += bestSizeDelta;
+        changed = true;
+      }
+      anchor = match.start + match.length;
+    }
+  }
+  return changed;
+}
+
+function shiftLinkedBoundaries(
+  blocks: Block[],
+  input: Uint8Array,
+  removeCount: number,
+): boolean {
+  let changed = false;
+  for (let i = 1; i < blocks.length; i++) {
+    const block = blocks[i];
+    const match = block.matches.find((item) => item.rank >= removeCount);
+    if (
+      !block.raw &&
+      match &&
+      block.start > 0 &&
+      match.start === block.start + 1 &&
+      match.offset === 1 &&
+      // Crossing a match-length extension boundary can add VM work even
+      // though removing the literal saves a native copy.
+      lengthBytes(match.length - 3) === lengthBytes(match.length - 4) &&
+      input[block.start - 1] === input[block.start]
+    ) {
+      block.payloadLength +=
+        -1 + lengthBytes(match.length - 3) - lengthBytes(match.length - 4);
+      match.start--;
+      match.length++;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/** Reuse the previous block's last byte for an equivalent offset-one match. */
+export function mergeLinkedBoundaryMatches(
+  frame: Uint8Array,
+  input: Uint8Array,
+  estimateCost: (candidate: Uint8Array) => number,
+): Uint8Array {
+  const blocks = parseFrame(frame, input.length);
+  if (!blocks || !shiftLinkedBoundaries(blocks, input, 0)) return frame;
+  const candidate = encodeBlocks(
+    blocks,
+    input,
+    0,
+    currentPayloadLengths(blocks),
+  );
+  return candidate.length <= frame.length &&
+    estimateCost(candidate) < estimateCost(frame)
+    ? candidate
+    : frame;
 }

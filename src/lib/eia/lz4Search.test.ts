@@ -21,6 +21,36 @@ function randomBytes(length: number, seed: number) {
 }
 
 describe("LZ4 search encoder", () => {
+  it("preserves match choices on both sides of the power-table threshold", () => {
+    const cases = [
+      [
+        1048576,
+        "12b5c869b4184f9374bef3ae05f8fa9c1bdf7c89cb67202ac90918aa60ff1757",
+      ],
+      [
+        1048577,
+        "37ac8aecdafe0ccfd7b337d9edaa08ecd8b72704223f01e97c7c74a34c58e85a",
+      ],
+    ] as const;
+    for (const [size, digest] of cases) {
+      const data = new Uint8Array(size);
+      let state = 19;
+      for (let i = 0; i < size; i++) {
+        state ^= state << 13;
+        state ^= state >>> 17;
+        state ^= state << 5;
+        const value = state >>> 0;
+        data[i] =
+          i > 128 && (value >>> 5) % 5
+            ? data[i - 1 - ((value >>> 8) % 128)]
+            : value & 15;
+      }
+      expect(
+        createHash("sha256").update(compressLz4Search(data)).digest("hex"),
+      ).toBe(digest);
+    }
+  });
+
   it("preserves candidate selection when deeper searches are redundant", () => {
     const digests = [
       "9310994f48d5f544eeec35aa1754bf52b44a12a3b0f0a06bc5beb7a7ad336d01",
@@ -179,6 +209,9 @@ describe("LZ4 search encoder", () => {
     const data = randomBytes(4 * 1024 * 1024 + 1024, 42);
     data.set(data.subarray(0, 1024), 4 * 1024 * 1024);
     const encoded = compressLz4Search(data);
+    expect(createHash("sha256").update(encoded).digest("hex")).toBe(
+      "0a7678830ea12b3c580c940bc24943260e4172d025c51665c472d230aa07284a",
+    );
     expect(
       Buffer.from(lz4.decompress(encoded, data.length)).equals(
         Buffer.from(data),

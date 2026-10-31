@@ -23,8 +23,8 @@ export const computeThumbnail = (
       let count = 0;
 
       for (let y = y0; y < y1; y++) {
-        for (let x = x0; x < x1; x++) {
-          const idx = (y * width + x) * 3;
+        let idx = (y * width + x0) * 3;
+        for (let x = x0; x < x1; x++, idx += 3) {
           sumR += buffer[idx];
           sumG += buffer[idx + 1];
           sumB += buffer[idx + 2];
