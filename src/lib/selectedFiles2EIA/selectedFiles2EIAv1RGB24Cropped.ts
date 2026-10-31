@@ -6,6 +6,7 @@ import type { RawImageObjV1, RawImageObjV1Cropped } from "@/_types/text-zip/v1";
 import { IMAGE_FORMAT_RGB24 } from "@/const/imageFormat";
 import { canvas2rgb24 } from "@/lib/canvas2rawImage/canvas2rgb24";
 import { compressEIAv1 } from "@/lib/eia/compressEIAv1";
+import { EiaCompressionCache } from "@/lib/eia/compressionCache";
 import { cropImages } from "../crop/cropImages";
 
 const keyframeInterval = 10;
@@ -62,7 +63,13 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
     `before compress size: ${rawImages.reduce((acc, cur) => acc + cur.buffer.length, 0)}`,
   );
 
-  const croppedImages = cropImages(rawImages, { keyframeInterval, onProgress });
+  const compressionCache = new EiaCompressionCache();
+  const croppedImages = cropImages(rawImages, {
+    keyframeInterval,
+    onProgress,
+    optimizeEia: true,
+    compressionCache,
+  });
   console.log(
     `after compress size: ${croppedImages.reduce((acc, cur) => acc + (cur.cropped ? cur.cropped.rects.reduce((acc, cur) => acc + cur.buffer.length, 0) : cur.buffer.length), 0)}`,
   );
@@ -93,6 +100,8 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
             keyframeInterval,
             parentSearchWindow: 5,
             parentSearchTopK: 1,
+            optimizeEia: true,
+            compressionCache,
           });
         if (!cachedFrames) {
           animationCache.set(animHash, croppedAnimFrames);
@@ -120,5 +129,6 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
     1,
     keyframeInterval,
     animationMap,
+    compressionCache,
   );
 };

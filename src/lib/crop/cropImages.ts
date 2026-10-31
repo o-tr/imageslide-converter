@@ -5,6 +5,8 @@ import { diff2boundingBox } from "@/lib/crop/diff2boundingBox";
 import { mergeOverlapBoundingBox } from "@/lib/crop/mergeOverlapBoundingBox";
 import { optimizeBoundingBox } from "@/lib/crop/optimizeBoundingBox";
 import { shrinkOverlapBoundingBox } from "@/lib/crop/shrinkOverlapBoundingBox";
+import type { EiaCompressionCache } from "@/lib/eia/compressionCache";
+import { compressLz4Best } from "@/lib/eia/lz4Search";
 import { computeThumbnail } from "./computeThumbnail";
 import { type ParentCandidate, selectBestParent } from "./selectBestParent";
 
@@ -15,6 +17,8 @@ export interface CropOptions {
   parentSearchTopK?: number;
   thumbnailGridSize?: number;
   maxNestingDepth?: number;
+  optimizeEia?: boolean;
+  compressionCache?: EiaCompressionCache;
 }
 
 export const cropImages = (
@@ -120,7 +124,10 @@ export const cropImages = (
 
     // Filter candidates whose nesting depth would not exceed the limit
     const eligibleCandidates = candidates.filter(
-      (c) => (depths.get(c.index) ?? 0) < maxNestingDepth,
+      (c) =>
+        (depths.get(c.index) ?? 0) < maxNestingDepth &&
+        c.rect.width === currentImage.rect.width &&
+        c.rect.height === currentImage.rect.height,
     );
 
     // Find the best parent among eligible candidates
@@ -152,11 +159,32 @@ export const cropImages = (
       currentImage.rect,
     );
 
-    // If diff covers entire image or no meaningful diff, store as master
+    const parentBuffer = parentBuffers.get(bestParent.parent.index) as Buffer;
+    // An identical slide can reference its parent using a one-pixel no-op.
+    // Keep threshold-suppressed differences as masters, preserving image quality.
+    if (
+      options?.optimizeEia &&
+      mergedBoundingBoxes.length === 0 &&
+      parentBuffer.equals(currentImage.buffer) &&
+      currentImage.rect.width > 0 &&
+      currentImage.rect.height > 0
+    ) {
+      mergedBoundingBoxes.push({
+        x1: 0,
+        y1: 0,
+        x2: 0,
+        y2: 0,
+        width: 1,
+        height: 1,
+        area: 1,
+      });
+    }
+
     if (
       mergedBoundingBoxes.length === 0 ||
-      mergedBoundingBoxes[0].area ===
-        currentImage.rect.width * currentImage.rect.height
+      (mergedBoundingBoxes[0].area ===
+        currentImage.rect.width * currentImage.rect.height &&
+        !(options?.optimizeEia && parentBuffer.equals(currentImage.buffer)))
     ) {
       addAsMaster(currentImage, currentThumbnail, i);
       evictOldEntries(i);
@@ -181,7 +209,47 @@ export const cropImages = (
 
     // Build a proxy for applyDiff using the parent's resolved buffer
     // selectBestParent guarantees the buffer exists (it checks parentBuffers.get())
-    const parentBuffer = parentBuffers.get(bestParent.parent.index) as Buffer;
+    // Compare the actual LZ4 frame sizes and the extra JSON fields. Choosing a
+    // smaller master also eliminates the parent dependency and rect copies.
+    if (options?.optimizeEia) {
+      const payload = Buffer.concat(rects.map((rect) => rect.buffer));
+      let offset = 0;
+      const parts = rects.map((rect) => {
+        const part = {
+          x: rect.x,
+          y: rect.y,
+          w: rect.width,
+          h: rect.height,
+          s: offset,
+          l: rect.buffer.length,
+        };
+        offset += rect.buffer.length;
+        return part;
+      });
+      const masterLength = (
+        options.compressionCache?.compressImage(currentImage.buffer) ??
+        compressLz4Best(currentImage.buffer)
+      ).length;
+      const deltaLength = (
+        options.compressionCache?.compressRects(rects, payload) ??
+        compressLz4Best(payload)
+      ).length;
+      // The braces in this JSON have the same size as the two field separators
+      // introduced into the item; l and u may also change decimal width.
+      const deltaOverhead =
+        Buffer.byteLength(
+          JSON.stringify({ b: `${bestParent.parent.index}`, r: parts }),
+        ) +
+        String(deltaLength).length -
+        String(masterLength).length +
+        String(payload.length).length -
+        String(currentImage.buffer.length).length;
+      if (masterLength <= deltaLength + deltaOverhead) {
+        addAsMaster(currentImage, currentThumbnail, i);
+        evictOldEntries(i);
+        continue;
+      }
+    }
     const parentProxy: RawImageObjV1Cropped = {
       index: bestParent.parent.index,
       rect: bestParent.parent.rect,

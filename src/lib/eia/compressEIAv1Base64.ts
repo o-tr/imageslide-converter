@@ -7,7 +7,7 @@ import type {
 } from "@/_types/eia/v1";
 import type { RawImageObjV1Cropped } from "@/_types/text-zip/v1";
 import { FileSizeLimit } from "@/const/convert";
-import lz4 from "lz4js";
+import { compressLz4Best } from "./lz4Search";
 
 export const compressEIAv1Base64 = async (
   data: RawImageObjV1Cropped[],
@@ -43,7 +43,7 @@ const compressEIAv1Base64Part = async (
 
   for (const image of data) {
     if (!image.cropped) {
-      const compressed = Buffer.from(lz4.compress(image.buffer)).toString(
+      const compressed = Buffer.from(compressLz4Best(image.buffer)).toString(
         "base64",
       );
       buffer.push(compressed);
@@ -81,7 +81,7 @@ const compressEIAv1Base64Part = async (
     }
 
     const mergedBuffer = Buffer.concat(fileBuffer);
-    const compressed = Buffer.from(lz4.compress(mergedBuffer)).toString(
+    const compressed = Buffer.from(compressLz4Best(mergedBuffer)).toString(
       "base64",
     );
     buffer.push(compressed);

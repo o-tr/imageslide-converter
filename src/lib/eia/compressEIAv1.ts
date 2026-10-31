@@ -15,7 +15,8 @@ import type {
 import type { RawImageObjV1Cropped } from "@/_types/text-zip/v1";
 import { IMAGE_DIFF_THRESHOLD } from "@/const/config";
 import { FileSizeLimit } from "@/const/convert";
-import lz4 from "lz4js";
+import type { EiaCompressionCache } from "./compressionCache";
+import { compressLz4Best } from "./lz4Search";
 
 const SIMILARITY_THRESHOLD_RATIO = 0.005;
 const IMAGE_FORMAT_RGBA32 = "RGBA32";
@@ -34,6 +35,7 @@ export const compressEIAv1 = async (
   count = 1,
   stepSize = 10,
   animationMap?: Map<number, RawAnimationData[]>,
+  compressionCache?: EiaCompressionCache,
 ): Promise<Buffer[]> => {
   if (!Number.isInteger(count) || count <= 0) {
     throw new Error(`Invalid count: ${count} (must be a positive integer)`);
@@ -102,6 +104,7 @@ export const compressEIAv1 = async (
       orderedPartImages,
       signage,
       partAnimMap,
+      compressionCache,
     );
 
     if (compressedPart.length > FileSizeLimit) {
@@ -152,6 +155,7 @@ export const compressEIAv1 = async (
         nextSplit.count,
         nextSplit.stepSize,
         animationMap,
+        compressionCache,
       );
     }
 
@@ -165,6 +169,7 @@ const compressEIAv1Part = async (
   data: RawImageObjV1Cropped[],
   signage?: EIASignageManifest,
   animationMap?: Map<number, RawAnimationData[]>,
+  compressionCache?: EiaCompressionCache,
 ) => {
   const imagesByIndex = new Map<number, RawImageObjV1Cropped>();
   for (const image of data) imagesByIndex.set(image.index, image);
@@ -203,7 +208,10 @@ const compressEIAv1Part = async (
           `Buffer length mismatch for slide ${image.index}: expected ${expectedBytes}, got ${image.buffer.length}`,
         );
       }
-      const compressed = Buffer.from(lz4.compress(image.buffer));
+      const compressed = Buffer.from(
+        compressionCache?.compressImage(image.buffer) ??
+          compressLz4Best(image.buffer),
+      );
       buffer.push(compressed);
       usedFormats.add(image.format);
       files.push({
@@ -301,7 +309,10 @@ const compressEIAv1Part = async (
       }
 
       const mergedBuffer = Buffer.concat(fileBuffer);
-      const compressed = Buffer.from(lz4.compress(mergedBuffer));
+      const compressed = Buffer.from(
+        compressionCache?.compressRects(cropped.rects, mergedBuffer) ??
+          compressLz4Best(mergedBuffer),
+      );
       buffer.push(compressed);
 
       files.push({
@@ -468,7 +479,10 @@ const compressEIAv1Part = async (
                 `Buffer length mismatch for animation frame ${originalIndex}: expected ${expectedBytes}, got ${frame.buffer.length}`,
               );
             }
-            const compressed = Buffer.from(lz4.compress(frame.buffer));
+            const compressed = Buffer.from(
+              compressionCache?.compressImage(frame.buffer) ??
+                compressLz4Best(frame.buffer),
+            );
             pool.push({
               t: "m",
               f: anim.format,
@@ -547,7 +561,12 @@ const compressEIAv1Part = async (
             }
 
             const mergedBuffer = Buffer.concat(fileBuffer);
-            const compressed = Buffer.from(lz4.compress(mergedBuffer));
+            const compressed = Buffer.from(
+              compressionCache?.compressRects(
+                frame.cropped.rects,
+                mergedBuffer,
+              ) ?? compressLz4Best(mergedBuffer),
+            );
             const poolItem: EIAAnimFramePoolItemCropped = {
               t: "c",
               f: anim.format,
