@@ -78,6 +78,92 @@ function decoderCost(frame: Uint8Array): number {
 }
 
 describe("LZ4 literal merging", () => {
+  it("compares a raw-block candidate with literal merging inside the budget", () => {
+    const data = new Uint8Array(2048);
+    let state = 81;
+    for (let i = 0; i < data.length; i++) {
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      data[i] = state >>> 24;
+    }
+    data.copyWithin(1500, 1000, 1200);
+    const frame = compressLz4Search(data);
+    const work = (value: ReturnType<typeof decoderWork>) =>
+      30 * value.sequences + 2 * value.copies + value.extensions;
+    const options = { linkedBoundary: false, rawBlocks: true };
+    const selected = mergeLz4Literals(
+      frame,
+      data,
+      data.length + 15,
+      decoderCost,
+      work,
+      options,
+    );
+    expect(
+      new DataView(selected.buffer, selected.byteOffset).getUint32(7, true) >>>
+        31,
+    ).toBe(1);
+    expect(decoderCost(selected)).toBeLessThan(decoderCost(frame));
+    expect(selected.length).toBeLessThanOrEqual(data.length + 15);
+    expect(Buffer.from(lz4.decompress(selected, data.length))).toEqual(
+      Buffer.from(data),
+    );
+    const limited = mergeLz4Literals(
+      frame,
+      data,
+      frame.length,
+      decoderCost,
+      work,
+      options,
+    );
+    expect(limited.length).toBeLessThanOrEqual(frame.length);
+    expect(Buffer.from(lz4.decompress(limited, data.length))).toEqual(
+      Buffer.from(data),
+    );
+  });
+
+  it("keeps a following linked block valid when the first block becomes raw", () => {
+    const blockSize = 4 * 1024 * 1024;
+    const data = new Uint8Array(blockSize + 8192);
+    let state = 109;
+    for (let i = 0; i < blockSize; i++) {
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      data[i] = state >>> 24;
+    }
+    data.copyWithin(3_000_000, 2_980_000, 2_997_500);
+    data.set(mixedBytes(8192), blockSize);
+    const frame = compressLz4Search(data);
+    const header = new DataView(frame.buffer, frame.byteOffset).getUint32(
+      7,
+      true,
+    );
+    expect(header >>> 31).toBe(0);
+    const gap = blockSize - header;
+    const limit = frame.length + gap + 100;
+    const work = (value: ReturnType<typeof decoderWork>) => value.extensions;
+    const cost = (value: Uint8Array) => work(decoderWork(value));
+    const baseline = mergeLz4Literals(frame, data, limit, cost, work, {
+      linkedBoundary: true,
+      extendMatches: true,
+    });
+    const result = mergeLz4Literals(frame, data, limit, cost, work, {
+      linkedBoundary: true,
+      extendMatches: true,
+      rawBlocks: true,
+    });
+    expect(
+      new DataView(result.buffer, result.byteOffset).getUint32(7, true) >>> 31,
+    ).toBe(1);
+    expect(result.length).toBeLessThanOrEqual(limit);
+    expect(cost(result)).toBeLessThanOrEqual(cost(baseline));
+    expect(Buffer.from(lz4.decompress(result, data.length))).toEqual(
+      Buffer.from(data),
+    );
+  }, 30000);
+
   it("extends a match backwards to reduce literals without increasing work", () => {
     // First sequence: 16 literals and a four-byte offset-eight match. The
     // second match and five-byte tail keep this a valid compressed block.

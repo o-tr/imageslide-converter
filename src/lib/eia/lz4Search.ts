@@ -29,16 +29,28 @@ type PowerTable = {
 
 type MatchContext = {
   words: DataView;
-  prefix: Uint32Array;
-  powers: PowerTable;
+  prefix?: Uint32Array;
+  powers?: PowerTable;
 };
 
 function createMatchContext(
   input: Uint8Array,
   sharedPowers?: PowerTable,
 ): MatchContext {
+  return {
+    words: new DataView(input.buffer, input.byteOffset, input.byteLength),
+    powers: sharedPowers,
+  };
+}
+
+function ensureMatchContext(
+  input: Uint8Array,
+  context: MatchContext,
+): { prefix: Uint32Array; powers: PowerTable } {
+  if (context.prefix && context.powers)
+    return { prefix: context.prefix, powers: context.powers };
   const prefix = new Uint32Array(input.length + 1);
-  let powers = sharedPowers;
+  let powers = context.powers;
   let newFull: Uint32Array | undefined;
   if (!powers || powers.maxLength < input.length) {
     if (input.length <= FULL_POWER_LIMIT) {
@@ -61,11 +73,9 @@ function createMatchContext(
     prefix[i + 1] = (Math.imul(prefix[i], 257) + input[i]) >>> 0;
     if (newFull) newFull[i + 1] = Math.imul(newFull[i], 257) >>> 0;
   }
-  return {
-    words: new DataView(input.buffer, input.byteOffset, input.byteLength),
-    prefix,
-    powers,
-  };
+  context.prefix = prefix;
+  context.powers = powers;
+  return { prefix, powers };
 }
 
 function compressBlock(
@@ -75,29 +85,55 @@ function compressBlock(
   minimumMatch: number,
   lookahead: number,
   context: MatchContext,
-  stats?: { depthLimited: boolean },
+  stats?: { depthLimited: boolean; minimumActive: number },
 ): Uint8Array | null {
   const end = input.length;
-  const { words, prefix, powers } = context;
+  const { words } = context;
   // Hash mismatches prove a prefix differs; hash matches are still checked
-  // byte-for-byte, so collisions cannot change the compressed output.
-  // Comparing the difference of the two hashes needs one multiplication
-  // rather than calculating each hash separately, modulo 2^32.
-  const values = powers.values;
-  const sameRange = powers.split
-    ? (left: number, right: number, length: number) => {
-        const power = Math.imul(
-          values[length >>> POWER_SHIFT],
-          LOW_POWERS[length & (POWER_STRIDE - 1)],
-        );
-        return (
-          (prefix[left + length] - prefix[right + length]) >>> 0 ===
-          Math.imul(prefix[left] - prefix[right], power) >>> 0
-        );
+  // byte-for-byte. Deferral does not change the filter or its collision safety.
+  const prefix = context.prefix ?? new Uint32Array(0);
+  const powers = context.powers;
+  const values = powers?.values ?? LOW_POWERS;
+  let initialized:
+    | ((left: number, right: number, length: number) => boolean)
+    | undefined;
+  const sameRange = !context.prefix
+    ? (left: number, right: number, length: number): boolean => {
+        if (!initialized) {
+          const built = ensureMatchContext(input, context);
+          const p = built.prefix;
+          const v = built.powers.values;
+          initialized = built.powers.split
+            ? (l, r, n) =>
+                (p[l + n] - p[r + n]) >>> 0 ===
+                Math.imul(
+                  p[l] - p[r],
+                  Math.imul(
+                    v[n >>> POWER_SHIFT],
+                    LOW_POWERS[n & (POWER_STRIDE - 1)],
+                  ),
+                ) >>>
+                  0
+            : (l, r, n) =>
+                (p[l + n] - p[r + n]) >>> 0 ===
+                Math.imul(p[l] - p[r], v[n]) >>> 0;
+        }
+        return initialized(left, right, length);
       }
-    : (left: number, right: number, length: number) =>
-        (prefix[left + length] - prefix[right + length]) >>> 0 ===
-        Math.imul(prefix[left] - prefix[right], values[length]) >>> 0;
+    : powers?.split
+      ? (left: number, right: number, length: number) => {
+          const power = Math.imul(
+            values[length >>> POWER_SHIFT],
+            LOW_POWERS[length & (POWER_STRIDE - 1)],
+          );
+          return (
+            (prefix[left + length] - prefix[right + length]) >>> 0 ===
+            Math.imul(prefix[left] - prefix[right], power) >>> 0
+          );
+        }
+      : (left: number, right: number, length: number) =>
+          (prefix[left + length] - prefix[right + length]) >>> 0 ===
+          Math.imul(prefix[left] - prefix[right], values[length]) >>> 0;
   const output = new Uint8Array(end + Math.ceil(end / 255) + 32);
   const heads = new Int32Array(WINDOW);
   const previous = new Int32Array(WINDOW);
@@ -130,6 +166,7 @@ function compressBlock(
   };
 
   const findMatch = (at: number) => {
+    const targetWord = words.getUint32(at, true);
     let candidate = heads[hashAt(at)] - 1;
     let bestLength = 0;
     let bestOffset = 0;
@@ -141,10 +178,7 @@ function compressBlock(
       tries++
     ) {
       if (
-        input[candidate] === input[at] &&
-        input[candidate + 1] === input[at + 1] &&
-        input[candidate + 2] === input[at + 2] &&
-        input[candidate + 3] === input[at + 3] &&
+        words.getUint32(candidate, true) === targetWord &&
         // A mismatch here cannot tie or improve the best length already found.
         (bestLength <= 4 ||
           (input[candidate + bestLength - 1] === input[at + bestLength - 1] &&
@@ -155,8 +189,21 @@ function compressBlock(
           at + length + 4 <= end - 5 &&
           words.getUint32(candidate + length, true) ===
             words.getUint32(at + length, true)
-        )
+        ) {
           length += 4;
+          // Once a word matches, check three more together to reduce loop
+          // overhead for long runs without penalizing the first mismatch.
+          if (
+            at + length + 12 <= end - 5 &&
+            words.getUint32(candidate + length, true) ===
+              words.getUint32(at + length, true) &&
+            words.getUint32(candidate + length + 4, true) ===
+              words.getUint32(at + length + 4, true) &&
+            words.getUint32(candidate + length + 8, true) ===
+              words.getUint32(at + length + 8, true)
+          )
+            length += 12;
+        }
         while (
           at + length < end - 5 &&
           input[candidate + length] === input[at + length]
@@ -221,6 +268,8 @@ function compressBlock(
       pos++;
       continue;
     }
+    if (stats && bestLength < stats.minimumActive)
+      stats.minimumActive = bestLength;
     const literalLength = pos - anchor;
     const matchCode = bestLength - 4;
     output[written++] =
@@ -232,9 +281,11 @@ function compressBlock(
     output[written++] = bestOffset >>> 8;
     if (matchCode >= 15) lengthBytes(matchCode - 15);
     const matchEnd = pos + bestLength;
-    // Add positions covered by a match to the search index for later matches.
-    for (let next = pos + 1; next < matchEnd && next <= end - 4; next++)
-      insert(next);
+    // If no search position remains, the block's index will never be read
+    // again. Otherwise matchEnd is already safely before the four-byte limit.
+    if (matchEnd <= end - 12) {
+      for (let next = pos + 1; next < matchEnd; next++) insert(next);
+    }
     pos = matchEnd;
     anchor = pos;
     matches++;
@@ -255,7 +306,8 @@ function compressLz4Frame(
   minimumMatch = 4,
   lookahead = 1,
   contexts?: Map<number, MatchContext>,
-  stats?: { depthLimited: boolean },
+  stats?: { depthLimited: boolean; minimumActive: number },
+  deferContext = false,
 ): Uint8Array {
   const parts: Uint8Array[] = [Uint8Array.from(HEADER)];
   let total = HEADER.length + 4;
@@ -278,7 +330,7 @@ function compressLz4Frame(
         contexts.set(start, context);
       }
     }
-    powers = context.powers;
+    if (!deferContext && !context.prefix) ensureMatchContext(raw, context);
     const compressed = compressBlock(
       raw,
       searchDepth,
@@ -288,6 +340,7 @@ function compressLz4Frame(
       context,
       stats,
     );
+    powers = context.powers;
     const payload =
       compressed && compressed.length < raw.length ? compressed : raw;
     const length =
@@ -379,6 +432,10 @@ export function fitsDecodeSpeedBudget(
 /** Favor lower decode work while limiting size growth relative to the compact candidate. */
 export function compressLz4Best(input: Uint8Array): Uint8Array {
   const fast = lz4.compress(input);
+  // Nearly incompressible inputs often never need long-match hash filtering.
+  // Defer its large prefix table in that case; eager construction remains
+  // faster for the ordinary compressible slide workload.
+  const deferContext = fast.length * 10 >= input.length * 9;
   let best = fast;
   const contexts = new Map<number, MatchContext>();
   // Sequence dispatch is substantially more expensive than a native bulk
@@ -387,11 +444,43 @@ export function compressLz4Best(input: Uint8Array): Uint8Array {
   const cost = (work: ReturnType<typeof decodeWork>) =>
     16 * work.sequences + 4 * work.copies + work.extensions;
   let bestCost = cost(decodeWork(best));
-  for (const makeFrame of [
-    () => compressLz4Frame(input, 16, false, 4, 1, contexts),
-    () => compressLz4Frame(input, SEARCH_DEPTH, true, 4, 1, contexts),
-  ]) {
+  const early4Stats = {
+    depthLimited: false,
+    minimumActive: Number.POSITIVE_INFINITY,
+  };
+  const early6Stats = {
+    depthLimited: false,
+    minimumActive: Number.POSITIVE_INFINITY,
+  };
+  let early4: Uint8Array | undefined;
+  let early6: Uint8Array | undefined;
+  for (const [index, makeFrame] of [
+    () =>
+      compressLz4Frame(
+        input,
+        16,
+        false,
+        4,
+        1,
+        contexts,
+        undefined,
+        deferContext,
+      ),
+    () =>
+      compressLz4Frame(
+        input,
+        SEARCH_DEPTH,
+        true,
+        4,
+        1,
+        contexts,
+        input.length >= 256 ? early4Stats : undefined,
+        deferContext,
+      ),
+  ].entries()) {
     const searched = makeFrame();
+    if (index === 1 && input.length >= 256 && !early4Stats.depthLimited)
+      early4 = searched;
     if (searched.length > best.length) continue;
     const candidateCost = cost(decodeWork(searched));
     if (candidateCost < bestCost) {
@@ -403,7 +492,17 @@ export function compressLz4Best(input: Uint8Array): Uint8Array {
   // Allow a small bounded size tradeoff only for a substantial estimated win,
   // and never emit a larger frame than the original lz4js fast encoder.
   if (input.length >= 256) {
-    const speed = compressLz4Frame(input, SEARCH_DEPTH, true, 6, 1, contexts);
+    const speed = compressLz4Frame(
+      input,
+      SEARCH_DEPTH,
+      true,
+      6,
+      1,
+      contexts,
+      early6Stats,
+      deferContext,
+    );
+    if (!early6Stats.depthLimited) early6 = speed;
     const speedCost = cost(decodeWork(speed));
     if (
       fitsDecodeSpeedBudget(
@@ -442,19 +541,48 @@ export function compressLz4Best(input: Uint8Array): Uint8Array {
       [8192, 4, [4, 6, 8, 10, 12]],
       [8192, 8, [4, 6, 8, 10, 12]],
     ] as const) {
+      let previous:
+        | { depthLimited: boolean; minimumActive: number }
+        | undefined;
       for (const minimumMatch of matches) {
         const profile = `${lookahead}:${minimumMatch}`;
         if (completeProfiles.has(profile)) continue;
-        const stats = { depthLimited: false };
-        const candidate = compressLz4Frame(
-          input,
-          depth,
-          true,
-          minimumMatch,
-          lookahead,
-          contexts,
-          stats,
-        );
+        // If no emitted match is below the new threshold, both searches make
+        // the same output and index insertions. A postponed shorter match
+        // advances one byte either way, even if lookahead is skipped.
+        if (previous && minimumMatch <= previous.minimumActive) {
+          if (!previous.depthLimited) completeProfiles.add(profile);
+          continue;
+        }
+        // A 64-depth search that did not exhaust its candidate list is
+        // exactly the result of every deeper search for this same profile.
+        // Evaluate it in the original candidate order to preserve ties.
+        const early =
+          depth === 2048 && lookahead === 1
+            ? minimumMatch === 4
+              ? early4
+              : minimumMatch === 6
+                ? early6
+                : undefined
+            : undefined;
+        const stats = early
+          ? minimumMatch === 4
+            ? early4Stats
+            : early6Stats
+          : { depthLimited: false, minimumActive: Number.POSITIVE_INFINITY };
+        previous = stats;
+        const candidate =
+          early ??
+          compressLz4Frame(
+            input,
+            depth,
+            true,
+            minimumMatch,
+            lookahead,
+            contexts,
+            stats,
+            deferContext,
+          );
         if (!stats.depthLimited) completeProfiles.add(profile);
         if (candidate.length > sizeLimit) continue;
         const candidateCost = vmCost(decodeWork(candidate));
@@ -462,6 +590,10 @@ export function compressLz4Best(input: Uint8Array): Uint8Array {
           best = candidate;
           bestVmCost = candidateCost;
         }
+      }
+      if (depth === 2048 && lookahead === 1) {
+        early4 = undefined;
+        early6 = undefined;
       }
     }
     // Match indices are no longer used by the literal post-pass. Release
@@ -473,7 +605,11 @@ export function compressLz4Best(input: Uint8Array): Uint8Array {
       sizeLimit,
       (candidate) => vmCost(decodeWork(candidate)),
       vmCost,
-      { linkedBoundary: input.length > BLOCK_SIZE, extendMatches: true },
+      {
+        linkedBoundary: input.length > BLOCK_SIZE,
+        extendMatches: true,
+        rawBlocks: true,
+      },
     );
   }
   return best;

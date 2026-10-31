@@ -5,45 +5,19 @@ import type { SelectedFile } from "@/_types/file-picker";
 import type { RawImageObjV1, RawImageObjV1Cropped } from "@/_types/text-zip/v1";
 import { IMAGE_FORMAT_RGB24 } from "@/const/imageFormat";
 import { canvas2rgb24 } from "@/lib/canvas2rawImage/canvas2rgb24";
+import {
+  createAnimationCacheKey,
+  findCachedAnimation,
+} from "@/lib/eia/animationCache";
 import { compressEIAv1 } from "@/lib/eia/compressEIAv1";
 import { EiaCompressionCache } from "@/lib/eia/compressionCache";
 import { cropImages } from "../crop/cropImages";
 
 const keyframeInterval = 10;
-const FNV_OFFSET_BASIS_32 = 0x811c9dc5;
-const FNV_PRIME_32 = 0x01000193;
-const textEncoder = new TextEncoder();
-
-const updateFNV1a32 = (hash: number, data: Uint8Array): number => {
-  let result = hash >>> 0;
-  for (let i = 0; i < data.length; i++) {
-    result ^= data[i];
-    result = Math.imul(result, FNV_PRIME_32) >>> 0;
-  }
-  return result;
+const canvasToBuffer = (canvas: OffscreenCanvas) => {
+  const pixels = canvas2rgb24(canvas);
+  return Buffer.from(pixels.buffer, pixels.byteOffset, pixels.byteLength);
 };
-
-const createAnimationCacheKey = (frames: RawImageObjV1[]): string => {
-  // Dual 32-bit FNV-1a keeps full-content hashing deterministic while avoiding
-  // per-byte BigInt overhead on large animation buffers.
-  let hashA = FNV_OFFSET_BASIS_32;
-  let hashB = (FNV_OFFSET_BASIS_32 ^ 0x9e3779b9) >>> 0;
-  const updateBoth = (data: Uint8Array) => {
-    hashA = updateFNV1a32(hashA, data);
-    hashB = updateFNV1a32(hashB, data);
-  };
-  updateBoth(textEncoder.encode(`${frames.length}|`));
-  for (const frame of frames) {
-    updateBoth(
-      textEncoder.encode(
-        `${frame.rect.width}x${frame.rect.height}:${frame.format}:${frame.buffer.length}|`,
-      ),
-    );
-    updateBoth(frame.buffer);
-  }
-  return `${hashA.toString(16).padStart(8, "0")}${hashB.toString(16).padStart(8, "0")}`;
-};
-
 export const selectedFiles2EIAv1RGB24Cropped = async (
   selectedFiles: SelectedFile[],
   signage?: EIASignageManifest,
@@ -57,7 +31,7 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
     },
     format: IMAGE_FORMAT_RGB24,
     note: file.note,
-    buffer: Buffer.from(canvas2rgb24(file.canvas)),
+    buffer: canvasToBuffer(file.canvas),
   }));
   console.log(
     `before compress size: ${rawImages.reduce((acc, cur) => acc + cur.buffer.length, 0)}`,
@@ -80,7 +54,7 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
     const extractedAnimationMap = new Map<number, RawAnimationData[]>();
     // Cache crop results keyed by pre-crop frame buffers so identical GIFs
     // across slides share the same cropped frames (and pool dedup works).
-    const animationCache = new Map<string, RawImageObjV1Cropped[]>();
+    const animationCache = new Map<string, RawImageObjV1Cropped[][]>();
     for (let i = 0; i < selectedFiles.length; i++) {
       const file = selectedFiles[i];
       if (!file.animations || file.animations.length === 0) continue;
@@ -90,10 +64,11 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
           index: fi,
           rect: { width: frame.width, height: frame.height },
           format: IMAGE_FORMAT_RGB24,
-          buffer: Buffer.from(canvas2rgb24(frame)),
+          buffer: canvasToBuffer(frame),
         }));
         const animHash = createAnimationCacheKey(animRawImages);
-        const cachedFrames = animationCache.get(animHash);
+        const bucket = animationCache.get(animHash);
+        const cachedFrames = findCachedAnimation(animRawImages, bucket);
         const croppedAnimFrames =
           cachedFrames ??
           cropImages(animRawImages, {
@@ -104,7 +79,8 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
             compressionCache,
           });
         if (!cachedFrames) {
-          animationCache.set(animHash, croppedAnimFrames);
+          if (bucket) bucket.push(croppedAnimFrames);
+          else animationCache.set(animHash, [croppedAnimFrames]);
         }
         return {
           x: anim.x,

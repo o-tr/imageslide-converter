@@ -33,6 +33,65 @@ function randomImage(seed: number, size = 32 * 32 * 3): Buffer {
 }
 
 describe("EIA crop selection", () => {
+  it("serializes a cached multi-rectangle payload without changing its bytes", async () => {
+    const source = Buffer.alloc(20 * 20 * 3, 1);
+    const rects = [
+      {
+        index: 0,
+        x: 1,
+        y: 1,
+        width: 4,
+        height: 3,
+        buffer: Buffer.alloc(4 * 3 * 3, 100),
+      },
+      {
+        index: 1,
+        x: 10,
+        y: 10,
+        width: 5,
+        height: 2,
+        buffer: Buffer.alloc(5 * 2 * 3, 150),
+      },
+    ];
+    const payload = Buffer.concat(rects.map((rect) => rect.buffer));
+    const frames = [
+      image(0, source, 20, 20),
+      {
+        ...image(1, source, 20, 20),
+        cropped: { baseIndex: 0, rects, merged: source },
+      },
+    ];
+    const cached = new EiaCompressionCache(lz4.compress);
+    cached.compressRects(rects, payload);
+    const [withCache] = await compressEIAv1(
+      frames,
+      undefined,
+      1,
+      10,
+      undefined,
+      cached,
+    );
+    const [withoutHit] = await compressEIAv1(
+      frames,
+      undefined,
+      1,
+      10,
+      undefined,
+      new EiaCompressionCache(lz4.compress),
+    );
+    expect(withCache).toEqual(withoutHit);
+    const end = withCache.indexOf(36);
+    const delta = JSON.parse(withCache.subarray(4, end).toString()).i[1];
+    expect(delta.u).toBe(payload.length);
+    expect(
+      Buffer.from(
+        lz4.decompress(
+          withCache.subarray(end + 1 + delta.s, end + 1 + delta.s + delta.l),
+        ),
+      ),
+    ).toEqual(payload);
+  });
+
   it("produces the same archive when per-conversion compressed payloads are reused", async () => {
     const source = randomImage(111);
     const changed = Buffer.from(source);
@@ -64,6 +123,7 @@ describe("EIA crop selection", () => {
     expect(optimized[1].cropped?.baseIndex).toBe(0);
     expect(optimized[1].cropped?.rects[0].buffer).toEqual(data.subarray(0, 3));
     expect(optimized[1].cropped?.merged).toEqual(data);
+    expect(optimized[1].cropped?.merged).toBe(data);
     const [archive] = await compressEIAv1(optimized);
     const [oldArchive] = await compressEIAv1(baseline);
     expect(archive.length).toBeLessThan(oldArchive.length);

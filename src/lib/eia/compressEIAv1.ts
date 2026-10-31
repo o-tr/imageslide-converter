@@ -13,8 +13,8 @@ import type {
   EIASignageManifest,
 } from "@/_types/eia/v1";
 import type { RawImageObjV1Cropped } from "@/_types/text-zip/v1";
-import { IMAGE_DIFF_THRESHOLD } from "@/const/config";
 import { FileSizeLimit } from "@/const/convert";
+import { hasSimilarPixels } from "./animationSimilarity";
 import type { EiaCompressionCache } from "./compressionCache";
 import { compressLz4Best } from "./lz4Search";
 
@@ -179,7 +179,9 @@ const compressEIAv1Part = async (
   const usedExtensions = new Set<EIAExtension>();
   const files: EIAFileV1[] = [];
   const usedNames = new Set<string>();
-  const buffer: Buffer[] = [];
+  // Compressed frames are immutable for the duration of this synchronous
+  // serialization pass. Buffer.concat accepts Uint8Array views directly.
+  const buffer: Uint8Array[] = [];
   let bufferLength = 0;
 
   for (const image of data) {
@@ -208,10 +210,9 @@ const compressEIAv1Part = async (
           `Buffer length mismatch for slide ${image.index}: expected ${expectedBytes}, got ${image.buffer.length}`,
         );
       }
-      const compressed = Buffer.from(
+      const compressed =
         compressionCache?.compressImage(image.buffer) ??
-          compressLz4Best(image.buffer),
-      );
+        compressLz4Best(image.buffer);
       buffer.push(compressed);
       usedFormats.add(image.format);
       files.push({
@@ -308,11 +309,13 @@ const compressEIAv1Part = async (
         );
       }
 
-      const mergedBuffer = Buffer.concat(fileBuffer);
-      const compressed = Buffer.from(
-        compressionCache?.compressRects(cropped.rects, mergedBuffer) ??
-          compressLz4Best(mergedBuffer),
-      );
+      const mergeRects = () =>
+        fileBuffer.length === 1
+          ? fileBuffer[0]
+          : Buffer.concat(fileBuffer, fileBufferLength);
+      const compressed =
+        compressionCache?.compressRects(cropped.rects, mergeRects) ??
+        compressLz4Best(mergeRects());
       buffer.push(compressed);
 
       files.push({
@@ -324,7 +327,7 @@ const compressEIAv1Part = async (
         h: image.rect.height,
         s: bufferLength,
         l: compressed.length,
-        u: mergedBuffer.length,
+        u: fileBufferLength,
         e: Object.keys(ext).length > 0 ? ext : undefined,
         r: parts,
       });
@@ -479,10 +482,9 @@ const compressEIAv1Part = async (
                 `Buffer length mismatch for animation frame ${originalIndex}: expected ${expectedBytes}, got ${frame.buffer.length}`,
               );
             }
-            const compressed = Buffer.from(
+            const compressed =
               compressionCache?.compressImage(frame.buffer) ??
-                compressLz4Best(frame.buffer),
-            );
+              compressLz4Best(frame.buffer);
             pool.push({
               t: "m",
               f: anim.format,
@@ -560,13 +562,15 @@ const compressEIAv1Part = async (
               fileBufferLength += rect.buffer.length;
             }
 
-            const mergedBuffer = Buffer.concat(fileBuffer);
-            const compressed = Buffer.from(
+            const mergeRects = () =>
+              fileBuffer.length === 1
+                ? fileBuffer[0]
+                : Buffer.concat(fileBuffer, fileBufferLength);
+            const compressed =
               compressionCache?.compressRects(
                 frame.cropped.rects,
-                mergedBuffer,
-              ) ?? compressLz4Best(mergedBuffer),
-            );
+                mergeRects,
+              ) ?? compressLz4Best(mergeRects());
             const poolItem: EIAAnimFramePoolItemCropped = {
               t: "c",
               f: anim.format,
@@ -575,7 +579,7 @@ const compressEIAv1Part = async (
               b: basePoolIndex,
               s: animBufferLength,
               l: compressed.length,
-              u: mergedBuffer.length,
+              u: fileBufferLength,
               r: parts,
             };
             pool.push(poolItem);
@@ -802,39 +806,7 @@ const findMatchingPoolIndex = (
     }
     if (poolBuffers[i].equals(decoded)) return i;
     if (requireExactMatch) continue;
-    const diff = computeDiffMask(poolBuffers[i], decoded, width, height, bpp);
-    const diffCount = countDiffPixels(diff);
-    if (diffCount <= threshold) return i;
+    if (hasSimilarPixels(poolBuffers[i], decoded, bpp, threshold)) return i;
   }
   return -1;
-};
-
-const computeDiffMask = (
-  a: Buffer,
-  b: Buffer,
-  width: number,
-  height: number,
-  bpp: number,
-): Uint8Array => {
-  const result = new Uint8Array(width * height);
-  const actualDiffThreshold = IMAGE_DIFF_THRESHOLD * bpp;
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * bpp;
-      let diff = 0;
-      for (let channel = 0; channel < bpp; channel++) {
-        diff += Math.abs(a[idx + channel] - b[idx + channel]);
-      }
-      result[y * width + x] = diff > actualDiffThreshold ? 1 : 0;
-    }
-  }
-  return result;
-};
-
-const countDiffPixels = (diff: Uint8Array): number => {
-  let count = 0;
-  for (let i = 0; i < diff.length; i++) {
-    if (diff[i] !== 0) count++;
-  }
-  return count;
 };

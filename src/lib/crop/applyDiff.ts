@@ -15,16 +15,25 @@ export const applyDiff = (
 
   const sourceBuffer = source.cropped?.merged ?? source.buffer;
 
-  // copy source to result
-  for (let y = 0; y < source.rect.height; y++) {
-    const srcStart = y * source.rect.width * 3;
-    const destStart = y * width * 3;
-    sourceBuffer.copy(
-      result,
-      destStart,
-      srcStart,
-      srcStart + source.rect.width * 3,
-    );
+  // Matching, tightly packed images can be copied in one operation.
+  if (
+    source.rect.width === width &&
+    source.rect.height === output.rect.height &&
+    sourceBuffer.length === result.length &&
+    result.length === width * output.rect.height * 3
+  ) {
+    sourceBuffer.copy(result);
+  } else {
+    for (let y = 0; y < source.rect.height; y++) {
+      const srcStart = y * source.rect.width * 3;
+      const destStart = y * width * 3;
+      sourceBuffer.copy(
+        result,
+        destStart,
+        srcStart,
+        srcStart + source.rect.width * 3,
+      );
+    }
   }
 
   // copy diff to result

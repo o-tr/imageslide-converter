@@ -163,6 +163,7 @@ export const cropImages = (
     const parentBuffer = parentBuffers.get(bestParent.parent.index) as Buffer;
     // An identical slide can reference its parent using a one-pixel no-op.
     // Keep threshold-suppressed differences as masters, preserving image quality.
+    let identicalParent = false;
     if (
       options?.optimizeEia &&
       mergedBoundingBoxes.length === 0 &&
@@ -170,6 +171,7 @@ export const cropImages = (
       currentImage.rect.width > 0 &&
       currentImage.rect.height > 0
     ) {
+      identicalParent = true;
       mergedBoundingBoxes.push({
         x1: 0,
         y1: 0,
@@ -302,7 +304,11 @@ export const cropImages = (
       buffer: parentBuffer,
     };
 
-    const merged = applyDiff(parentProxy, currentImage, rects);
+    // The no-op rectangle reconstructs the parent's existing bytes exactly.
+    // Buffers are immutable during conversion, so no full image copy is needed.
+    const merged = identicalParent
+      ? parentBuffer
+      : applyDiff(parentProxy, currentImage, rects);
     croppedImages.push({
       ...currentImage,
       cropped: {

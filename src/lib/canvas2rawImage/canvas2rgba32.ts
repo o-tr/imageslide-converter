@@ -10,7 +10,7 @@ export const canvas2rgba32 = (canvas: OffscreenCanvas): Uint8Array => {
   const output = new Uint8Array(data.data.length);
   for (let i = 0; i * context.canvas.width * 4 < data.data.length; i++) {
     output.set(
-      data.data.slice(
+      data.data.subarray(
         i * context.canvas.width * 4,
         (i + 1) * context.canvas.width * 4,
       ),

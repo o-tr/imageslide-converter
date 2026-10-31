@@ -21,6 +21,107 @@ function randomBytes(length: number, seed: number) {
 }
 
 describe("LZ4 search encoder", () => {
+  it("preserves match choices around the last searchable position", () => {
+    const hash = createHash("sha256");
+    for (let tail = 0; tail <= 16; tail++) {
+      const data = new Uint8Array(8192);
+      for (let i = 0; i < data.length; i++) data[i] = i % 73;
+      for (let i = 0; i < tail; i++)
+        data[data.length - 1 - i] = (i * 37 + 131) & 255;
+      hash.update(compressLz4Search(data));
+    }
+    expect(hash.digest("hex")).toBe(
+      "37f4f2926f940ef6e18e3f4f7ce657c5bdcd6db4f247510cdcc3395b8897da0a",
+    );
+  });
+
+  it("preserves output when a deferred match table becomes necessary", () => {
+    const data = new Uint8Array(262144);
+    let state = 77;
+    for (let i = 0; i < data.length; i++) {
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      data[i] = state >>> 24;
+    }
+    data.copyWithin(120000, 100000, 106000);
+    data.copyWithin(140000, 100000, 106000);
+    // The fast frame remains above 90% of the input, while multiple repeated
+    // ranges require a long-match comparison during the deeper search.
+    expect(lz4.compress(data).length * 10).toBeGreaterThanOrEqual(
+      data.length * 9,
+    );
+    expect(
+      createHash("sha256").update(compressLz4Best(data)).digest("hex"),
+    ).toBe("874ad9e8d0fab4af899e460ce1e81480552821f6b50f568a434192e8a61a6019");
+  });
+
+  it("preserves output when minimum-match profiles are equivalent", () => {
+    const digests = [
+      "b177bfcb6e7a78a6e6486004d0fd0d283a9e4808c23f8744316b244f5924dd19",
+      "60cd8b605a6b76e8971797d74ba308424c50c1a5b909614429691aab8de2c2fb",
+      "8042260bb39d474a5ecafe844e38f3b71298ad5609bfde34177bc28baaf2a753",
+    ];
+    for (let kind = 0; kind < digests.length; kind++) {
+      const data = new Uint8Array(8192);
+      let state = 307;
+      for (let i = 0; i < data.length; i++) {
+        state ^= state << 13;
+        state ^= state >>> 17;
+        state ^= state << 5;
+        data[i] = state >>> 24;
+      }
+      if (kind) {
+        for (let length = 4; length <= 12; length++) {
+          const source = 300 + length * 80;
+          data.copyWithin(
+            4096 + length * 240,
+            source,
+            source + length + (kind === 2 ? 20 : 0),
+          );
+        }
+      }
+      expect(
+        createHash("sha256").update(compressLz4Best(data)).digest("hex"),
+      ).toBe(digests[kind]);
+    }
+  });
+
+  it("preserves match choices across four- and sixteen-byte boundaries", () => {
+    const data = new Uint8Array(16384);
+    let state = 54321;
+    for (let i = 0; i < data.length; i++) {
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      data[i] = state >>> 24;
+    }
+    for (let length = 4; length <= 40; length++) {
+      const source = 100 + length * 70;
+      data.copyWithin(8192 + length * 120, source, source + length);
+    }
+    expect(
+      createHash("sha256").update(compressLz4Search(data)).digest("hex"),
+    ).toBe("7c8504ad0ab3c581315bbbe1fccc73c78a4fd710fcbe65a0d836579c018f64c5");
+  });
+
+  it("preserves results for unaligned input views", () => {
+    const data = randomBytes(4096, 123);
+    for (let i = 64; i < data.length; i++) {
+      if (i % 5 !== 0) data[i] = data[i - 61];
+    }
+    const expected = compressLz4Best(data);
+    for (let offset = 1; offset <= 3; offset++) {
+      const storage = new Uint8Array(data.length + offset + 4);
+      storage.set(data, offset);
+      const view = storage.subarray(offset, offset + data.length);
+      expect(compressLz4Best(view)).toEqual(expected);
+      expect(Buffer.from(lz4.decompress(expected, view.length))).toEqual(
+        Buffer.from(view),
+      );
+    }
+  });
+
   it("preserves match choices on both sides of the power-table threshold", () => {
     const cases = [
       [

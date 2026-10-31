@@ -11,6 +11,7 @@ export function lz4FrameSizeLowerBound(
   workspace?: Lz4SizeBoundWorkspace,
 ): number {
   const size = input.length;
+  const finiteTarget = Number.isFinite(stopAt);
   const expansionBound = Math.ceil(size / 255);
   if (expansionBound >= stopAt || size < 4) return expansionBound;
 
@@ -54,8 +55,8 @@ export function lz4FrameSizeLowerBound(
     }
     seen[hash] = i + 1;
     if (
-      Number.isFinite(stopAt) &&
       (i & 4095) === 0 &&
+      finiteTarget &&
       boundFor(unique + size - 4 - i) < stopAt
     )
       return boundFor(unique);

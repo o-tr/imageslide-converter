@@ -276,7 +276,11 @@ export function mergeLz4Literals(
   sizeLimit: number,
   estimateCost: (candidate: Uint8Array) => number,
   estimateWork?: (work: Lz4DecodeWork) => number,
-  followUp?: { linkedBoundary: boolean; extendMatches?: boolean },
+  followUp?: {
+    linkedBoundary: boolean;
+    extendMatches?: boolean;
+    rawBlocks?: boolean;
+  },
 ): Uint8Array {
   const blocks = parseFrame(frame, input.length);
   if (!blocks) return frame;
@@ -291,6 +295,43 @@ export function mergeLz4Literals(
           followUp.extendMatches ?? false,
         )
       : frame;
+  if (followUp?.rawBlocks && estimateWork) {
+    const alternative = chooseRawBlocks(
+      blocks,
+      frame,
+      input,
+      sizeLimit,
+      estimateWork,
+    );
+    if (alternative) {
+      // Spending the same budget on literals can beat making a whole block
+      // raw. Run both paths and keep the lower-cost result within the limit.
+      const options = { ...followUp, rawBlocks: false };
+      const original = mergeLz4Literals(
+        frame,
+        input,
+        sizeLimit,
+        estimateCost,
+        estimateWork,
+        options,
+      );
+      const raw = mergeLz4Literals(
+        alternative,
+        input,
+        sizeLimit,
+        estimateCost,
+        estimateWork,
+        options,
+      );
+      const originalCost = estimateCost(original);
+      const rawCost = estimateCost(raw);
+      return raw.length <= sizeLimit &&
+        (rawCost < originalCost ||
+          (rawCost === originalCost && raw.length < original.length))
+        ? raw
+        : original;
+    }
+  }
   const ranked = blocks
     .flatMap((block) => block.matches)
     .filter((match) => match.length <= 64);
@@ -377,6 +418,54 @@ export function mergeLz4Literals(
     followUp.linkedBoundary,
     followUp.extendMatches ?? false,
   );
+}
+
+function chooseRawBlocks(
+  blocks: Block[],
+  frame: Uint8Array,
+  input: Uint8Array,
+  sizeLimit: number,
+  estimateWork: (work: Lz4DecodeWork) => number,
+): Uint8Array | undefined {
+  let remaining = sizeLimit - frame.length;
+  // Avoid scanning match work or allocating another frame when no whole
+  // block fits in the remaining budget.
+  if (
+    !blocks.some(
+      (b) => !b.raw && b.end - b.start - b.payloadLength <= remaining,
+    )
+  )
+    return;
+  let cost = estimateWork(measureWork(blocks, 0));
+  let selected = false;
+  for (;;) {
+    let best: Block | undefined;
+    let bestCost = cost;
+    let bestRatio = 0;
+    for (const block of blocks) {
+      if (block.raw) continue;
+      const extra = block.end - block.start - block.payloadLength;
+      if (extra < 0 || extra > remaining) continue;
+      block.raw = true;
+      const candidateCost = estimateWork(measureWork(blocks, 0));
+      block.raw = false;
+      const ratio = (cost - candidateCost) / Math.max(1, extra);
+      if (candidateCost < cost && ratio > bestRatio) {
+        best = block;
+        bestCost = candidateCost;
+        bestRatio = ratio;
+      }
+    }
+    if (!best) break;
+    remaining -= best.end - best.start - best.payloadLength;
+    best.raw = true;
+    best.payloadLength = best.end - best.start;
+    cost = bestCost;
+    selected = true;
+  }
+  return selected
+    ? encodeBlocks(blocks, input, 0, currentPayloadLengths(blocks))
+    : undefined;
 }
 
 function prepareSelectedBlocks(

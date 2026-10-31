@@ -31,6 +31,52 @@ hash matches, and reuses immutable compressed payloads within a single EIA
 conversion. Neither changes which frame is selected. Deep search still costs
 significantly more CPU and memory during conversion.
 
+Small payloads (up to 64 KiB) can also reuse a frame when a different buffer
+has identical contents. A sampled fingerprint is only a filter: every reuse
+checks all bytes, and at most four fingerprint collisions are compared per
+lookup. The cache holds at most 32 entries and 1 MiB of input and frame bytes,
+copies input views so large backing buffers are not retained, and is discarded
+after the conversion. Identity caching is still used for larger payloads.
+The 28 private payloads contained no identical complete inputs, so this is a
+workload-dependent optimization. For a repeated synthetic 16 KiB payload,
+six warmed alternating Node measurements had median CPU times of 5.38 ms for
+recompression and 0.019 ms for content lookup, with identical frame bytes.
+In a separate deliberately cheap no-op-encoder test over 1,000 distinct 16 KiB
+buffers, the median batch CPU time increased from 1.7 to 9.4 ms due to cache
+bookkeeping and input copies. These measurements exclude browser and other
+conversion work; the cache may provide no benefit when content does not repeat.
+
+When a cropped slide or animation frame already has a cached compressed
+payload, EIA serialization no longer concatenates its source rectangles
+again. On a cache miss, a single rectangle is passed directly to the encoder;
+multiple rectangles are concatenated as before. Geometry and byte-length
+validation still runs before either path, and the manifest records the sum of
+the rectangle lengths. Cache-hit and miss archives are tested for byte-for-byte
+equality. In an artificial Node benchmark with 25 cached deltas containing two
+512×512 RGB rectangles each, eight warmed alternating serialization runs had
+median CPU times of 14.60 → 0.30 ms and the new path avoided 37.5 MiB of
+temporary rectangle concatenation per run. This isolates serialization, uses
+repeated cached data, and is not an end-to-end or browser measurement.
+Compressed frames are also retained as Uint8Array views until the final EIA
+concatenation, instead of copying every frame into an intermediate Buffer.
+Serialization is synchronous and the compressed frames are immutable during
+that pass. Tests cover cached slides and animations, unaligned views into
+larger arrays, and concatenation with the browser Buffer implementation. In a
+synthetic Node serialization test with 16 cached, mostly incompressible
+512×512 RGB frames, eight warmed alternating runs had median CPU times of
+14.10 → 4.78 ms and identical 12.58 MB archives. The new path avoids one
+temporary copy of each compressed frame; this is not a peak-memory or
+end-to-end browser measurement.
+
+The animation crop cache calculates its two existing FNV-1a hashes in one
+pass over each frame instead of two. Its keys are unchanged, but reuse also
+checks frame dimensions, format and every pixel byte; distinct animations
+that happen to share a hash are kept separately. Exact verification adds
+work for a cache hit. On one synthetic 1920×1080 RGB frame, eight warmed
+alternating Node measurements of the dual-hash byte scan had median CPU times
+of 10.14 → 5.26 ms. This excludes canvas conversion, equality verification,
+cropping, and browser overhead.
+
 Identical slide images can use a one-pixel no-op delta. If a master has a
 smaller compressed payload plus metadata than a delta, it is used instead.
 The existing keyframe and maximum reference-depth limits still apply. The
@@ -82,6 +128,12 @@ bounded hash table and scan. In 60 synthetic crop selections it did not prove
 any additional delta winner beyond the existing bound, so it was not enabled.
 This is a bounded workload observation rather than a proof that it cannot
 help other inputs.
+The scan checks whether the target is finite once per input, and checks the
+remaining-position bound only every 4,096 bytes. Across three 4.95 MB private
+inputs with a 300,000-byte target, eight warmed alternating Node batches of
+ten scans had median CPU times of 13.5 → 12.3, 14.3 → 12.9 and
+15.4 → 13.9 ms per scan. This measures the bound scan alone; whether it
+occurs and its contribution to a conversion depend on the input and delta.
 Parent selection also stops evaluating candidates once the changed-pixel
 count is zero: no later candidate can improve that score, and the existing
 tie policy keeps the first. The RGB diff scan now follows row-major buffer
@@ -102,11 +154,110 @@ parent followed by two dissimilar candidates at 1920×1080, seven warmed
 alternating Node runs had median parent-selection CPU times of 24.6 → 9.4 ms;
 three tied candidates measured 26.8 → 24.3 ms. Real slides and browsers may
 behave differently.
+When a slide exactly matches its parent and is encoded as a one-pixel no-op,
+the resolved parent buffer is reused during conversion instead of copying the
+whole image. Conversion treats these buffers as immutable. For two identical
+synthetic 1920×1080 RGB slides, eight warmed alternating Node measurements of
+the crop stage with lz4js encoding had median CPU times of 21.80 → 20.45 ms;
+one 6.22 MB image copy is also avoided. For other deltas with equal, tightly
+packed image dimensions, copying the parent is done in one operation rather
+than one row at a time. That operation matched the prior output across 160
+synthetic dimension and buffer-length combinations. These measurements do not
+include canvas capture or browser overhead.
+Connected components in the difference mask now keep pending pixels as linear
+indices rather than allocating an `[x, y]` pair per pixel. Bounds and component
+order matched the preceding implementation on 1,500 synthetic masks and an
+independent reference on 400 additional masks. For a solid 1920×1080 mask,
+four warmed alternating Node measurements had median CPU times of
+212.1 → 28.4 ms. One separate run measured peak RSS of
+202,100 → 101,232 KiB; this is not a browser-memory measurement. A mask with
+one large rectangular region measured 52.1 → 11.3 ms in the same warmed
+comparison. Results depend on mask shape and do not include downstream
+rectangle merging or compression.
+The overlap-shrinking pass skips comparisons between boxes that both lack a
+strict interior. Its edge adjustments only raise lower edges or lower upper
+edges, so such a box cannot later acquire an interior; all potentially
+relevant pairs are still checked in their original order. Results matched the
+previous pass on 3,000 randomized sets, with separate tests for points, lines,
+nested and inverted rectangles. For 10,000 synthetic boxes of which 40 had
+interiors, four warmed alternating Node measurements had median CPU times of
+339.6 → 7.8 ms. This measures overlap shrinking alone; later overlap merging
+can still be expensive, and results depend on the rectangles' shapes.
+For at least 1,024 valid integer rectangles, overlap merging now uses a
+bounded spatial index to find possible candidates. Candidates retain their
+original order, and the index is queried again after a merge expands a box;
+entries already passed are not revisited. Large, unusual or dense cases fall
+back to the original ordered scan to limit index cost. Results matched the
+previous implementation on 1,500 randomized sets and 200 larger sets, with
+additional tests for expanding chains and fallback cases. Four warmed
+alternating Node measurements on 10,000 synthetic points had median overlap
+merge times of 367.4 → 10.1 ms. In a separate 1280×720 synthetic sparse mask
+with 9,085 components, two warmed comparisons of overlap shrinking, overlap
+merging and rectangle limiting together measured 4.20/4.25 seconds before
+and 94.9/79.9 ms after, with identical final bounds. These measurements do
+not include canvas work or LZ4 compression and do not represent every image.
+The overlap-shrinking pass also uses a bounded spatial index when there are
+many rectangles with interiors. It checks possible pairs in their original
+order; if a box becomes inverted, it continues the remaining ordered scan
+because its endpoints may leave the indexed extent. Dense or unsupported
+inputs also use that scan. The index has explicit cell and reference limits.
+The indexed prototype matched the preceding pass on 3,000 randomized sets,
+and the production implementation matched it on 1,000 more; tests also cover
+early and late inversion and the fallback paths. Four warmed alternating Node
+measurements on 5,000 separated rectangles had median shrinking times of
+68.8 → 7.0 ms. One separate run on 20,000 separated rectangles measured
+534.7 → 49.4 ms and peak RSS of 87,552 → 102,676 KiB: the additional index
+trades memory for time. These are synthetic Node measurements, not browser
+or end-to-end conversion results.
+The shrinking index stores bounded cell coordinates as exact numeric keys and
+uses typed arrays for cell references and ranges, avoiding a separate array
+per occupied cell. Coordinates outside the key's safe range fall back to the
+ordered scan. The compact and previous indexed implementations matched on
+2,000 randomized sets, with separate tests around the coordinate limits. In
+one Node run on 20,000 separated rectangles, peak RSS was
+101,912 → 90,904 KiB and CPU time was 47.1 → 38.9 ms. This single synthetic
+measurement is not a general browser-memory or conversion-time guarantee.
+When limiting the number of rectangles, each active rectangle now caches its
+best partner. After a merge, only rows affected by the changed or removed
+rectangle, plus a newly eligible row, are recalculated. The original search
+window of the last 200 rectangles and its first-pair tie order are preserved;
+this does not make the rectangle selection globally optimal. Outputs matched
+the preceding implementation over 500 randomized sets and additional tests
+cover ties, non-finite costs and the 200-entry boundary. On 5,000 synthetic
+rectangles, four warmed alternating Node measurements had median CPU times of
+2,243 → 39 ms for this limiting step alone. For 1,000 tied rectangles the
+medians were 268.7 → 16.4 ms. These do not include earlier overlap handling,
+canvas work or compression, and workload shape affects the benefit.
 The thumbnail averaging loop also advances a byte offset across each row
 instead of recomputing it for every pixel. It produced identical thumbnail
 bytes in 300 synthetic dimension/grid combinations. On a synthetic
 1920×1080 image, nine warmed alternating Node measurements had median CPU
 times of 2.49 → 2.36 ms for thumbnail generation alone.
+
+For RGB24 EIA export, canvas conversion now extracts RGB and reverses row
+order in a single pass. The previous path first made a full flipped RGBA
+copy, then filtered out alpha, then copied the RGB bytes into a Buffer. The
+new Buffer is a view of the RGB output; canvas acquisition still allocates its
+own ImageData. The RGBA converter also uses row views instead of allocating a
+temporary slice for each row. RGB results matched the prior implementation on
+221 synthetic dimensions and varied alpha values. For one synthetic
+1920×1080 image, six warmed alternating Node measurements of conversion
+alone (with a preexisting ImageData array) had median CPU times of
+232.1 → 5.7 ms. For that size the new EIA path also avoids the 8.29 MB
+flipped-RGBA array and 6.22 MB RGB-to-Buffer copy. This does not measure
+canvas acquisition, compression, or browser performance.
+
+Animation pool matching counts differing pixels directly and stops when the
+existing similarity threshold is exceeded, instead of allocating and scanning
+a full-size mask. Exact matches and the first matching pool index retain their
+previous behavior, including exact matching for cropped-frame dependencies.
+A reference full-mask calculation was compared over 400 synthetic RGB and
+RGBA pairs at thresholds around the true count; an archive test also checks
+similar frames and crop dependencies. For synthetic 640×360 RGBA frames,
+eight warmed alternating Node batches of 100 comparisons had median CPU
+times of 0.99 → 0.0038 ms for dissimilar frames and 0.89 → 0.71 ms for a
+similar pair requiring a complete scan. This measures similarity comparison
+alone, not GIF decoding, compression, or browser performance.
 
 ## Measurement (2026-11-01)
 
@@ -262,6 +413,41 @@ literal merger changed estimated costs by less than 0.2% on those inputs.
 Those experiments establish diminishing returns for these samples, not a
 mathematical optimum. Conversion can take substantially longer because the
 decoder is prioritized over encoder time.
+
+### Considering raw blocks within the existing budget
+
+When a whole compressed block can be stored raw within the existing frame
+size ceiling, the encoder considers that alternative alongside the usual
+literal-merge path. It runs both post-processing paths and selects the one
+with lower estimated decoder work, breaking ties by size. In the common case
+where no raw block fits, it does not build an alternative frame. When a raw
+candidate does fit, the additional comparison costs encoding time and memory;
+the estimated work remains a heuristic and is not a per-input VM guarantee.
+
+For one constructed two-block input combining a near-incompressible 4 MiB
+block and a private slide payload, the actual complete encoder changed from
+4,244,046 to 4,244,043 bytes. With the same historical udon-rs decoder and
+configuration, the two frames decoded exactly and required 8,280,493 and
+8,096,649 VM instructions respectively (2.22% fewer). liblz4 also decoded
+both exactly. This is a targeted synthetic scenario, not a representative
+slide benchmark, and excludes work inside native externs. Among 1,200 small
+synthetic comparisons with varied size budgets, six changed and all respected
+the budget, round-tripped through lz4js and did not increase the modelled cost.
+In a separate synthetic study with deliberately varied budgets, all 11 changed
+single-block comparisons and all 30 changed two-block comparisons used fewer
+udon-rs instructions; liblz4 recovered all 82 before/after payloads exactly.
+For the two-block cases, total instructions fell from 249,890 to 120,660 while
+total compressed size rose from 237,932 to 243,087 bytes (2.17%). These are
+selected changed cases with artificial budgets, not a measurement of default
+end-to-end conversion or a guarantee for other inputs.
+Both frames were also decoded byte-for-byte in Unity 2022.3.22f1 using the
+original UdonSharp decoder source; the test adapts only its callback receiver
+and uses equivalent queue-array helpers. This validates these two frames, not
+all possible frames. For four private payloads where no raw block fit, six
+warmed alternating Node batches of ten post-passes produced identical output;
+their median CPU times were 2.35 → 2.11, 8.38 → 9.13, 7.80 → 7.70, and
+3.57 → 3.49 ms. The variation and small sample do not establish the overhead
+on other inputs or in browsers.
 
 ### Zero-byte match elimination
 
@@ -455,3 +641,100 @@ reduce hash arithmetic. The prototype preserved the output on 500 short
 inputs, but one representative private payload used 46.2 seconds of Node CPU
 time versus 34.8 seconds without the cache. The experiment was stopped and
 not adopted; the measurement is a single sample, not a browser benchmark.
+
+The four-byte match-prefix comparison now reads each prefix as a single
+little-endian word, keeping the current position's word across candidate
+checks. The DataView uses the input's byte offset, including for unaligned
+subarrays. Byte-for-byte comparisons against the prior encoder covered 500
+synthetic search inputs, 20 complete synthetic encodings, and one complete
+private slide payload. Four alternating warmed Node measurements of one
+2048-depth, four-byte-lookahead search on three private inputs had median
+CPU times of 535 → 407, 1,138 → 1,083 and 820 → 769 ms. One complete
+private encoding measured 31.7 → 27.2 seconds of CPU time, with identical
+frame bytes. These are limited Node measurements, not browser or general
+end-to-end guarantees.
+
+Reusing the same word for hash calculation and changing index insertion to
+word reads was also tested. Although some measurements improved, the deep
+search results varied in both directions, so that additional change was not
+adopted. Replacing each match result object with a shared offset variable
+likewise showed no consistent improvement in deep-search measurements and
+was not adopted.
+
+After a matching four-byte word, the match-length scan now attempts three
+more words together before the next loop iteration. A mismatch still falls
+back to exact word and byte comparisons; the match choices do not depend on
+hash collisions. The previous and new search frames matched on 500 synthetic
+inputs, as did 20 complete synthetic encodings and one complete private
+payload. Four warmed alternating Node measurements of a depth-2,048,
+four-byte-lookahead search on three private inputs had median CPU times of
+403 → 342, 909 → 711 and 779 → 694 ms. On a synthetic workload dominated by
+short matches, eight alternating measurements had medians of 234.3 → 233.5 ms.
+One complete private encoding took 23.6 → 22.1 seconds of CPU time and
+produced identical bytes. These are limited Node measurements, not browser
+or general end-to-end guarantees.
+
+When an emitted match ends past the last searchable position in its block,
+the remaining hash-chain insertions are skipped: that index cannot be read
+again. Matches followed by searchable positions retain the same insertions.
+Frames matched the previous encoder on 2,000 synthetic inputs, including
+multi-block uniform data, and on one 4.95 MB private input. Six warmed
+alternating Node measurements for a 4 MiB uniform payload had median complete
+encoder CPU times of 112.4 → 40.7 ms. One reverse-order private-input run
+measured 33.34 → 26.19 seconds with identical output; this single result does
+not establish a general speedup. Actual benefit depends on final-match length
+and the proportion of time spent in other searches.
+
+Two hash-chain workspace reuse prototypes were not adopted. Reusing both
+tables produced identical frames on 2,000 synthetic inputs but, in one
+reverse-order private-input measurement, CPU time was 21.23 → 24.23 seconds.
+For 4 MiB of synthetic noise, one Node run measured peak RSS of
+121,224 → 124,976 KiB. Reusing only the previous-position table also showed
+no consistent CPU benefit and measured peak RSS of 120,768 → 124,516 KiB on
+that noise input. These are limited measurements, but did not justify the
+additional retained workspace.
+
+For a fixed search depth and lookahead, the encoder also records the shortest
+match it actually emits. Raising the minimum match length up to that value
+cannot change the emitted matches or index updates: a shorter match that was
+postponed advances by one byte under either threshold. Duplicate profiles can
+therefore be skipped, while the existing depth-limit check remains conservative.
+Across 2,000 synthetic inputs, complete frames matched the preceding encoder
+byte-for-byte. One 4.95 MB private input also matched exactly and measured
+28.2 → 26.6 seconds of Node CPU time in a single reverse-order comparison.
+For synthetic 128 KiB runs and mixed patterns, eight warmed alternating Node
+measurements had median CPU times of 10.3 → 3.5 and 64.8 → 29.2 ms. The
+measurements are workload-dependent and do not establish browser performance.
+An earlier prototype recorded all search positions; on the large input its
+reverse-order comparison took 25.9 → 28.6 seconds and it was not adopted.
+
+The initial depth-64 searches now record whether they exhausted the search
+budget. If they did not, their frames are also evaluated at the corresponding
+depth-2,048 candidate positions, in the original order, instead of searching
+the same candidates again. Later depths are skipped under the existing
+completion rule. Complete frames matched the preceding encoder on 3,000
+synthetic inputs and two private inputs, including a 4.95 MB multi-block
+payload. On those private inputs, single reverse-order Node CPU measurements
+were 21.8 → 20.4 and 33.9 → 31.7 seconds; timing varies by input and runtime.
+For synthetic 128 KiB noise, eight warmed alternating measurements had
+median CPU times of 18.09 → 15.21 ms. The early frames are retained until the
+first deep profile is evaluated, so additional compressed data can remain
+live temporarily. In one separate 4 MiB noise run, peak Node RSS was
+140,848 → 138,028 KiB and CPU time was 1,468 → 1,154 ms; this is not a
+browser peak-memory or general performance guarantee.
+
+If the initial fast frame is at least 90% of the input size, the encoder now
+defers building a block's rolling-hash prefix table until an actual long-match
+comparison needs it. More compressible frames still build the table eagerly.
+This choice affects only when the same exact hash filter is constructed;
+matching bytes are still verified. The threshold is a performance heuristic,
+not a compression-format change. Full frames matched on 1,500 synthetic
+inputs and on a private slide; a separate near-incompressible input that
+subsequently needed the deferred table and a 4.70 MB mixed synthetic/private
+multi-block input also matched. In one 4 MiB noise comparison, peak
+Node RSS was 136,616 → 126,136 KiB and CPU time was 1,362 → 879 ms, with
+identical frame bytes. One reverse-order private-slide measurement was
+23.27 → 21.98 seconds. Earlier unconditional deferral prototypes were slower
+on that slide (20.17 → 26.37 and 20.55 → 24.54 seconds) and were not adopted.
+These are limited Node measurements, not browser or general peak-memory
+guarantees; deferral can still add work when a table is ultimately needed.
