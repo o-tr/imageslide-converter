@@ -17,7 +17,13 @@ export const optimizeBoundingBox = (
   let bestScore = calcBoundingBoxScore(bestBoxes);
 
   let reducedBoxes = bestBoxes;
-  for (let i = IMAGE_BOUNDING_BOX_LIMIT - 1; i > 0; i--) {
+  // Limits at or above the current count cannot merge anything or improve
+  // the score, so begin with the first limit that can change the result.
+  for (
+    let i = Math.min(IMAGE_BOUNDING_BOX_LIMIT - 1, reducedBoxes.length - 1);
+    i > 0;
+    i--
+  ) {
     reducedBoxes = mergeBoundingBoxByLimit(reducedBoxes, i);
     const score = calcBoundingBoxScore(reducedBoxes);
     if (score < bestScore) {

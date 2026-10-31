@@ -76,7 +76,9 @@ function shrinkIndexed(boxes: BoundingBox[]): boolean {
           link = next[link - 1]
         ) {
           const j = ids[link - 1];
-          if (j > i && seen[j] !== stamp) {
+          // Two boxes without an interior cannot satisfy any adjustment.
+          // Edges only contract; an inversion switches to the ordered scan.
+          if (j > i && (potential[i] || potential[j]) && seen[j] !== stamp) {
             seen[j] = stamp;
             candidates.push(j);
             if (candidates.length > maxCandidates) {

@@ -31,12 +31,14 @@ hash matches, and reuses immutable compressed payloads within a single EIA
 conversion. Neither changes which frame is selected. Deep search still costs
 significantly more CPU and memory during conversion.
 
-Small payloads (up to 64 KiB) can also reuse a frame when a different buffer
-has identical contents. A sampled fingerprint is only a filter: every reuse
-checks all bytes, and at most four fingerprint collisions are compared per
-lookup. The cache holds at most 32 entries and 1 MiB of input and frame bytes,
-copies input views so large backing buffers are not retained, and is discarded
-after the conversion. Identity caching is still used for larger payloads.
+Payloads can also reuse a frame when a different buffer has identical
+contents. A sampled fingerprint is only a filter: every reuse checks all
+bytes, and at most four fingerprint collisions are compared per lookup. The
+cache holds at most 32 entries and 1 MiB of strongly retained input and frame
+bytes. Inputs up to 64 KiB are copied; larger inputs are referenced weakly,
+so their backing buffers are not retained by this cache. Without WeakRef,
+larger inputs fall back to identity caching. The cache is discarded after the
+conversion.
 The 28 private payloads contained no identical complete inputs, so this is a
 workload-dependent optimization. For a repeated synthetic 16 KiB payload,
 six warmed alternating Node measurements had median CPU times of 5.38 ms for
@@ -738,3 +740,371 @@ identical frame bytes. One reverse-order private-slide measurement was
 on that slide (20.17 → 26.37 and 20.55 → 24.54 seconds) and were not adopted.
 These are limited Node measurements, not browser or general peak-memory
 guarantees; deferral can still add work when a table is ultimately needed.
+
+For indexed overlap shrinking, pairs of boxes that both lacked an interior
+when the index was built are skipped. Such boxes cannot satisfy any of the
+strict-containment checks while edges contract; inversion still falls back to
+the ordered scan. On two synthetic 10,000-box workloads with 2% rectangles
+and 98% points, eight warmed alternating Node measurements had median times
+of 13.09 → 6.84 ms and 14.09 → 11.16 ms, with identical results. A dense
+all-rectangle workload measured 186.36 → 187.08 ms. These samples are not
+browser measurements or a guarantee for other image distributions.
+
+Animation similarity comparison now unrolls the RGB and RGBA channel loops
+and skips absolute-value calculations for equal pixels. For 640×360 synthetic
+frames, twelve warmed alternating Node samples measured median per-comparison
+times of 0.744 → 0.454 ms (identical RGB), 0.784 → 0.283 ms (sparse RGB
+changes), 0.908 → 0.459 ms (identical RGBA), and 0.758 → 0.315 ms (sparse
+RGBA changes). The existing early exit remains for dissimilar frames. These
+are Node microbenchmarks, not browser or end-to-end guarantees.
+
+The animation cache key now hashes complete four-byte words instead of hashing
+each byte separately, including any trailing bytes and unaligned buffer views.
+The key is internal and only filters candidates: dimensions, format, and all
+frame bytes are still checked on a hit, so collisions cannot reuse the wrong
+animation. On one synthetic 1920×1080 RGB frame, ten warmed alternating Node
+measurements had median key-generation times of 73.64 → 19.03 ms. This is a
+microbenchmark, not a browser or end-to-end measurement; cache verification
+still scans the frame on a hit.
+
+For equally sized, complete RGB images, difference-mask generation now scans
+tightly packed pixels directly and skips absolute-value work on exact matches.
+Different dimensions and incomplete buffers retain the general path. Eight
+warmed alternating Node measurements on synthetic 1920×1080 frames had median
+times of 9.62 → 5.81 ms (identical), 9.35 → 3.12 ms (sparse changes), and
+8.02 → 5.24 ms (different). These are per-scan microbenchmarks, not browser
+or end-to-end timings; the threshold and early-stop mask are unchanged.
+
+An independently searched block now allocates its compressed-output buffer
+only when it emits its first match. A no-match candidate still becomes the
+same raw block. Full encoded frames matched the preceding implementation for
+150 short synthetic inputs and 128 KiB noise and run-pattern inputs. Six
+warmed alternating Node measurements had median encoder times of 21.14 →
+21.10 ms for noise and 4.21 → 4.19 ms for runs, showing no material CPU
+change in these samples. In one separate 4 MiB noise run per version, peak
+Node RSS was 128,700 → 124,852 KiB, with identical frame bytes; this is not
+a browser-memory or general peak-memory guarantee.
+
+A four-pixel DataView equality precheck for RGB difference generation was
+also tried. In eight warmed alternating Node measurements on synthetic
+1280×720 pairs, medians improved from 2.47 to 0.59 ms for identical pixels
+and from 1.38 to 0.83 ms for sparse changes, but regressed from 2.49 to
+3.08 ms for dissimilar images and from 1.61 to 2.10 ms for one-unit channel
+changes throughout. An adaptive variant also regressed on the latter cases.
+The precheck was therefore not adopted; these microbenchmarks do not cover
+browser behavior or all image distributions.
+
+A prototype combined candidate-size and decoder-work scans in the literal
+post-pass. On a synthetic 512 KiB mixed input, six warmed alternating Node
+measurements with four spare-byte budgets had median post-pass times of
+14.80 → 14.92, 14.41 → 13.96, 15.55 → 15.07, and 16.27 → 16.31 ms.
+The prototype also evaluates work for candidates that exceed the size limit.
+The results did not establish a useful improvement, so the existing separate
+scans remain. These measurements cover only one synthetic input and do not
+rule out other approaches.
+
+The animation cache word hash now feeds alternating words into two independent
+32-bit lanes, reducing dependent arithmetic. This changes only internal cache
+keys. Since changes confined to one lane have only a 32-bit filter, collisions
+may be more likely for some inputs; matching dimensions, format and every byte
+are still verified, including in a test with a deliberately constructed
+collision. For one synthetic 1920×1080 RGB frame, twelve warmed alternating
+Node measurements had median key-generation times of 19.73 → 9.26 ms. This
+is a microbenchmark and does not include collision checks, canvas conversion
+or cropping; it is not a browser or general end-to-end measurement.
+
+Both words in each pair are now mixed into both accumulators. The previous
+single-lane collision constructed by the cache test no longer collides, while
+byte-by-byte verification remains mandatory for all hash matches. Twelve
+warmed alternating Node measurements on one synthetic 1920×1080 RGB frame
+had median key-generation times of 8.81 → 9.13 ms. A simpler rotation-and-add
+mix was rejected after 256 solid-gray test frames produced only 201 keys.
+This small sample does not establish collision resistance or browser
+performance; the hash is not a security boundary.
+
+A match that already reaches the last legal match byte cannot be beaten by a
+later start. The search therefore skips lazy lookahead in that case. Frames
+matched the preceding search on 1,000 synthetic inputs and the complete encoder
+on 100 of those inputs, plus 512 KiB uniform, periodic and noise inputs. Six
+warmed alternating Node measurements of the complete encoder had medians of
+4.86 → 3.51 ms (uniform), 3.86 → 3.04 ms (periodic), and 90.04 → 92.07 ms
+(noise). These samples are noisy and do not establish browser performance or
+a general speedup; no format or selected bytes changed in the comparisons.
+
+A dynamically growing compressed-block output buffer was tested to reduce
+allocation for highly compressible data. Its complete frames matched the
+preceding encoder on 500 short synthetic searches, 60 complete short
+encodings and four 512 KiB workloads. Six warmed alternating Node measurements
+had median complete-encoder times of 136.01 → 142.03 ms for a mixed pattern
+and 91.49 → 96.65 ms for noise; a periodic pattern measured 2.40 → 2.63 ms.
+In one separate 4 MiB periodic-data run per version, peak Node RSS measured
+102,348 → 101,584 KiB. Because the measured CPU regressions outweighed the
+small observed RSS reduction, the growing-buffer prototype was not adopted.
+The numbers are limited samples, not browser or general memory measurements.
+
+A candidate-match prefilter comparing the last four bytes before the existing
+rolling-hash check was tested. It preserved search output on 500 short
+synthetic inputs and complete encoder output on 50 of them, four 256 KiB
+workloads and one private slide. Six warmed alternating Node measurements of
+the complete encoder had median times of 44.59 → 46.11 ms for a mixed pattern
+and 44.97 → 45.81 ms for noise. A single reverse-order private-slide CPU
+comparison measured 20.30 → 21.49 seconds with identical output. These limited
+measurements did not justify the extra check, so it was not adopted.
+
+An audit of the fitted decoder-work model found two reversed candidate rankings
+among 40 pairs derived from the original four-input fitting data. A least-
+squares refit to those pairs eliminated both reversals on that same data;
+on 57 other previously measured pairs, both models agreed with 51 measured
+rankings and tied on six. This is not independent proof of either model's
+accuracy: several inputs and candidate-generation methods overlap with earlier
+experiments, and native extern work is excluded. Re-encoding the four private
+inputs using the refitted weights produced byte-identical frames to the current
+weights, so it provided no measured improvement on those inputs. The current
+weights remain in use; further representative VM measurements are needed to
+justify changing candidate selection.
+
+Bounding-box selection now skips merge limits that are at least the current
+box count: those iterations clone and rescore the same boxes without merging
+or improving the score. Results matched the previous implementation for 300
+synthetic inputs, with a separate reference test retained. Eight warmed
+alternating Node measurements of batches of 200 calls had median times of
+2.27 → 0.46 ms for one box and 2.94 → 1.01 ms for two boxes; eight-box batches
+were about 6.60 ms for both. These microbenchmarks do not include the rest of
+image cropping, compression, or browser overhead.
+
+When a match or literal length needs at least four LZ4 extension bytes of
+255, the encoder writes them as one fill instead of a byte-at-a-time loop.
+The same bytes are emitted. Searches matched on 500 short synthetic inputs,
+and complete frames matched on 50 of them and four larger workloads; tests
+also cover extension boundaries and a long literal. Eight warmed alternating
+Node measurements had median full-encoder times of 18.81 → 17.29 ms for a
+4 MiB uniform input and 45.06 → 45.09 ms for a 256 KiB mixed input. Noise
+measured 44.87 → 45.26 ms. These limited microbenchmarks are not browser or
+end-to-end measurements.
+
+When a match hash has no candidate in the current window, the encoder now
+returns before reading the target word. Search frames matched the preceding
+implementation on 500 short synthetic inputs, as did complete frames on 50 of
+them, four 256 KiB synthetic inputs and one private slide. Eight warmed
+alternating Node measurements of the complete encoder had median times of
+45.96 → 44.84 ms for a mixed input and 45.97 → 44.82 ms for noise. A periodic
+input measured 1.62 → 1.90 ms; those short measurements varied substantially.
+One reverse-order private-slide CPU comparison measured 20.75 → 20.15 seconds
+with identical output. These are limited measurements, not browser or general
+performance guarantees.
+
+The decode-first search now retains the shortest candidate tied on estimated
+work and runs the literal post-pass on it as well as the original choice. It
+selects the lower-work final frame, preferring fewer bytes if final work ties;
+both remain within the existing size ceiling. The additional pass runs only
+when such a shorter tie exists and can increase encoder CPU and retained memory.
+Among 3,000 deterministic synthetic inputs, one final frame changed; none had
+a higher final work estimate or, on equal estimated work, a larger frame. In
+that case the frame remained 469 bytes, while its estimate fell from 756 to
+718 and the TypeUdon/udon-rs probe reported 32,738 → 31,429 VM instructions.
+Both frames decoded correctly in the probe and liblz4; the new frame also
+round-tripped through lz4js. This is one synthetic example and does not prove
+a speedup for other slides, browsers, or decoder implementations.
+
+A separate prototype also retained a same-size, equal-work candidate when its
+encoded bytes differed, and compared both post-processed outputs. None of
+3,000 deterministic synthetic inputs changed the final frame. One private
+slide also remained byte-identical; single sequential Node CPU measurements
+were 20.04 seconds for each version. The prototype adds candidate comparison
+and can run another post-pass, so it was not adopted without evidence of a
+benefit. This bounded experiment does not rule out useful cases elsewhere.
+
+Connected-component extraction can now consume a mask whose caller owns it
+instead of allocating a separate visited array. The crop pipeline uses this
+path only after parent selection has finished with the mask; the default API
+still leaves its input unchanged. This avoids one byte of temporary storage
+per image pixel for that pass. Bounds and ordering matched the previous
+implementation on 500 randomized masks; the retained reference test covers
+both consuming and non-consuming paths. Six warmed alternating Node timings on
+1280×720 synthetic masks had median times of 12.65 → 12.52 ms for a solid
+mask, 1.70 → 1.06 ms for sparse points, and 3.57 → 3.30 ms for a rectangular
+region. These exclude mask creation, downstream work and browser overhead.
+
+Connected-component extraction now processes contiguous horizontal runs and
+queues seeds for neighboring runs. Isolated first pixels take a direct path;
+the component's topmost, leftmost starting position and four-neighbor
+connectivity remain unchanged. Results and consumed masks matched the prior
+implementation on 3,000 randomized masks, with winding, hole and diagonal
+cases retained in tests. Six warmed alternating Node timings on 1280×720
+synthetic masks had medians of 12.44 → 3.66 ms for a solid region, 3.33 →
+1.60 ms for a rectangle, 28.28 → 25.46 ms for a checkerboard, and 7.33 →
+7.04 ms for sparse noise. One isolated 1920×1080 solid-mask run per version
+measured peak Node RSS of 100,496 → 68,660 KiB. These are limited Node
+measurements and exclude mask creation and downstream work.
+
+Parent selection now reuses a discarded difference mask for later candidates,
+while retaining the current winner separately. A reused workspace is cleared
+first, including the unvisited tail of an early-stopped scan. With at least
+three evaluated parents this bounds concurrently needed masks to two rather
+than allocating one per candidate; 120 randomized candidate sets and four
+search limits matched the previous selections and masks. Eight warmed
+alternating Node measurements on a synthetic 1280×720 image with eight parent
+candidates had median selection times of 10.59 → 9.56 ms. This excludes
+thumbnail generation, compression, browser overhead and other workloads.
+
+The RGB diff scan now returns a zero mask immediately when both complete,
+equally sized images are exactly the same view of the same storage. Different
+views, copied images and dimensions continue through the normal comparison.
+Eight warmed alternating Node measurements on a synthetic 1920×1080 frame
+had median diff times of 5.50 → 0.020 ms for the same buffer and 5.48 →
+0.020 ms for a distinct view of the same bytes. Equal copied buffers measured
+5.55 ms in both versions, and a changed buffer about 3.16 ms in both. This
+helps only when the input storage is shared; it is not a general browser or
+end-to-end measurement.
+
+Large identical inputs now participate in the content cache through weak
+references, without keeping their backing buffers alive solely for reuse.
+A collected reference or an unavailable WeakRef simply causes a cache miss;
+compressed data remains subject to the existing 1 MiB and 32-entry limits.
+The inputs must remain immutable during conversion, as already required by
+the cache. Tests cover large-input hash collisions, collection, WeakRef absence
+and the retention limit. Eight warmed alternating Node measurements of a
+repeated synthetic 256 KiB noise payload had median compression-lookup times
+of 42.37 → 0.115 ms, excluding creation of the copied input. Conversely, a
+deliberately collision-heavy batch of 20 distinct 256 KiB inputs with a
+no-op encoder measured 0.008 → 7.37 ms due to full-byte checks. Real benefit
+depends on repetition, collisions, garbage collection and browser behavior.
+
+Content-cache equality checks now inspect the first and last 16 bytes before
+the middle, but still verify all bytes before reuse. In eight warmed alternating
+Node measurements of 20 distinct synthetic 256 KiB inputs with matching
+sampled fingerprints and differences near the end, median batch time with a
+no-op encoder fell from 7.79 to 0.034 ms. Identical inputs measured 2.17 →
+2.11 ms; differences near the start measured 0.027 → 0.049 ms. These are
+artificial worst- and best-case microbenchmarks, not conversion or browser
+performance guarantees.
+
+For inputs of at least 1 KiB, the cache verifies the middle of matching
+fingerprints in four-byte words, then checks any remaining bytes individually.
+Unaligned views and differing backing offsets are supported. Eight warmed
+alternating Node measurements of equal synthetic buffers had median lookup
+times of 0.108 → 0.066 ms at 256 KiB and 2.59 → 1.58 ms at 6.22 MB; a
+difference near the middle of the larger buffer measured 1.32 → 0.79 ms.
+These timings include cache lookup but not compression or copying input and
+do not establish browser performance.
+
+A prototype shifted one matched byte into literals at an LZ4 extension-byte
+boundary, then doubled the match offset when the bytes allowed it and the
+frame did not grow. For a constructed two-match frame with offset 519, the
+TypeUdon/udon-rs probe reported 7,103 → 6,867 instructions at the same size;
+lz4js decoded both frames. However, changing an offset-one match to offset two
+in another constructed case increased instructions from 5,961 to 6,041,
+because that decoder has an offset-one specialization. After excluding that
+case, the prototype changed none of 5,000 synthetic search frames or 28
+private candidate frames. It was not adopted without evidence of benefit on
+frames actually produced by the encoder. These bounded experiments do not
+rule out useful cases in other workloads or decoders.
+
+### Offset-one specialization: cross-decoder comparison
+
+An offset-one rewrite prototype retained frame size and reduced TypeUdon/udon-rs
+instructions on 28 private candidate frames, from 1,168,388,651 to
+1,168,293,339 in total. It also constrained the older UdonSharp decoder's
+Array.Copy count not to increase. Further measurement showed this constraint
+was insufficient: running an exported UdonSharp UdonLZ4 assembly on udon-rs for
+16 synthetic before/after pairs produced exact bytes but increased instruction
+counts in all 16, from 1,296,833 to 1,298,472 in total. A separate matrix of
+match lengths 4 through 1,024 and offsets 1, 2, 3, 4, 8, 16, 32 and 64 found
+offset one was consistently more expensive in that artifact. These results
+measure the exported assembly on udon-rs, not VRChat client wall time; the
+source of the measured assembly was UdonLZ4 revision
+`2127e192fae3d32459093b24314c7f4d9260b3c5`. Its match-copy code agrees with
+the checked-in UdonSharp source, although the complete source files differ.
+
+Because the TypeUdon and UdonSharp decoders favor different offsets, the
+prototype was removed rather than silently trading one decoder's instructions
+for the other's. A direct Unity Editor A/B run could not be completed: no X
+display was available, and `unity run -nographics` exited before the existing
+play-mode probe ran. No claim is made about Unity wall time. The remaining
+encoder preserves standard LZ4 compatibility and its earlier selection policy.
+
+A further prototype replaced an offset-one match with an offset of 8–64 only
+when the same byte was already available in the current block, preserving the
+frame size. One of 28 private frames from an earlier encoder stage changed:
+TypeUdon/udon-rs instructions fell from 87,709,555 to 87,709,283, and the
+exported UdonSharp assembly on udon-rs fell from 21,438,626 to 21,438,269;
+both decoded exactly. However, the frame generated by the current complete
+encoder for that same slide did not change, nor did four other current frames
+or 10,000 synthetic search frames. Scanning five private frames in warmed Node
+runs took median times of about 0.04–0.84 ms per frame. The prototype was not
+adopted without a demonstrated benefit on current output. These observations
+are bounded and do not rule out useful cases elsewhere.
+
+Thumbnail averaging now derives each cell's pixel count from its bounds
+instead of incrementing a counter for every pixel. It matched the preceding
+implementation for 500 synthetic image/grid combinations, including empty
+cells. Twelve warmed alternating Node measurements had median thumbnail times
+of 3.56 → 3.46 ms at 1920×1080 and 0.134 → 0.123 ms at 256×256. These are
+small local measurements and do not establish browser or end-to-end speedups.
+
+When more than 16 parent candidates are available, thumbnail ranking keeps
+only the first top-K available parents in stable score order. Since each
+channel difference is non-negative, scoring a later candidate can stop once
+it cannot beat the current worst retained score; ties continue to favor the
+earlier candidate. Thumbnail lengths are still validated for every candidate.
+Selections and masks matched the previous implementation over 500 randomized
+sets, including missing buffers, ties and non-integer limits. Ten warmed
+alternating Node measurements of batches of ten selections with 120 synthetic
+candidates had median times of 3.29 → 0.45 ms when most scores diverged early,
+and 3.30 → 3.25 ms when each later candidate ranked better. These are local
+microbenchmarks, not browser or whole-export measurements.
+
+The match finder now returns the hash it already computed for the current
+position, so inserting that position does not calculate it again. Other
+insertions and match choices are unchanged. Search frames matched on 500 short
+and 100 larger synthetic inputs, including unaligned views and offsets across
+the 64 KiB window; 55 complete synthetic encodings and one private frame also
+matched. Ten warmed alternating Node measurements of the complete encoder on
+256 KiB inputs had median times of 43.57 → 39.83 ms for mixed data and
+43.23 → 39.24 ms for noise. Uniform data measured 1.65 → 2.31 ms with high
+variation at that short duration. One reverse-order private-slide CPU
+comparison was 20.09 → 20.03 seconds. These are limited Node measurements,
+not browser or end-to-end guarantees.
+
+After the current-position hash reuse, reading the four-byte match word once
+for both hashing and comparison was re-tested. Ten warmed alternating Node
+measurements of 256 KiB inputs showed mixed/noise medians of 39.87 → 35.11 ms
+and 39.66 → 35.67 ms, but one reverse-order private-slide CPU comparison was
+19.97 → 22.74 seconds with identical output. A conditional variant limited to
+near-incompressible inputs also regressed those synthetic mixed/noise medians
+to 48.54 and 49.36 ms in a separate run. Neither variant was adopted; the
+samples are not browser or universal performance measurements.
+
+If lz4js emits only raw blocks, the encoder now returns that frame immediately.
+Each raw block requires one copy and no sequence dispatch; all search profiles
+use the same 4 MiB partition, and under the existing scoring and tie rules no
+compressed block can lower the work estimate. The later literal pass also has
+no matches to rewrite. This preserves the existing choice, including cases
+where a deeper search could produce fewer bytes but the existing policy favors
+the raw frame's lower estimated decode work.
+
+Complete frames matched the preceding encoder on 1,000 synthetic inputs,
+including unaligned views, and on all-raw and mixed raw/compressed multi-block
+inputs. Eight warmed alternating Node measurements of the complete encoder on
+256 KiB synthetic noise had median times of 40.86 → 0.203 ms; a mixed but
+all-raw input measured 42.68 → 0.215 ms. A compressed uniform input measured
+1.79 → 1.65 ms with substantial variation. In one separate 4 MiB noise run per
+version, CPU time was 751 → 10 ms and peak RSS 124,716 → 91,328 KiB, with
+identical output. These Node samples exclude browser and end-to-end overhead.
+
+For near-incompressible multi-block frames, each block now records when an
+exhaustive search emitted no matches. With the same lookahead, a subsequent
+search at least as deep and with an equal or higher minimum match length must
+also emit none, so that block's search can be skipped. The proof is not used
+if the search budget was exhausted; block statistics are otherwise combined
+in the same order as before. Context eviction can only forfeit reuse.
+
+Frames matched the previous encoder on mixed raw/compressed multi-block
+inputs, including three unaligned synthetic inputs and one 4.95 MB private
+slide; a deterministic mixed-block fixture remains in the tests. Four warmed
+alternating Node CPU measurements for a 4 MiB noise block followed by a
+complex 64 KiB block had median total times of 2,728 → 1,719 ms. A different
+short-match tail measured 1,032 → 822 ms. One reverse-order private-slide
+comparison measured 25.54 → 24.81 seconds with identical output; the proof
+path was not enabled for that compressible input. These are limited Node
+measurements and do not establish browser or general performance.

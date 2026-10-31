@@ -147,10 +147,14 @@ export const cropImages = (
       continue;
     }
 
+    // The selected mask is private to this iteration and is not needed after
+    // component extraction, so it can double as the visited-pixel workspace.
     const diffBox = diff2boundingBox(
       bestParent.diff,
       currentImage.rect.width,
       currentImage.rect.height,
+      0,
+      true,
     );
     const boundingBoxes = mergeOverlapBoundingBox(
       shrinkOverlapBoundingBox(diffBox),

@@ -46,6 +46,20 @@ describe("animation frame similarity", () => {
     }
   });
 
+  it("keeps threshold boundaries and unaligned RGB and RGBA views", () => {
+    for (const bpp of [3, 4]) {
+      const a = new Uint8Array(3 * bpp + 2).subarray(1, -1);
+      const b = new Uint8Array(3 * bpp + 4).subarray(2, -2);
+      // At the per-pixel threshold does not count; one unit above it does.
+      b[0] = IMAGE_DIFF_THRESHOLD * bpp;
+      b[bpp] = IMAGE_DIFF_THRESHOLD * bpp + 1;
+      b[2 * bpp + bpp - 1] = IMAGE_DIFF_THRESHOLD * bpp + 1;
+      expect(hasSimilarPixels(a, b, bpp, 0)).toBe(false);
+      expect(hasSimilarPixels(a, b, bpp, 1)).toBe(false);
+      expect(hasSimilarPixels(a, b, bpp, 2)).toBe(true);
+    }
+  });
+
   it("preserves pool matching and exact matches for crop dependencies", async () => {
     const frame = (index: number, buffer: Buffer) => ({
       index,

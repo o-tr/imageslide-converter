@@ -20,7 +20,8 @@ export const computeThumbnail = (
       let sumR = 0;
       let sumG = 0;
       let sumB = 0;
-      let count = 0;
+      // Cell bounds already determine the number of contributing pixels.
+      const count = Math.max(0, x1 - x0) * Math.max(0, y1 - y0);
 
       for (let y = y0; y < y1; y++) {
         let idx = (y * width + x0) * 3;
@@ -28,7 +29,6 @@ export const computeThumbnail = (
           sumR += buffer[idx];
           sumG += buffer[idx + 1];
           sumB += buffer[idx + 2];
-          count++;
         }
       }
 

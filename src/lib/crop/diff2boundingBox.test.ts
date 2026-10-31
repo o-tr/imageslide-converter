@@ -66,8 +66,42 @@ it("preserves connected-component bounds and ordering across masks and padding",
     for (let i = 0; i < mask.length; i++)
       mask[i] = random() % 8 < threshold ? 2 : 0;
     const padding = n % 4;
-    expect(diff2boundingBox(mask, width, height, padding)).toEqual(
-      reference(mask, width, height, padding),
+    const original = mask.slice();
+    const expected = reference(mask, width, height, padding);
+    expect(diff2boundingBox(mask, width, height, padding)).toEqual(expected);
+    expect(mask).toEqual(original);
+    const owned = mask.slice();
+    expect(diff2boundingBox(owned, width, height, padding, true)).toEqual(
+      expected,
     );
+    expect(owned.every((value) => value === 0)).toBe(true);
+  }
+});
+
+it("follows winding runs, holes and diagonal-only contacts", () => {
+  const width = 48;
+  const height = 36;
+  for (const pattern of ["winding", "holes", "diagonal"] as const) {
+    const mask = new Uint8Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const set =
+          pattern === "winding"
+            ? y % 2 === 0 || (y % 4 === 1 ? x === width - 1 : x === 0)
+            : pattern === "holes"
+              ? x > 1 &&
+                y > 1 &&
+                x < width - 2 &&
+                y < height - 2 &&
+                (x % 7 !== 3 || y % 5 !== 2)
+              : (x + y) % 2 === 0;
+        if (set) mask[y * width + x] = 3;
+      }
+    }
+    const expected = reference(mask, width, height, 1);
+    expect(diff2boundingBox(mask, width, height, 1)).toEqual(expected);
+    const owned = mask.slice();
+    expect(diff2boundingBox(owned, width, height, 1, true)).toEqual(expected);
+    expect(owned.every((value) => value === 0)).toBe(true);
   }
 });

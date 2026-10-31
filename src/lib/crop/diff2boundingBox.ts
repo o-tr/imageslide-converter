@@ -5,57 +5,55 @@ export const diff2boundingBox = (
   width: number,
   height: number,
   padding = 0,
+  consumeMask = false,
 ): BoundingBox[] => {
   const boxes: BoundingBox[] = [];
-  const visited = new Uint8Array(maskArray.length);
-  // One integer per pending pixel avoids allocating a coordinate pair for
-  // every visited pixel. Mark on insertion so no pixel is queued twice.
+  // Callers with exclusive ownership can let traversal consume the mask.
+  // Otherwise copy it to preserve the public function's input semantics.
+  const remaining = consumeMask ? maskArray : Uint8Array.from(maskArray);
+  // A pending seed represents a contiguous horizontal run.
   const stack: number[] = [];
   for (let y = 0; y < height; y++)
     for (let x = 0; x < width; x++) {
       const first = y * width + x;
-      if (maskArray[first] === 0 || visited[first]) continue;
-      visited[first] = 1;
-      stack.push(first);
+      if (remaining[first] === 0) continue;
+      // All earlier rows and positions have already been consumed. A first
+      // pixel with no right or lower neighbor is a one-pixel component.
+      if (
+        (x + 1 >= width || remaining[first + 1] === 0) &&
+        (y + 1 >= height || remaining[first + width] === 0)
+      )
+        remaining[first] = 0;
+      else stack.push(first);
       let x1 = x;
       let x2 = x;
       let y1 = y;
       let y2 = y;
       while (stack.length) {
         const at = stack.pop() as number;
-        const px = at % width;
+        if (remaining[at] === 0) continue;
         const py = Math.floor(at / width);
-        if (px < x1) x1 = px;
-        if (px > x2) x2 = px;
+        const px = at - py * width;
+        const row = py * width;
+        let left = px;
+        let right = px;
+        while (left > 0 && remaining[row + left - 1] !== 0) left--;
+        while (right + 1 < width && remaining[row + right + 1] !== 0) right++;
+        if (left < x1) x1 = left;
+        if (right > x2) x2 = right;
         if (py < y1) y1 = py;
         if (py > y2) y2 = py;
-        if (py > 0) {
-          const p = at - width;
-          if (!visited[p] && maskArray[p] !== 0) {
-            visited[p] = 1;
-            stack.push(p);
-          }
-        }
-        if (px + 1 < width) {
-          const p = at + 1;
-          if (!visited[p] && maskArray[p] !== 0) {
-            visited[p] = 1;
-            stack.push(p);
-          }
-        }
-        if (py + 1 < height) {
-          const p = at + width;
-          if (!visited[p] && maskArray[p] !== 0) {
-            visited[p] = 1;
-            stack.push(p);
-          }
-        }
-        if (px > 0) {
-          const p = at - 1;
-          if (!visited[p] && maskArray[p] !== 0) {
-            visited[p] = 1;
-            stack.push(p);
-          }
+        let aboveRun = false;
+        let belowRun = false;
+        for (let xx = left; xx <= right; xx++) {
+          const p = row + xx;
+          remaining[p] = 0;
+          const above = py > 0 && remaining[p - width] !== 0;
+          if (above && !aboveRun) stack.push(p - width);
+          aboveRun = above;
+          const below = py + 1 < height && remaining[p + width] !== 0;
+          if (below && !belowRun) stack.push(p + width);
+          belowRun = below;
         }
       }
       x1 = Math.max(0, x1 - padding);

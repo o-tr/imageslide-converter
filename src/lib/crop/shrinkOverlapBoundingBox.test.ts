@@ -84,6 +84,14 @@ it("matches ordered scanning for large indexed inputs and fallback paths", () =>
   );
   const nested = [...separated];
   nested.splice(900, 0, makeBox(7, 100, 20, 115), makeBox(9, 102, 12, 106));
+  // The indexed path must still examine point/rectangle pairs, while point/
+  // point pairs cannot affect the output. Include containment and shared cells.
+  const mixed = Array.from({ length: 1600 }, (_, i) => {
+    const x = (i % 80) * 3;
+    const y = Math.floor(i / 80) * 3;
+    const size = i % 8 === 0 ? 5 : 0;
+    return makeBox(x, y, x + size, y + size);
+  });
   const dense = Array.from({ length: 1100 }, () => makeBox(20, 20, 25, 25));
   const oversized = [makeBox(0, 0, 10000, 10000), ...separated];
   const fractional = [makeBox(0.5, 0, 2.5, 2), ...separated];
@@ -98,6 +106,7 @@ it("matches ordered scanning for large indexed inputs and fallback paths", () =>
   for (const boxes of [
     separated,
     nested,
+    mixed,
     dense,
     oversized,
     fractional,

@@ -21,7 +21,34 @@ export function createAnimationCacheKey(frames: RawImageObjV1[]): string {
         `${frame.rect.width}x${frame.rect.height}:${frame.format}:${frame.buffer.length}|`,
       ),
     );
-    updateBoth(frame.buffer);
+    // Mix each pair of words into two independent accumulators. The key is
+    // only a prefilter: every byte is verified on a hit. DataView supports
+    // unaligned subarrays.
+    const bytes = frame.buffer;
+    const words = new DataView(
+      bytes.buffer,
+      bytes.byteOffset,
+      bytes.byteLength,
+    );
+    let i = 0;
+    for (; i + 8 <= bytes.length; i += 8) {
+      const a = words.getUint32(i, true);
+      const b = words.getUint32(i + 4, true);
+      hashA =
+        Math.imul(hashA ^ a ^ Math.imul(b, 0x85ebca6b), FNV_PRIME_32) >>> 0;
+      hashB =
+        Math.imul(hashB ^ b ^ Math.imul(a, 0xc2b2ae35), FNV_PRIME_32) >>> 0;
+    }
+    if (i + 4 <= bytes.length) {
+      const word = words.getUint32(i, true);
+      hashA = Math.imul(hashA ^ word, FNV_PRIME_32) >>> 0;
+      hashB = Math.imul(hashB ^ word, FNV_PRIME_32) >>> 0;
+      i += 4;
+    }
+    for (; i < bytes.length; i++) {
+      hashA = Math.imul(hashA ^ bytes[i], FNV_PRIME_32) >>> 0;
+      hashB = Math.imul(hashB ^ bytes[i], FNV_PRIME_32) >>> 0;
+    }
   }
   return `${hashA.toString(16).padStart(8, "0")}${hashB.toString(16).padStart(8, "0")}`;
 }
