@@ -1,37 +1,36 @@
 "use client";
-import { ThemeIsDarkAtom } from "@/atoms/theme";
 import { ConfigProvider, theme } from "antd";
-import { useAtomValue } from "jotai";
 import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes";
-import { type FC, type ReactNode, useEffect } from "react";
+import { type FC, type ReactNode, useEffect, useState } from "react";
 
-export const ThemeProvider: FC<{ children: ReactNode }> = ({ children }) => {
-  const isDarkMode = useAtomValue(ThemeIsDarkAtom);
-  const { defaultAlgorithm, darkAlgorithm } = theme;
+export const ThemeProvider: FC<{ children: ReactNode }> = ({ children }) => (
+  <NextThemesProvider
+    attribute="class"
+    defaultTheme="system"
+    storageKey="imageslide-theme"
+    enableSystem
+    disableTransitionOnChange
+  >
+    <ThemedComponents>{children}</ThemedComponents>
+  </NextThemesProvider>
+);
+
+const ThemedComponents: FC<{ children: ReactNode }> = ({ children }) => {
+  const { resolvedTheme } = useTheme();
+  // Match the server's initial Ant Design styles during hydration, then apply
+  // the resolved browser preference so React updates all component styles.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   return (
     <ConfigProvider
       theme={{
-        algorithm: isDarkMode ? darkAlgorithm : defaultAlgorithm,
+        algorithm:
+          mounted && resolvedTheme === "dark"
+            ? theme.darkAlgorithm
+            : theme.defaultAlgorithm,
       }}
     >
-      <NextThemesProvider
-        attribute="class"
-        defaultTheme="system"
-        enableSystem
-        disableTransitionOnChange
-      >
-        {children}
-        <ThemeSync />
-      </NextThemesProvider>
+      {children}
     </ConfigProvider>
   );
-};
-
-const ThemeSync = () => {
-  const { setTheme } = useTheme();
-  const isDarkMode = useAtomValue(ThemeIsDarkAtom);
-  useEffect(() => {
-    setTheme(isDarkMode ? "dark" : "light");
-  }, [isDarkMode, setTheme]);
-  return null;
 };

@@ -14,6 +14,15 @@ worker.addEventListener(
     try {
       const { files: _files, format, scale, resolution } = event.data.data;
 
+      if (
+        _files.some((file) => file.animations?.length) &&
+        format !== "eia-v1-RGB24-cropped"
+      ) {
+        throw new Error(
+          "GIF アニメーションの出力には v0.3.x の EIA v1 RGB24 (cropped) を選択してください",
+        );
+      }
+
       const files = _files.map((file) => {
         try {
           // ファイルごとにアスペクト比を維持したスケールを計算

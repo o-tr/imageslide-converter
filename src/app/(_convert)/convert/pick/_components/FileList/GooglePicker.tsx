@@ -1,31 +1,28 @@
-import type { SelectedFile } from "@/_types/file-picker";
 import type { GoogleFilePickerCallbackData } from "@/_types/lib/google/filePicker";
-import { SelectedFilesAtom } from "@/atoms/file-drop";
+import { DeckCraftFileAtom, DeckCraftSlidesAtom } from "@/atoms/deckcraft";
 import {
   GooglePickerTokenAtom,
   IsGooglePickerReadyAtom,
 } from "@/atoms/google-picker";
 import { AntContent } from "@/components/AntContent";
-import { file2selectedFiles, pdf2canvases } from "@/lib/file2selectedFiles";
+import { file2selectedFiles } from "@/lib/file2selectedFiles";
 import { fetchFileBuffer } from "@/lib/gapi/fetchFile";
-import {
-  fetchSlideAsPdf,
-  fetchSlideMetadata,
-  requestTokenPromise,
-  showFilePicker,
-} from "@/lib/google";
-import { extractGifAnimations } from "@/lib/google/extractGifAnimations";
+import { requestTokenPromise, showFilePicker } from "@/lib/google";
 import { LoadingOutlined } from "@ant-design/icons";
 import { Button, Flex, Spin, message } from "antd";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { TbBrandGoogleDrive } from "react-icons/tb";
 
 export const GooglePicker = () => {
+  const router = useRouter();
+  const pathname = usePathname();
   const [messageApi, contextHolder] = message.useMessage();
   const [token, setToken] = useAtom(GooglePickerTokenAtom);
   const isApiLoaded = useAtomValue(IsGooglePickerReadyAtom);
-  const setFiles = useSetAtom(SelectedFilesAtom);
+  const setDeckCraftFile = useSetAtom(DeckCraftFileAtom);
+  const setDeckCraftSlides = useSetAtom(DeckCraftSlidesAtom);
   const [validating, setValidating] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -65,10 +62,13 @@ export const GooglePicker = () => {
       await showPicker(null);
       return;
     }
-    void showFilePicker(_token, (data) => onFilePicked(data));
+    void showFilePicker(_token, (data) => onFilePicked(data, _token));
   };
 
-  const onFilePicked = async (data: GoogleFilePickerCallbackData) => {
+  const onFilePicked = async (
+    data: GoogleFilePickerCallbackData,
+    accessToken: string,
+  ) => {
     if (data.action !== "picked" || !data.docs) return;
     const file = data.docs[0];
     abortControllerRef.current?.abort();
@@ -91,12 +91,51 @@ export const GooglePicker = () => {
         );
         const selectedFiles = await file2selectedFiles(fileObj);
         if (!isStillActive()) return;
-        setFiles((pv) => [...pv, ...selectedFiles]);
+        setDeckCraftSlides(selectedFiles);
+        if (pathname !== "/convert/pick") router.push("/convert/pick");
+      }
+      if (
+        file.mimeType ===
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      ) {
+        const response = await fetch(
+          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}?alt=media`,
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            signal: controller.signal,
+          },
+        );
+        if (!response.ok)
+          throw new Error(`PPTX の取得に失敗しました (${response.status})`);
+        const bytes = await response.arrayBuffer();
+        if (!isStillActive()) return;
+        setDeckCraftFile(
+          new File([bytes], file.name ?? "presentation.pptx", {
+            type: file.mimeType,
+          }),
+        );
+        if (pathname !== "/convert/pick") router.push("/convert/pick");
       }
       if (file.mimeType === "application/vnd.google-apps.presentation") {
-        const files = await slide2canvas(file.id, controller.signal);
+        const mime =
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+        const response = await fetch(
+          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}/export?mimeType=${encodeURIComponent(mime)}`,
+          {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            signal: controller.signal,
+          },
+        );
+        if (!response.ok)
+          throw new Error(`PPTX の書き出しに失敗しました (${response.status})`);
+        const bytes = await response.arrayBuffer();
         if (!isStillActive()) return;
-        setFiles((pv) => [...pv, ...files]);
+        setDeckCraftFile(
+          new File([bytes], `${file.name ?? "presentation"}.pptx`, {
+            type: mime,
+          }),
+        );
+        if (pathname !== "/convert/pick") router.push("/convert/pick");
       }
       if (file.mimeType?.startsWith("image/")) {
         const buffer = await fetchFileBuffer(file.id);
@@ -105,7 +144,8 @@ export const GooglePicker = () => {
         });
         const canvas = await file2selectedFiles(fileObject);
         if (!isStillActive()) return;
-        setFiles((pv) => [...pv, ...canvas]);
+        setDeckCraftSlides(canvas);
+        if (pathname !== "/convert/pick") router.push("/convert/pick");
       }
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
@@ -159,100 +199,4 @@ export const GooglePicker = () => {
       )}
     </>
   );
-};
-
-// Wrap a non-cancellable promise so it rejects as soon as `signal` aborts.
-// Underlying work (e.g. gapi calls) keeps running in the background, but
-// awaiters bail out immediately rather than waiting for it to finish.
-const raceWithAbort = <T,>(p: Promise<T>, signal?: AbortSignal): Promise<T> => {
-  if (!signal) return p;
-  // signal.reason is undefined per spec when abort() is called without an
-  // argument; fall back so `onFilePicked`'s `e instanceof DOMException` catch
-  // still recognizes the rejection.
-  const abortReason = () =>
-    signal.reason ?? new DOMException("Aborted", "AbortError");
-  if (signal.aborted) return Promise.reject(abortReason());
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(abortReason());
-    signal.addEventListener("abort", onAbort, { once: true });
-    p.then(
-      (v) => {
-        signal.removeEventListener("abort", onAbort);
-        resolve(v);
-      },
-      (e) => {
-        signal.removeEventListener("abort", onAbort);
-        reject(e);
-      },
-    );
-  });
-};
-
-const slide2canvas = async (
-  slideId: string,
-  signal?: AbortSignal,
-): Promise<SelectedFile[]> => {
-  const [{ canvases, buffer }, metadata] = await Promise.all([
-    (async () => {
-      const buffer = await raceWithAbort(fetchSlideAsPdf(slideId), signal);
-      signal?.throwIfAborted();
-      return {
-        canvases: await raceWithAbort(pdf2canvases(buffer), signal),
-        buffer,
-      };
-    })(),
-    raceWithAbort(fetchSlideMetadata(slideId), signal),
-  ]);
-  signal?.throwIfAborted();
-
-  const file = new File([buffer], metadata.title, {
-    type: "application/pdf",
-  });
-
-  if (canvases.length !== metadata.items.length) {
-    throw new Error(
-      `Canvas count (${canvases.length}) does not match slide metadata count (${metadata.items.length}). The PDF export may not include all slides.`,
-    );
-  }
-
-  const filteredSlides = canvases
-    .map((canvas, index) => ({
-      canvas,
-      index,
-      isSkipped: metadata.items[index].isSkipped,
-      speakerNote: metadata.items[index].speakerNote,
-      pageElements: metadata.items[index].pageElements,
-    }))
-    .filter(({ isSkipped }) => !isSkipped);
-
-  // Process slides sequentially so the per-slide GIF_FETCH_CONCURRENCY cap in
-  // extractGifAnimations actually bounds total proxy load (parallel Promise.all
-  // across 30 slides would multiply that cap by the slide count).
-  const results: SelectedFile[] = [];
-  for (const [outputIndex, slide] of filteredSlides.entries()) {
-    signal?.throwIfAborted();
-    const { canvas, index, speakerNote, pageElements } = slide;
-    const { animations, skipped } = await extractGifAnimations(
-      pageElements,
-      metadata.pageSize,
-      { width: canvas.width, height: canvas.height },
-      canvas,
-      signal,
-    );
-    results.push({
-      id: crypto.randomUUID(),
-      fileName: `${metadata.title}-${outputIndex + 1}`,
-      canvas,
-      note: speakerNote,
-      animations: animations.length > 0 ? animations : undefined,
-      skippedAnimations: skipped.length > 0 ? skipped : undefined,
-      metadata: {
-        fileType: "pdf" as const,
-        file,
-        index,
-        scale: 1,
-      },
-    });
-  }
-  return results;
 };

@@ -1,14 +1,16 @@
 "use client";
-import { IsDragOverAtom, SelectedFilesAtom } from "@/atoms/file-drop";
+import { DeckCraftFileAtom, DeckCraftSlidesAtom } from "@/atoms/deckcraft";
+import { IsDragOverAtom } from "@/atoms/file-drop";
 import { files2selectedFiles } from "@/lib/file2selectedFiles";
-import { Flex } from "antd";
+import { Flex, message } from "antd";
 import { useAtom, useSetAtom } from "jotai";
 import { type FC, useEffect } from "react";
 import { TbDragDrop } from "react-icons/tb";
 
 export const DragWatcher: FC = () => {
   const [isDragOver, setIsDragOver] = useAtom(IsDragOverAtom);
-  const setSelectedFiles = useSetAtom(SelectedFilesAtom);
+  const setDeckCraftFile = useSetAtom(DeckCraftFileAtom);
+  const setDeckCraftSlides = useSetAtom(DeckCraftSlidesAtom);
   useEffect(() => {
     const onDragOver = (e: DragEvent) => {
       if (!e.dataTransfer?.types.includes("Files")) return;
@@ -23,8 +25,22 @@ export const DragWatcher: FC = () => {
       e.preventDefault();
       const transfer = e.dataTransfer;
       if (transfer?.files) {
-        const files = await files2selectedFiles(transfer.files);
-        setSelectedFiles((pv) => [...pv, ...files]);
+        const dropped = Array.from(transfer.files);
+        const presentations = dropped.filter((file) =>
+          /\.pptx$/i.test(file.name),
+        );
+        if (
+          presentations.length > 1 ||
+          (presentations.length && dropped.length > 1)
+        ) {
+          message.warning("PPTX は一度に 1 ファイルずつ開いてください");
+        } else {
+          if (presentations[0]) setDeckCraftFile(presentations[0]);
+          const files = await files2selectedFiles(
+            dropped.filter((file) => !/\.pptx$/i.test(file.name)),
+          );
+          if (files.length) setDeckCraftSlides(files);
+        }
       }
       setIsDragOver(false);
     };
@@ -37,7 +53,7 @@ export const DragWatcher: FC = () => {
       document.removeEventListener("dragleave", onDragLeave);
       document.removeEventListener("drop", onDrop);
     };
-  }, [setIsDragOver, setSelectedFiles]);
+  }, [setDeckCraftFile, setDeckCraftSlides, setIsDragOver]);
 
   if (!isDragOver) return <></>;
   return (

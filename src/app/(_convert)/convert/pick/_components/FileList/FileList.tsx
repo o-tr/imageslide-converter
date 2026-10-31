@@ -1,5 +1,6 @@
 "use client";
 import { HeaderLogo } from "@/app/(_)/_components/HeaderLogo";
+import { DeckCraftFileAtom, DeckCraftSlidesAtom } from "@/atoms/deckcraft";
 import { OutputFileNameAtom, SelectedFilesAtom } from "@/atoms/file-drop";
 import { SettingOutlined } from "@ant-design/icons";
 import {
@@ -15,13 +16,14 @@ import {
   arrayMove,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Button, Flex, Input, Modal } from "antd";
-import { useAtom } from "jotai";
+import { Button, Flex, Input, Modal, message } from "antd";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { SettingsPanel } from "../Settings";
 import { Controls } from "./Controls";
+import { DeckCraftEditor } from "./DeckCraftEditor";
 import { GooglePicker } from "./GooglePicker";
 import { LocalFilePicker } from "./LocalFilePicker";
 import { MainPreviewArea } from "./MainPreviewArea";
@@ -36,6 +38,9 @@ const Logo = () => (
 );
 
 export const FileList = () => {
+  const setDeckCraftSlides = useSetAtom(DeckCraftSlidesAtom);
+  const deckFile = useAtomValue(DeckCraftFileAtom);
+  const deckSlides = useAtomValue(DeckCraftSlidesAtom);
   const [files, setFiles] = useAtom(SelectedFilesAtom);
   const [fileName, setFileName] = useAtom(OutputFileNameAtom);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -100,6 +105,8 @@ export const FileList = () => {
     setSelectedIndex(index);
   };
 
+  if (deckFile || deckSlides) return <DeckCraftEditor />;
+
   return (
     <>
       <DndContext
@@ -122,8 +129,8 @@ export const FileList = () => {
                   <Flex vertical gap={"middle"}>
                     <h2 className={"text-2xl"}>利用可能な形式</h2>
                     <div>
-                      <p>ローカルファイル: PDF/画像</p>
-                      <p>GoogleDrive: PDF/画像/GoogleSlides</p>
+                      <p>ローカルファイル: PPTX/PDF/画像</p>
+                      <p>GoogleDrive: PPTX/PDF/画像/GoogleSlides</p>
                     </div>
                     <Controls />
                   </Flex>
@@ -144,6 +151,25 @@ export const FileList = () => {
                     placeholder={"ファイル名"}
                   />
                   <div className={"flex gap-2 shrink-0"}>
+                    <Button
+                      onClick={() => {
+                        if (
+                          files.some(
+                            (file) =>
+                              file.animations?.length ||
+                              file.skippedAnimations?.length,
+                          )
+                        ) {
+                          message.warning(
+                            "アニメーションを含むスライドは DeckCraft への移行にまだ対応していません",
+                          );
+                          return;
+                        }
+                        setDeckCraftSlides(files);
+                      }}
+                    >
+                      DeckCraft で編集
+                    </Button>
                     <Button
                       icon={<SettingOutlined />}
                       onClick={() => setSettingsOpen(true)}

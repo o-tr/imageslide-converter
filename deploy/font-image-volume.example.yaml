@@ -1,0 +1,17 @@
+# Deployment pod-spec fragment. Replace the digest with the image you built and pushed.
+# Requires Kubernetes and container runtime support for image volumes.
+spec:
+  containers:
+    - name: imageslide-converter
+      env:
+        - name: DECKCRAFT_FONT_DIR
+          value: /opt/imageslide-fonts
+      volumeMounts:
+        - name: google-fonts
+          mountPath: /opt/imageslide-fonts
+          readOnly: true
+  volumes:
+    - name: google-fonts
+      image:
+        reference: registry.example.com/imageslide/google-fonts@sha256:REPLACE_WITH_IMAGE_DIGEST
+        pullPolicy: IfNotPresent

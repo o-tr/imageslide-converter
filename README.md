@@ -177,6 +177,10 @@ AWS_REGION="your-region"
 GOOGLE_CLIENT_ID="your-google-client-id"
 GOOGLE_API_KEY="your-google-api-key"
 
+# GIF アニメーション対応（既定: 有効）
+# false にすると GIF を静止画像として書き出せます
+NEXT_PUBLIC_ENABLE_GIF_ANIMATION="false"
+
 # Discord OAuth
 DISCORD_CLIENT_ID="your-discord-client-id"
 DISCORD_CLIENT_SECRET="your-discord-client-secret"
@@ -185,6 +189,8 @@ DISCORD_CLIENT_SECRET="your-discord-client-secret"
 NEXTAUTH_SECRET="your-nextauth-secret"
 NEXTAUTH_URL="http://localhost:3000"
 ```
+
+`NEXT_PUBLIC_ENABLE_GIF_ANIMATION` はブラウザ向けの設定です。変更後は開発サーバーを再起動し、プロダクション環境では変更後に再ビルドしてください。有効時、DeckCraft は GIF を含むスライドを 10 fps のアニメーションとして書き出します。対応形式は v0.3.x の EIA v1 RGB24 (cropped) で、ループの長さは最大 10 秒です。無効時は静止画像になります。
 
 ### インストールと起動
 

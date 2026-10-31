@@ -12,7 +12,8 @@
     "lint:fix": "biome lint --write --unsafe ./src",
     "format:fix": "biome format ./src --write",
     "check:fix": "biome check --write ./src",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:deckcraft": "bash scripts/build-deckcraft.sh"
   },
   "dependencies": {
     "@ant-design/icons": "^5.6.1",

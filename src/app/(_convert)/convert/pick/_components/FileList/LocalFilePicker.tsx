@@ -1,13 +1,18 @@
-import { SelectedFilesAtom } from "@/atoms/file-drop";
+import { DeckCraftFileAtom, DeckCraftSlidesAtom } from "@/atoms/deckcraft";
 import { files2selectedFiles } from "@/lib/file2selectedFiles";
-import { Button } from "antd";
+import { Button, message } from "antd";
 import { useSetAtom } from "jotai";
-import { type ChangeEvent, useRef } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { type ChangeEvent, useRef, useState } from "react";
 import { TfiHarddrive } from "react-icons/tfi";
 
 export const LocalFilePicker = () => {
+  const router = useRouter();
+  const pathname = usePathname();
   const inputRef = useRef<HTMLInputElement>(null);
-  const setFiles = useSetAtom(SelectedFilesAtom);
+  const [loading, setLoading] = useState(false);
+  const setDeckCraftFile = useSetAtom(DeckCraftFileAtom);
+  const setSlides = useSetAtom(DeckCraftSlidesAtom);
 
   const onButtonClick = () => {
     inputRef.current?.click();
@@ -17,8 +22,42 @@ export const LocalFilePicker = () => {
     e.preventDefault();
     const files = e.target.files;
     if (!files) return;
-    const processed = await files2selectedFiles(files);
-    setFiles((pv) => [...pv, ...processed]);
+    const pptx = Array.from(files).filter((file) => /\.pptx$/i.test(file.name));
+    if (pptx.length > 1) {
+      message.warning("PPTX は一度に 1 ファイルずつ開いてください");
+      e.target.value = "";
+      return;
+    }
+    if (pptx.length && files.length > 1) {
+      message.warning("PPTX は単独で開いてください");
+      e.target.value = "";
+      return;
+    }
+    if (pptx.length) {
+      setDeckCraftFile(pptx[0]);
+      if (pathname !== "/convert/pick") router.push("/convert/pick");
+      e.target.value = "";
+      return;
+    }
+    const rest = Array.from(files).filter(
+      (file) => !/\.pptx$/i.test(file.name),
+    );
+    const input = e.target;
+    setLoading(true);
+    try {
+      const processed = await files2selectedFiles(rest);
+      if (processed.length) {
+        setSlides(processed);
+        if (pathname !== "/convert/pick") router.push("/convert/pick");
+      }
+    } catch (error) {
+      message.error(
+        error instanceof Error ? error.message : "ファイルを開けませんでした",
+      );
+    } finally {
+      input.value = "";
+      setLoading(false);
+    }
   };
 
   return (
@@ -28,10 +67,10 @@ export const LocalFilePicker = () => {
         className={"hidden"}
         multiple={true}
         type="file"
-        accept={"image/*,application/pdf"}
+        accept={"image/*,application/pdf,.pptx"}
         onChange={onChange}
       />
-      <Button icon={<TfiHarddrive />} onClick={onButtonClick}>
+      <Button icon={<TfiHarddrive />} loading={loading} onClick={onButtonClick}>
         Add File From Local
       </Button>
     </>

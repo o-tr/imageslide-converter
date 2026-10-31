@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root="$(cd "$(dirname "$0")/.." && pwd)"
+source_dir="$root/vendor/deckcraft"
+patch_file="$root/patches/deckcraft-bridge.patch"
+if [[ ! -f "$source_dir/Cargo.toml" ]]; then
+  echo 'Run git submodule update --init --recursive first.' >&2
+  exit 1
+fi
+# Build from a temporary copy so the pinned submodule stays clean.
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+cp -a "$source_dir/." "$tmp_dir/"
+rm -f "$tmp_dir/.git"
+cd "$tmp_dir"
+git apply "$patch_file"
+# Web fonts come from the runtime catalog, not the WebAssembly binary.
+unset CRAFT_FONTS_DIR CRAFT_FONTS_REQUIRED
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${TMPDIR:-/tmp}/imageslide-deckcraft-target}"
+cd apps/deckcraft-web
+trunk build --release
+cd "$tmp_dir"
+mkdir -p "$root/public/deckcraft"
+# Remove superseded generated bundles while leaving the runtime font catalog intact.
+find "$root/public/deckcraft" -maxdepth 1 -type f \
+  \( -name 'deckcraft-web-*_bg.wasm' -o -name 'deckcraft-web-*.js' \) -delete
+cp -a dist/web/. "$root/public/deckcraft/"
+cp LICENSE-MIT NOTICE ATTRIBUTION.md "$root/public/deckcraft/"

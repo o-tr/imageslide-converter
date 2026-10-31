@@ -2,6 +2,7 @@ import type {
   TypedWorkerClient,
   TypedWorkerWorkerMessage,
 } from "@/_types/lib/worker/typedWorker";
+import { createId } from "@/lib/createId";
 import { registerExecuteHandler } from "@/lib/worker/tasks/execute";
 
 let workerReadyResolve: () => void = () => {};
@@ -21,7 +22,7 @@ export const threads = Array.from(
       return;
     }
     registerExecuteHandler(worker);
-    const requestId = crypto.randomUUID();
+    const requestId = createId();
     worker.postMessage({
       type: "init",
       threadId: i,

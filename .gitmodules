@@ -1,0 +1,3 @@
+[submodule "vendor/deckcraft"]
+	path = vendor/deckcraft
+	url = https://github.com/storytold/deckcraft.git
