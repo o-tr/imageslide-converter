@@ -8,15 +8,20 @@ export const postRegisterFile = async (
   totalSize: number,
   format: string,
   version: number,
+  signal?: AbortSignal,
 ) => {
-  const _data = await axios.post("/api/upload/normal/register", {
-    name: fileName,
-    fileId: fileId,
-    format: format,
-    version: version,
-    count: count,
-    totalSize: totalSize,
-  });
+  const _data = await axios.post(
+    "/api/upload/normal/register",
+    {
+      name: fileName,
+      fileId: fileId,
+      format: format,
+      version: version,
+      count: count,
+      totalSize: totalSize,
+    },
+    { signal },
+  );
   const { success, data } = postRegisterFileResponseSchema.safeParse(
     _data.data,
   );
