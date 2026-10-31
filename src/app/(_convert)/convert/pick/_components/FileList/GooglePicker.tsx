@@ -4,18 +4,21 @@ import {
   GooglePickerTokenAtom,
   IsGooglePickerReadyAtom,
 } from "@/atoms/google-picker";
-import { AntContent } from "@/components/AntContent";
+import { usePathname, useRouter } from "@/compat/navigation";
+import { PageContent } from "@/components/PageContent";
+import { Button, Flex, Spin, message } from "@/components/primitives";
+import { LoadingOutlined } from "@/components/primitives-icons";
 import { file2selectedFiles } from "@/lib/file2selectedFiles";
 import { fetchFileBuffer } from "@/lib/gapi/fetchFile";
 import { requestTokenPromise, showFilePicker } from "@/lib/google";
-import { LoadingOutlined } from "@ant-design/icons";
-import { Button, Flex, Spin, message } from "antd";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { TbBrandGoogleDrive } from "react-icons/tb";
+import { PickerCard } from "./PickerCard";
 
-export const GooglePicker = () => {
+export const GooglePicker = ({
+  variant = "compact",
+}: { variant?: "card" | "compact" }) => {
   const router = useRouter();
   const pathname = usePathname();
   const [messageApi, contextHolder] = message.useMessage();
@@ -165,19 +168,29 @@ export const GooglePicker = () => {
   return (
     <>
       {contextHolder}
-      <Button
-        disabled={!isApiLoaded && !validating}
-        icon={
-          isApiLoaded && !validating ? (
-            <TbBrandGoogleDrive />
-          ) : (
-            <Spin indicator={<LoadingOutlined spin />} />
-          )
-        }
-        onClick={() => showPicker()}
-      >
-        Add File From Google Drive
-      </Button>
+      {variant === "card" ? (
+        <PickerCard
+          icon={<TbBrandGoogleDrive />}
+          title="Google Drive から選択"
+          description="Google スライドや Drive 内のファイルを開きます。"
+          disabled={!isApiLoaded || validating}
+          onClick={() => showPicker()}
+        />
+      ) : (
+        <Button
+          disabled={!isApiLoaded || validating}
+          icon={
+            isApiLoaded && !validating ? (
+              <TbBrandGoogleDrive />
+            ) : (
+              <Spin indicator={<LoadingOutlined spin />} />
+            )
+          }
+          onClick={() => showPicker()}
+        >
+          Add File From Google Drive
+        </Button>
+      )}
       {isLoading && (
         <div
           className={
@@ -189,12 +202,12 @@ export const GooglePicker = () => {
               "absolute left-0 top-0 w-full h-full bg-black bg-opacity-75 -z-0"
             }
           />
-          <AntContent className={"relative p-8 rounded-2xl"}>
+          <PageContent className={"relative p-8 rounded-2xl"}>
             <Flex gap={"middle"} align={"center"}>
               <Spin indicator={<LoadingOutlined spin />} size={"large"} />
               <div>Loading data from google drive...</div>
             </Flex>
-          </AntContent>
+          </PageContent>
         </div>
       )}
     </>

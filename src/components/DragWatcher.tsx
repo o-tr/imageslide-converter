@@ -1,8 +1,8 @@
 "use client";
 import { DeckCraftFileAtom, DeckCraftSlidesAtom } from "@/atoms/deckcraft";
 import { IsDragOverAtom } from "@/atoms/file-drop";
+import { Flex, message } from "@/components/primitives";
 import { files2selectedFiles } from "@/lib/file2selectedFiles";
-import { Flex, message } from "antd";
 import { useAtom, useSetAtom } from "jotai";
 import { type FC, useEffect } from "react";
 import { TbDragDrop } from "react-icons/tb";

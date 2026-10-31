@@ -1,8 +1,8 @@
 "use client";
+import { useSession } from "@/compat/auth-client";
 import { ManageUser } from "@/components/Header/UserControl/ManageUser";
 import { SignIn } from "@/components/Header/UserControl/SignIn";
-import { Button } from "antd";
-import { useSession } from "next-auth/react";
+import { Button } from "@/components/primitives";
 
 export const UserControl = () => {
   const { data: session, status } = useSession();

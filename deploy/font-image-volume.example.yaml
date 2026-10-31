@@ -1,11 +1,15 @@
-# Deployment pod-spec fragment. Replace the digest with the image you built and pushed.
-# Requires Kubernetes and container runtime support for image volumes.
+# Pod-spec fragment. Build the app and nginx images and replace the image digest.
+# The two containers share a network namespace; nginx proxies dynamic requests to port 3000.
 spec:
   containers:
     - name: imageslide-converter
-      env:
-        - name: DECKCRAFT_FONT_DIR
-          value: /opt/imageslide-fonts
+      image: registry.example.com/imageslide/converter:YOUR_VERSION
+      ports:
+        - containerPort: 3000
+    - name: nginx
+      image: registry.example.com/imageslide/frontend:YOUR_VERSION
+      ports:
+        - containerPort: 80
       volumeMounts:
         - name: google-fonts
           mountPath: /opt/imageslide-fonts

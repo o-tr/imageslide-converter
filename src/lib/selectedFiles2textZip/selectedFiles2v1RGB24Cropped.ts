@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 import type { SelectedFile } from "@/_types/file-picker";
 import type { RawImageObjV1 } from "@/_types/text-zip/v1";
 import { canvas2rgb24 } from "@/lib/canvas2rawImage/canvas2rgb24";
@@ -6,6 +7,8 @@ import { compressFileV1 } from "@/lib/text-zip/v1/compress";
 
 export const selectedFiles2v1RGB24Cropped = async (
   selectedFiles: SelectedFile[],
+  _signage?: undefined,
+  onProgress?: (completed: number, total: number) => void,
 ): Promise<string[]> => {
   const rawImages = selectedFiles.map<RawImageObjV1>((file, index) => ({
     index,
@@ -21,7 +24,7 @@ export const selectedFiles2v1RGB24Cropped = async (
     `before compress size: ${rawImages.reduce((acc, cur) => acc + cur.buffer.length, 0)}`,
   );
 
-  const croppedImages = cropImages(rawImages);
+  const croppedImages = cropImages(rawImages, { onProgress });
   console.log(
     `after compress size: ${croppedImages.reduce((acc, cur) => acc + (cur.cropped ? cur.cropped.rects.reduce((acc, cur) => acc + cur.buffer.length, 0) : cur.buffer.length), 0)}`,
   );

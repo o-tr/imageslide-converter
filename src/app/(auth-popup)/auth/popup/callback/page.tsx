@@ -1,8 +1,8 @@
 "use client";
 
-import { Button, Spin } from "antd";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import Link from "@/compat/link";
+import { useSearchParams } from "@/compat/navigation";
+import { Button, Spin } from "@/components/primitives";
 import { Suspense, useEffect, useState } from "react";
 
 const ERROR_MESSAGES: Record<string, string> = {

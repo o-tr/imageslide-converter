@@ -1,7 +1,7 @@
 "use client";
 import type { AnimationSequence, SlideFrameMeta } from "@/_types/slide-preview";
+import { Button, Spin } from "@/components/primitives";
 import { decodeSlides } from "@/lib/slidePreview/decodeSlides";
-import { Button, Spin } from "antd";
 import {
   type FC,
   useCallback,

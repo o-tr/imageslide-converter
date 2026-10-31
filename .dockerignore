@@ -37,3 +37,10 @@ next-env.d.ts
 .env
 
 Dockerfile
+
+# Local build output and generated editor assets are built in dedicated stages.
+/.git
+/.output
+/.tanstack
+/public/deckcraft
+/assets/fonts

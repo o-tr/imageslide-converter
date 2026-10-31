@@ -1,5 +1,5 @@
-import { AntContent } from "@/components/AntContent";
-import { Layout } from "antd";
+import { PageContent } from "@/components/PageContent";
+import { Layout } from "@/components/primitives";
 import type { ReactNode } from "react";
 
 export default function ConvertLayout({
@@ -7,9 +7,9 @@ export default function ConvertLayout({
 }: Readonly<{ children: ReactNode }>) {
   return (
     <Layout className={"!min-h-screen h-screen"}>
-      <AntContent className={"flex flex-col overflow-hidden"}>
+      <PageContent className={"flex flex-col overflow-hidden"}>
         {children}
-      </AntContent>
+      </PageContent>
     </Layout>
   );
 }

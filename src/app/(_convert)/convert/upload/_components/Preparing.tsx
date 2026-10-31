@@ -1,4 +1,4 @@
-import { Flex, Spin } from "antd";
+import { Flex, Spin } from "@/components/primitives";
 import type { FC } from "react";
 
 export const Preparing: FC = () => (

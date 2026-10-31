@@ -1,5 +1,5 @@
-import { signIn } from "next-auth/react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { signIn } from "@/compat/auth-client";
+import { useRouter, useSearchParams } from "@/compat/navigation";
 import { useEffect } from "react";
 
 export const Redirect = () => {

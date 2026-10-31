@@ -1,12 +1,15 @@
 import { DeckCraftFileAtom, DeckCraftSlidesAtom } from "@/atoms/deckcraft";
+import { usePathname, useRouter } from "@/compat/navigation";
+import { Button, message } from "@/components/primitives";
 import { files2selectedFiles } from "@/lib/file2selectedFiles";
-import { Button, message } from "antd";
 import { useSetAtom } from "jotai";
-import { usePathname, useRouter } from "next/navigation";
 import { type ChangeEvent, useRef, useState } from "react";
 import { TfiHarddrive } from "react-icons/tfi";
+import { PickerCard } from "./PickerCard";
 
-export const LocalFilePicker = () => {
+export const LocalFilePicker = ({
+  variant = "compact",
+}: { variant?: "card" | "compact" }) => {
   const router = useRouter();
   const pathname = usePathname();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -70,9 +73,27 @@ export const LocalFilePicker = () => {
         accept={"image/*,application/pdf,.pptx"}
         onChange={onChange}
       />
-      <Button icon={<TfiHarddrive />} loading={loading} onClick={onButtonClick}>
-        Add File From Local
-      </Button>
+      {variant === "card" ? (
+        <PickerCard
+          icon={<TfiHarddrive />}
+          title="ローカルファイルから選択"
+          description={
+            loading
+              ? "ファイルを読み込んでいます…"
+              : "PPTX・PDF・画像を選んでスライドを編集します。"
+          }
+          disabled={loading}
+          onClick={onButtonClick}
+        />
+      ) : (
+        <Button
+          icon={<TfiHarddrive />}
+          loading={loading}
+          onClick={onButtonClick}
+        >
+          Add File From Local
+        </Button>
+      )}
     </>
   );
 };

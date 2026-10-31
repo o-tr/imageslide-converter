@@ -1,13 +1,13 @@
 "use client";
 import { ResultAtom } from "@/atoms/convert";
 import { OutputFileNameAtom, SelectedFilesAtom } from "@/atoms/file-drop";
+import { useRouter } from "@/compat/navigation";
+import { Flex, List, Spin } from "@/components/primitives";
 import { getNormalFileId } from "@/lib/service/getNormalFileId";
 import { getNormalPreSignedPut } from "@/lib/service/getNormalPreSignedPut";
 import { postRegisterFile } from "@/lib/service/postRegisterFile";
-import { Flex, List, Spin } from "antd";
 import axios, { type AxiosProgressEvent } from "axios";
 import { useAtomValue } from "jotai";
-import { useRouter } from "next/navigation";
 import { type FC, useEffect, useRef, useState } from "react";
 import { Completed } from "./Completed";
 import { Preparing } from "./Preparing";

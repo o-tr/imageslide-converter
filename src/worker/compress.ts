@@ -23,7 +23,7 @@ worker.addEventListener(
         );
       }
 
-      const files = _files.map((file) => {
+      const files = _files.map((file, index) => {
         try {
           // ファイルごとにアスペクト比を維持したスケールを計算
           const resolutionScale = getResolutionScale(
@@ -128,7 +128,15 @@ worker.addEventListener(
             });
           }
 
-          return { ...file, canvas, animations };
+          const prepared = { ...file, canvas, animations };
+          const progress: WorkerResponse = {
+            type: "compress-progress",
+            phase: "prepare",
+            completed: index + 1,
+            total: _files.length,
+          };
+          worker.postMessage(progress);
+          return prepared;
         } finally {
           file.bitmap.close();
         }
@@ -136,7 +144,15 @@ worker.addEventListener(
       console.log("compress", files);
       const converter = TargetFormats.find((f) => f.id === format)?.converter;
       if (!converter) throw new Error("converter not found");
-      const result = await converter(files);
+      const result = await converter(files, undefined, (completed, total) => {
+        const progress: WorkerResponse = {
+          type: "compress-progress",
+          phase: "crop",
+          completed,
+          total,
+        };
+        worker.postMessage(progress);
+      });
       const message: WorkerResponse = {
         type: "compress",
         data: result,

@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 import type { RawAnimationData } from "@/_types/eia/rawAnimationData";
 import type {
   EIAAnimFramePoolItem,

@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 import type { RawAnimationData } from "@/_types/eia/rawAnimationData";
 import type { EIASignageManifest } from "@/_types/eia/v1";
 import type { SelectedFile } from "@/_types/file-picker";
@@ -45,6 +46,7 @@ const createAnimationCacheKey = (frames: RawImageObjV1[]): string => {
 export const selectedFiles2EIAv1RGB24Cropped = async (
   selectedFiles: SelectedFile[],
   signage?: EIASignageManifest,
+  onProgress?: (completed: number, total: number) => void,
 ): Promise<Buffer[]> => {
   const rawImages = selectedFiles.map<RawImageObjV1>((file, index) => ({
     index,
@@ -60,7 +62,7 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
     `before compress size: ${rawImages.reduce((acc, cur) => acc + cur.buffer.length, 0)}`,
   );
 
-  const croppedImages = cropImages(rawImages, { keyframeInterval });
+  const croppedImages = cropImages(rawImages, { keyframeInterval, onProgress });
   console.log(
     `after compress size: ${croppedImages.reduce((acc, cur) => acc + (cur.cropped ? cur.cropped.rects.reduce((acc, cur) => acc + cur.buffer.length, 0) : cur.buffer.length), 0)}`,
   );

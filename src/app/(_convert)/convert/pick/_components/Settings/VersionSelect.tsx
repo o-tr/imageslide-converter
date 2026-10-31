@@ -1,6 +1,6 @@
 "use client";
 import { UsingVersionAtom, VALID_VERSIONS } from "@/atoms/convert";
-import { Flex, Select } from "antd";
+import { Flex, Select } from "@/components/primitives";
 import { useAtom } from "jotai";
 import type { FC } from "react";
 

@@ -1,5 +1,5 @@
 "use client";
-import { Flex } from "antd";
+import { Flex } from "@/components/primitives";
 import type { FC } from "react";
 import { FormatSelect } from "./FormatSelect";
 import { ResolutionSelect } from "./ResolutionSelect";

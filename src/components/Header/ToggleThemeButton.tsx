@@ -1,6 +1,6 @@
 "use client";
-import { Button, Dropdown } from "antd";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/components/ThemeProvider";
+import { Button, Dropdown } from "@/components/primitives";
 import type { FC } from "react";
 import { MdOutlineNightlight, MdOutlineWbSunny } from "react-icons/md";
 
@@ -12,7 +12,10 @@ export const ToggleThemeButton: FC = () => {
       menu={{
         selectable: true,
         selectedKeys: [theme ?? "system"],
-        onClick: ({ key }) => setTheme(key),
+        onClick: ({ key }) => {
+          if (key === "system" || key === "light" || key === "dark")
+            setTheme(key);
+        },
         items: [
           { key: "system", label: "システム設定に従う" },
           { key: "light", label: "ライト" },

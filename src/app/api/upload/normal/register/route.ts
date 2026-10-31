@@ -4,8 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { s3NormalClient } from "@/lib/s3/normal";
 import { getAuthorizedUser } from "@/utils/getAuthorizedUser";
 import { PutObjectTaggingCommand } from "@aws-sdk/client-s3";
-import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
 import { z } from "zod";
 
 const RequestSchema = z.object({
@@ -22,7 +20,7 @@ export const POST = async (request: Request) => {
     const _body = await request.json();
     const { success, data } = RequestSchema.safeParse(_body);
     if (!success || !data) {
-      return NextResponse.json(
+      return Response.json(
         {
           status: "error",
           error: "Invalid request",
@@ -30,9 +28,9 @@ export const POST = async (request: Request) => {
         { status: 400 },
       );
     }
-    const session = await getSession(await cookies());
+    const session = await getSession();
     if (!session.fileId?.includes(data.fileId)) {
-      return NextResponse.json(
+      return Response.json(
         {
           status: "error",
           error: "Invalid request",
@@ -84,12 +82,12 @@ export const POST = async (request: Request) => {
       }),
     );
 
-    return NextResponse.json({
+    return Response.json({
       status: "success",
     });
   } catch (error) {
     console.log(error);
-    return NextResponse.json(
+    return Response.json(
       {
         status: "error",
         error: "Internal Server Error",

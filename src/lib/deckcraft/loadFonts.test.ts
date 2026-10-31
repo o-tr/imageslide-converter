@@ -24,21 +24,17 @@ it("loads only catalogued families and open substitutes used by the PPTX", async
   const calls: string[] = [];
   vi.stubGlobal("fetch", async (url: string) => {
     calls.push(url);
-    if (url.endsWith("/catalog"))
+    if (url.endsWith("/catalog.json"))
       return { ok: true, json: async () => entries };
     return { ok: true, arrayBuffer: async () => new ArrayBuffer(4) };
   });
   expect(await loadPptxFonts(pptx)).toHaveLength(6);
-  expect(calls).toContain("/api/deckcraft-fonts/file?path=fonts%2Fmincho.ttf");
-  expect(calls).toContain("/api/deckcraft-fonts/file?path=fonts%2Fcarlito.ttf");
-  expect(calls).toContain("/api/deckcraft-fonts/file?path=fonts%2Fnoto.ttf");
-  expect(calls).toContain("/api/deckcraft-fonts/file?path=fonts%2Fgothic.ttf");
-  expect(calls).toContain(
-    "/api/deckcraft-fonts/file?path=fonts%2Fmontserrat.ttf",
-  );
-  expect(calls).not.toContain(
-    "/api/deckcraft-fonts/file?path=fonts%2Flato.ttf",
-  );
+  expect(calls).toContain("/deckcraft-fonts/fonts/mincho.ttf");
+  expect(calls).toContain("/deckcraft-fonts/fonts/carlito.ttf");
+  expect(calls).toContain("/deckcraft-fonts/fonts/noto.ttf");
+  expect(calls).toContain("/deckcraft-fonts/fonts/gothic.ttf");
+  expect(calls).toContain("/deckcraft-fonts/fonts/montserrat.ttf");
+  expect(calls).not.toContain("/deckcraft-fonts/fonts/lato.ttf");
 });
 
 it("prefers the exact family over its substitute", async () => {
@@ -48,7 +44,7 @@ it("prefers the exact family over its substitute", async () => {
   const calls: string[] = [];
   vi.stubGlobal("fetch", async (url: string) => {
     calls.push(url);
-    if (url.endsWith("/catalog"))
+    if (url.endsWith("/catalog.json"))
       return {
         ok: true,
         json: async () => [
@@ -59,6 +55,19 @@ it("prefers the exact family over its substitute", async () => {
     return { ok: true, arrayBuffer: async () => new ArrayBuffer(4) };
   });
   expect(await loadPptxFonts(bytes)).toHaveLength(1);
-  expect(calls).toContain("/api/deckcraft-fonts/file?path=fonts%2Fnoto-jp.ttf");
-  expect(calls).not.toContain("/api/deckcraft-fonts/file?path=fonts%2Fbiz.ttf");
+  expect(calls).toContain("/deckcraft-fonts/fonts/noto-jp.ttf");
+  expect(calls).not.toContain("/deckcraft-fonts/fonts/biz.ttf");
+});
+
+it("rejects catalog paths that escape the public font directory", async () => {
+  const zip = new JSZip();
+  zip.file("ppt/slides/slide1.xml", '<a:rPr typeface="Roboto"/>');
+  const bytes = await zip.generateAsync({ type: "arraybuffer" });
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    json: async () => [{ family: "Roboto", path: "fonts/../../private.ttf" }],
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+  await expect(loadPptxFonts(bytes)).rejects.toThrow("Invalid font path");
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });

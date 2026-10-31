@@ -43,6 +43,12 @@ export type WorkerMessage =
 
 export type WorkerResponse =
   | {
+      type: "compress-progress";
+      phase: "prepare" | "crop";
+      completed: number;
+      total: number;
+    }
+  | {
       type: "compress";
       data: string[] | Buffer[];
     }

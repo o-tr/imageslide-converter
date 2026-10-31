@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 import type {
   EIAFileV1,
   EIAFileV1CroppedPart,

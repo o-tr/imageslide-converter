@@ -15,7 +15,9 @@ export const threads = Array.from(
   (_, i) => {
     const worker = (
       typeof window !== "undefined"
-        ? new Worker(new URL("../../worker/worker.ts", import.meta.url))
+        ? new Worker(new URL("../../worker/worker.ts", import.meta.url), {
+            type: "module",
+          })
         : undefined
     ) as TypedWorkerClient;
     if (!worker) {

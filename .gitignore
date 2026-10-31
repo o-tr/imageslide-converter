@@ -41,3 +41,7 @@ next-env.d.ts
 /public/deckcraft/
 /assets/fonts/**/*.ttf
 /assets/fonts/**/*.otf
+
+# TanStack Start / Nitro
+/.output/
+/.tanstack/

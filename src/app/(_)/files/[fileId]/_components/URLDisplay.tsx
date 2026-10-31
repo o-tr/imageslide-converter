@@ -1,10 +1,18 @@
 "use client";
 import type { FileItem } from "@/_types/api/getMyFiles";
+import Link from "@/compat/link";
+import {
+  Alert,
+  Button,
+  Flex,
+  Input,
+  Result,
+  Spin,
+} from "@/components/primitives";
+import { Compact } from "@/components/primitives";
+import { buttonVariants } from "@/components/ui/button";
 import { S3_HA_PUBLIC_BASE_URL, S3_NORMAL_PUBLIC_BASE_URL } from "@/const/env";
 import { getFile } from "@/lib/service/getFile";
-import { Alert, Button, Flex, Input, Result, Spin } from "antd";
-import Compact from "antd/es/space/Compact";
-import Link from "next/link";
 import { type FC, useEffect, useState } from "react";
 import { TbCheck, TbCopy } from "react-icons/tb";
 import { SlidePreview } from "./SlidePreview";
@@ -38,8 +46,8 @@ export const URLDisplay: FC<{ fileId: string }> = ({ fileId }) => {
         title="404"
         subTitle="ファイルの保持期間が終了したか、ファイルが存在しません。"
         extra={
-          <Link href={"/"}>
-            <Button type="primary">Back Home</Button>
+          <Link href={"/"} className={buttonVariants()}>
+            Back Home
           </Link>
         }
       />

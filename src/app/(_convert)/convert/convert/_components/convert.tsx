@@ -6,18 +6,20 @@ import {
   UsingVersionAtom,
 } from "@/atoms/convert";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
+import { useRouter } from "@/compat/navigation";
+import { Flex, Spin, message } from "@/components/primitives";
 import { FileSizeLimit, TargetVersions } from "@/const/convert";
 import { postCompress } from "@/lib/workerService/postCompress";
 import { getAvailableFormats } from "@/utils/getAvailableFormats";
-import { message } from "antd";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useRouter } from "next/navigation";
-import { type FC, useEffect, useMemo, useRef } from "react";
+import { type FC, useEffect, useMemo, useRef, useState } from "react";
 
 export const Convert: FC = () => {
   const imageSlideVersion = useAtomValue(UsingVersionAtom);
   const _format = useAtomValue(ConvertFormatAtom);
   const _files = useAtomValue(SelectedFilesAtom);
+  const [completed, setCompleted] = useState(0);
+  const [phase, setPhase] = useState<"prepare" | "crop">("prepare");
   const _resolution = useAtomValue(TargetResolutionAtom);
   const setResults = useSetAtom(ResultAtom);
   const version = useMemo(() => {
@@ -58,7 +60,17 @@ export const Convert: FC = () => {
       if (!format) return { id: bestFormat.id, scale: 1 };
       return { id: format.id, scale: 1 };
     })();
-    postCompress(_files, id, version, scale, _resolution)
+    postCompress(
+      _files,
+      id,
+      version,
+      scale,
+      _resolution,
+      (count, _total, nextPhase) => {
+        setCompleted(count);
+        setPhase(nextPhase);
+      },
+    )
       .then((result) => {
         setResults({
           data: result,
@@ -83,5 +95,19 @@ export const Convert: FC = () => {
     setResults,
     availableFormats,
   ]);
-  return <></>;
+  return (
+    <div className="grid flex-1 place-items-center">
+      <Flex gap={16} align="center">
+        <Spin size="large" />
+        <div aria-live="polite">
+          <h2 className="text-xl">ファイルを変換しています...</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {completed < _files.length
+              ? `${phase === "crop" ? "画像の差分処理中" : "画像を準備中"}: ${completed} / ${_files.length} ファイル`
+              : `${phase === "crop" ? "画像の差分処理完了" : "画像の準備完了"}: ${completed} / ${_files.length} ファイル。後続処理を実行中...`}
+          </p>
+        </div>
+      </Flex>
+    </div>
+  );
 };

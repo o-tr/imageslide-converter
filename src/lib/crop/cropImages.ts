@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 import type { RawImageObjV1, RawImageObjV1Cropped } from "@/_types/text-zip/v1";
 import { applyDiff } from "@/lib/crop/applyDiff";
 import { diff2boundingBox } from "@/lib/crop/diff2boundingBox";
@@ -8,6 +9,7 @@ import { computeThumbnail } from "./computeThumbnail";
 import { type ParentCandidate, selectBestParent } from "./selectBestParent";
 
 export interface CropOptions {
+  onProgress?: (completed: number, total: number) => void;
   keyframeInterval?: number;
   parentSearchWindow?: number;
   parentSearchTopK?: number;
@@ -96,8 +98,10 @@ export const cropImages = (
     0,
     true,
   );
+  options?.onProgress?.(1, rawImages.length);
 
   for (let i = 1; i < rawImages.length; i++) {
+    if (i > 1) options?.onProgress?.(i, rawImages.length);
     const currentImage = rawImages[i];
 
     const currentThumbnail = computeThumbnail(
@@ -208,6 +212,9 @@ export const cropImages = (
 
     evictOldEntries(i);
   }
+
+  if (rawImages.length > 1)
+    options?.onProgress?.(rawImages.length, rawImages.length);
 
   return croppedImages;
 };

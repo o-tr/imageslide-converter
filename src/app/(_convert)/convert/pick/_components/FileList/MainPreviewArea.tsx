@@ -1,8 +1,8 @@
 "use client";
 import type { SelectedFile, SelectedFileAnimation } from "@/_types/file-picker";
+import { Dropdown, Flex } from "@/components/primitives";
+import { TextArea } from "@/components/primitives";
 import { getAnimationFrameScale } from "@/utils/getAnimationFrameScale";
-import { Dropdown, Flex } from "antd";
-import TextArea from "antd/es/input/TextArea";
 import { type ChangeEvent, type FC, useEffect, useRef } from "react";
 import { Preview } from "./Preview";
 

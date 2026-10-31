@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 import type {
   RawImageObjV1,
   RawImageObjV1Cropped,

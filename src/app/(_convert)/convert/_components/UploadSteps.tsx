@@ -1,4 +1,4 @@
-import { type StepProps, Steps } from "antd";
+import { type StepProps, Steps } from "@/components/primitives";
 import type { ComponentProps, FC } from "react";
 
 export const UPLOAD_STEP = {

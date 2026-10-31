@@ -4,8 +4,6 @@ import { getSession } from "@/lib/iron-session";
 import { s3NormalClient } from "@/lib/s3/normal";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
 import { z } from "zod";
 
 const generatePreSignedPutUrl = async (
@@ -36,7 +34,7 @@ export const POST = async (request: Request) => {
   const _body = await request.json();
   const body = GetPreSignedPutSchema.safeParse(_body);
   if (!body.success) {
-    return NextResponse.json(
+    return Response.json(
       {
         status: "error",
         error: "Invalid request",
@@ -44,9 +42,9 @@ export const POST = async (request: Request) => {
       { status: 400 },
     );
   }
-  const session = await getSession(await cookies());
+  const session = await getSession();
   if (!session?.fileId) {
-    return NextResponse.json(
+    return Response.json(
       {
         status: "error",
         error: "Invalid request",
@@ -57,7 +55,7 @@ export const POST = async (request: Request) => {
   const { fileId, data } = body.data;
 
   if (data.some((val) => val.contentLength > ActualFileSizeLimit)) {
-    return NextResponse.json(
+    return Response.json(
       {
         status: "error",
         error: "Invalid request",
@@ -78,7 +76,7 @@ export const POST = async (request: Request) => {
     })),
   );
 
-  return NextResponse.json({
+  return Response.json({
     status: "success",
     data: result,
   });

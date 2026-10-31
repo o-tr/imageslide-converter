@@ -1,10 +1,10 @@
 "use client";
 import { ResultAtom, TargetResolutionAtom } from "@/atoms/convert";
 import { SignageConvertAtom } from "@/atoms/signage-convert";
+import { useRouter } from "@/compat/navigation";
+import { message } from "@/components/primitives";
 import { postCompressSignage } from "@/lib/workerService/postCompressSignage";
-import { message } from "antd";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useRouter } from "next/navigation";
 import { type FC, useEffect, useRef } from "react";
 
 export const Convert: FC = () => {

@@ -36,7 +36,7 @@ index ca570df3..56b10b79 100644
 +    // Same-origin parent bridge for ImageSlide Converter.
 +    // Fetch only the interface faces from this application's mounted font catalog.
 +    window.imageSlideInitialFonts = (async () => {
-+      const response = await fetch('/api/deckcraft-fonts/catalog');
++      const response = await fetch('/deckcraft-fonts/catalog.json');
 +      if (!response.ok) throw new Error('フォント一覧を取得できませんでした');
 +      const catalog = await response.json();
 +      const select = (families) => {
@@ -48,7 +48,7 @@ index ca570df3..56b10b79 100644
 +      };
 +      const selected = [select(['Inter', 'Noto Sans']), select(['Noto Sans JP', 'BIZ UDPGothic'])];
 +      return Promise.all(selected.map(async (font) => {
-+        const result = await fetch(`/api/deckcraft-fonts/file?${new URLSearchParams({path: font.path})}`);
++        const parts = font.path.split('/'); if (parts[0] !== 'fonts' || parts.some((part) => !part || part === '.' || part === '..' || part.includes('\\'))) throw new Error('不正なフォントパスです'); const result = await fetch(`/deckcraft-fonts/${parts.map(encodeURIComponent).join('/')}`);
 +        if (!result.ok) throw new Error(`フォントを読み込めませんでした: ${font.family}`);
 +        return new Uint8Array(await result.arrayBuffer());
 +      }));
@@ -516,7 +516,7 @@ index 7d2ab7a2..fa68ce32 100644
          }
          let all: Vec<(&str, bool)> = TABS.iter().map(|s| (*s, false)).chain(ctx_tabs.iter().map(|s| (*s, true))).collect();
          for (name, contextual) in all {
-+            if app.services.host_action.is_some() && matches!(name, "Slide Show" | "Record") { continue; }
++            if app.services.host_action.is_some() && matches!(name, "Transitions" | "Animations" | "Slide Show" | "Record") { continue; }
              let font = theme::font(13.0);
 -            let w = ui.fonts_mut(|f| f.layout_no_wrap(name.to_string(), font.clone(), t.text).size().x) + 18.0;
 +            let display_name = widgets::localize(name);

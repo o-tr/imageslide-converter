@@ -6,10 +6,10 @@ import {
   UsingVersionAtom,
 } from "@/atoms/convert";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
+import { Flex, Select } from "@/components/primitives";
 import { FileSizeLimit } from "@/const/convert";
 import { formatFileSize } from "@/utils/formatFileSize";
 import { getAvailableFormats } from "@/utils/getAvailableFormats";
-import { Flex, Select } from "antd";
 import { useAtom, useAtomValue } from "jotai";
 import { type FC, useEffect, useMemo } from "react";
 
@@ -78,9 +78,6 @@ export const FormatSelect: FC = () => {
   return (
     <Flex vertical gap={4}>
       <span className="text-sm font-medium">フォーマット</span>
-      {/* 表示値のフォールバック: atom の値が options に含まれない場合(例: ハイドレーション時の
-          stale な "auto-one-file")、useEffect による atom リセット前のフラッシュを防ぐ。
-          SettingsPanel の forceRender: true により、useEffect はユーザー操作前に実行される。 */}
       <Select
         value={options.some((o) => o.value === format) ? format : undefined}
         onChange={setFormat}

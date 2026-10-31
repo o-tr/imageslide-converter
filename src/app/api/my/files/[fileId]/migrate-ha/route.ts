@@ -5,7 +5,6 @@ import { s3NormalClient } from "@/lib/s3/normal";
 import { getAuthorizedUser } from "@/utils/getAuthorizedUser";
 import { DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { type Progress, Upload } from "@aws-sdk/lib-storage";
-import { NextResponse } from "next/server";
 
 export const POST = async (
   _request: Request,
@@ -14,7 +13,7 @@ export const POST = async (
   const { fileId } = await params;
   const user = await getAuthorizedUser();
   if (!user)
-    return NextResponse.json(
+    return Response.json(
       { status: "error", error: "Unauthorized" },
       { status: 401 },
     );
@@ -28,7 +27,7 @@ export const POST = async (
   });
 
   if (!file)
-    return NextResponse.json(
+    return Response.json(
       { status: "error", error: "Not found" },
       { status: 404 },
     );

@@ -1,21 +1,22 @@
 "use client";
-import { AntContent } from "@/components/AntContent";
-import { Button, Result } from "antd";
-import Link from "next/link";
+import Link from "@/compat/link";
+import { PageContent } from "@/components/PageContent";
+import { Result } from "@/components/primitives";
+import { buttonVariants } from "@/components/ui/button";
 
 export default function Page() {
   return (
-    <AntContent className={"flex-1 grid place-items-center"}>
+    <PageContent className={"flex-1 grid place-items-center"}>
       <Result
         status="404"
         title="404"
         subTitle="ページは見つかりませんでした"
         extra={
-          <Link href={"/"}>
-            <Button type="primary">Back Home</Button>
+          <Link href={"/"} className={buttonVariants()}>
+            Back Home
           </Link>
         }
       />
-    </AntContent>
+    </PageContent>
   );
 }

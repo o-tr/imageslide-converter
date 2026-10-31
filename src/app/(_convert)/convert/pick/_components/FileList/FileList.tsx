@@ -2,7 +2,11 @@
 import { HeaderLogo } from "@/app/(_)/_components/HeaderLogo";
 import { DeckCraftFileAtom, DeckCraftSlidesAtom } from "@/atoms/deckcraft";
 import { OutputFileNameAtom, SelectedFilesAtom } from "@/atoms/file-drop";
-import { SettingOutlined } from "@ant-design/icons";
+import Image from "@/compat/image";
+import Link from "@/compat/link";
+import { useRouter } from "@/compat/navigation";
+import { Button, Flex, Input, Modal, message } from "@/components/primitives";
+import { SettingOutlined } from "@/components/primitives-icons";
 import {
   DndContext,
   type DragEndEvent,
@@ -16,10 +20,7 @@ import {
   arrayMove,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Button, Flex, Input, Modal, message } from "antd";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import Image from "next/image";
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { SettingsPanel } from "../Settings";
 import { Controls } from "./Controls";
@@ -38,6 +39,7 @@ const Logo = () => (
 );
 
 export const FileList = () => {
+  const router = useRouter();
   const setDeckCraftSlides = useSetAtom(DeckCraftSlidesAtom);
   const deckFile = useAtomValue(DeckCraftFileAtom);
   const deckSlides = useAtomValue(DeckCraftSlidesAtom);
@@ -126,7 +128,11 @@ export const FileList = () => {
               <>
                 <HeaderLogo />
                 <div className={"flex-1 grid place-items-center"}>
-                  <Flex vertical gap={"middle"}>
+                  <Flex
+                    vertical
+                    gap={"middle"}
+                    className="w-full max-w-3xl px-6"
+                  >
                     <h2 className={"text-2xl"}>利用可能な形式</h2>
                     <div>
                       <p>ローカルファイル: PPTX/PDF/画像</p>
@@ -176,11 +182,13 @@ export const FileList = () => {
                     >
                       設定
                     </Button>
-                    <Link href={"./convert"} aria-disabled={files.length === 0}>
-                      <Button type={"primary"} disabled={files.length === 0}>
-                        Next
-                      </Button>
-                    </Link>
+                    <Button
+                      type={"primary"}
+                      disabled={files.length === 0}
+                      onClick={() => router.push("./convert")}
+                    >
+                      Next
+                    </Button>
                   </div>
                 </div>
                 <div

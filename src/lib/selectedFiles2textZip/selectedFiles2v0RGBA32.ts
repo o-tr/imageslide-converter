@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 import type { SelectedFile } from "@/_types/file-picker";
 import type { RawImageObj } from "@/_types/text-zip/v0";
 import { canvas2rgba32 } from "@/lib/canvas2rawImage/canvas2rgba32";

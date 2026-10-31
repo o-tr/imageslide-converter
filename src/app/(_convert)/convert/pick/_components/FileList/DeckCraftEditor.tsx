@@ -1,15 +1,16 @@
 "use client";
 
+import { GIF_ANIMATION_ENABLED } from "@/const/env";
 import { createId } from "@/lib/createId";
 import { loadPptxFonts } from "@/lib/deckcraft/loadFonts";
 
 import type { SelectedFile } from "@/_types/file-picker";
 import { DeckCraftFileAtom, DeckCraftSlidesAtom } from "@/atoms/deckcraft";
 import { OutputFileNameAtom, SelectedFilesAtom } from "@/atoms/file-drop";
-import { Alert, Button, Input, Modal, message } from "antd";
+import { useRouter } from "@/compat/navigation";
+import { useTheme } from "@/components/ThemeProvider";
+import { Alert, Button, Input, Modal, message } from "@/components/primitives";
 import { useAtom, useSetAtom } from "jotai";
-import { useTheme } from "next-themes";
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { SettingsPanel } from "../Settings";
 
@@ -38,21 +39,45 @@ export function DeckCraftEditor() {
     >(),
   );
   const exporting = useRef(false);
-  const [missingBuild, setMissingBuild] = useState(false);
+  const [editorError, setEditorError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
     const controller = new AbortController();
-    setMissingBuild(false);
+    setEditorError(null);
     fetch("/deckcraft/index.html", {
-      method: "HEAD",
+      cache: "no-store",
       signal: controller.signal,
     })
-      .then((response) => {
-        if (!response.ok) setMissingBuild(true);
+      .then(async (response) => {
+        if (response.status === 404) {
+          if (!controller.signal.aborted)
+            setEditorError(
+              "DeckCraft のビルドが見つかりません。pnpm build:deckcraft を実行してください。",
+            );
+          return;
+        }
+        if (!response.ok) {
+          if (!controller.signal.aborted)
+            setEditorError(
+              `DeckCraft を読み込めませんでした（HTTP ${response.status}）。`,
+            );
+          return;
+        }
+        const html = await response.text();
+        if (
+          !controller.signal.aborted &&
+          !/<canvas\b[^>]*\bid\s*=\s*["']deckcraft_canvas["']/i.test(html)
+        )
+          setEditorError(
+            "DeckCraft のビルドが見つかりません。pnpm build:deckcraft を実行してください。",
+          );
       })
       .catch(() => {
-        if (!controller.signal.aborted) setMissingBuild(true);
+        if (!controller.signal.aborted)
+          setEditorError(
+            "DeckCraft を取得できませんでした。サーバーへの接続を確認してください。",
+          );
       });
     return () => controller.abort();
   }, [isOpen]);
@@ -152,8 +177,7 @@ export function DeckCraftEditor() {
           {
             source: "imageslide-poc",
             type: "export",
-            allowStaticGif:
-              process.env.NEXT_PUBLIC_ENABLE_GIF_ANIMATION === "false",
+            allowStaticGif: !GIF_ANIMATION_ENABLED,
           },
           window.location.origin,
         );
@@ -336,16 +360,13 @@ export function DeckCraftEditor() {
     <>
       {isOpen && (
         <section className="flex min-h-0 flex-1 flex-col">
-          {missingBuild && (
+          {editorError && (
             <div>
               <Button onClick={close}>戻る</Button>
-              <Alert
-                type="error"
-                message="DeckCraft のビルドが見つかりません。pnpm build:deckcraft を実行してください。"
-              />
+              <Alert type="error" message={editorError} />
             </div>
           )}
-          {!missingBuild && (
+          {!editorError && (
             <iframe
               ref={frame}
               title="DeckCraft"

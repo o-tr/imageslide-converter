@@ -39,12 +39,15 @@ export type FormatItemType = {
       converter: (
         selectedFiles: SelectedFile[],
         signage?: EIASignageManifest,
+        onProgress?: (completed: number, total: number) => void,
       ) => Promise<string[] | Buffer[]>;
     }
   | {
       signageSupport?: false;
       converter: (
         selectedFiles: SelectedFile[],
+        signage?: undefined,
+        onProgress?: (completed: number, total: number) => void,
       ) => Promise<string[] | Buffer[]>;
     }
 );

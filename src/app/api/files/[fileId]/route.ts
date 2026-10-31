@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { formatDateJST } from "@/utils/formatDateJST";
 import { addDay } from "@formkit/tempo";
-import { NextResponse } from "next/server";
 
 export const GET = async (
   _request: Request,
@@ -9,7 +8,7 @@ export const GET = async (
 ) => {
   const { fileId } = await params;
   if (!fileId) {
-    return NextResponse.json(
+    return Response.json(
       {
         status: "error",
         error: "File not found",
@@ -23,7 +22,7 @@ export const GET = async (
     },
   });
   if (!file) {
-    return NextResponse.json(
+    return Response.json(
       {
         status: "error",
         error: "File not found",
@@ -38,7 +37,7 @@ export const GET = async (
         id: file.id,
       },
     });
-    return NextResponse.json(
+    return Response.json(
       {
         status: "error",
         error: "File not found",
@@ -47,7 +46,7 @@ export const GET = async (
     );
   }
 
-  return NextResponse.json({
+  return Response.json({
     status: "success",
     data: {
       file: {

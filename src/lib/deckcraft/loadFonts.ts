@@ -35,6 +35,18 @@ const substitutes: Record<string, string> = {
   "aptos display": "Inter",
 };
 
+function fontFileUrl(path: string): string {
+  const parts = path.split("/");
+  if (
+    parts[0] !== "fonts" ||
+    parts.some(
+      (part) => !part || part === "." || part === ".." || part.includes("\\"),
+    )
+  )
+    throw new Error("Invalid font path in catalog");
+  return `/deckcraft-fonts/${parts.map(encodeURIComponent).join("/")}`;
+}
+
 /** Load available fonts referenced by a PPTX before DeckCraft opens it. */
 export async function loadPptxFonts(
   bytes: ArrayBuffer,
@@ -53,7 +65,7 @@ export async function loadPptxFonts(
       if (value && !value.startsWith("+")) names.add(value.toLowerCase());
     }
   }
-  const response = await fetch("/api/deckcraft-fonts/catalog");
+  const response = await fetch("/deckcraft-fonts/catalog.json");
   if (!response.ok) throw new Error("フォント一覧を取得できませんでした");
   const catalog: FontEntry[] = await response.json();
   const available = new Set(catalog.map((font) => font.family.toLowerCase()));
@@ -69,9 +81,7 @@ export async function loadPptxFonts(
   );
   return Promise.all(
     selected.map(async (font) => {
-      const res = await fetch(
-        `/api/deckcraft-fonts/file?${new URLSearchParams({ path: font.path })}`,
-      );
+      const res = await fetch(fontFileUrl(font.path));
       if (!res.ok) throw new Error(`${font.family} の読み込みに失敗しました`);
       return res.arrayBuffer();
     }),

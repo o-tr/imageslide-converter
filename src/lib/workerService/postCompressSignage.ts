@@ -6,7 +6,9 @@ import type { Resolution } from "@/const/resolutions";
 
 const worker = (
   typeof window !== "undefined"
-    ? new Worker(new URL("../../worker/compressSignage.ts", import.meta.url))
+    ? new Worker(new URL("../../worker/compressSignage.ts", import.meta.url), {
+        type: "module",
+      })
     : undefined
 ) as Worker;
 

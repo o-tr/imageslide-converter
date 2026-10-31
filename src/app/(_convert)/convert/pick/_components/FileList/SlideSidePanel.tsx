@@ -1,9 +1,9 @@
 "use client";
 import type { SelectedFile } from "@/_types/file-picker";
+import { Dropdown } from "@/components/primitives";
+import type { MenuProps } from "@/components/primitives";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Dropdown } from "antd";
-import type { MenuProps } from "antd";
 import { ImagePlay, TriangleAlert } from "lucide-react";
 import { memo } from "react";
 import type { CSSProperties, FC } from "react";

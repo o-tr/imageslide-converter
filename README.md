@@ -40,20 +40,20 @@
 
 ### 🌐 Google Drive連携
 - **Google Drive API**: ファイルの直接インポート
-- **Google Slides API**: プレゼンテーションファイルのPDF変換
+- **Google Slides / Drive API**: スライドを PPTX に変換して編集
 - **OAuth2認証**: セキュアなGoogleアカウント連携
 
 ## 技術スタック
 
 ### フロントエンド
-- **Next.js 14**: React フレームワーク（App Router）
+- **TanStack Start / Router、Vite**: React フレームワークとビルド
 - **TypeScript**: 型安全な開発
-- **Ant Design**: UIコンポーネントライブラリ
+- **shadcn/ui / Radix UI**: UI コンポーネント
 - **Tailwind CSS**: ユーティリティファーストCSS
 - **Jotai**: 状態管理
 
 ### バックエンド
-- **NextAuth.js 5**: 認証システム
+- **Hono / Auth.js**: API と Discord 認証
 - **Prisma**: ORM とデータベース管理
 - **MySQL**: メインデータベース
 - **AWS S3**: ファイルストレージ
@@ -152,7 +152,7 @@
 ## セットアップ
 
 ### 前提条件
-- Node.js 22.0.0以上
+- Node.js 24.0.0以上
 - pnpm
 - MySQL データベース
 - AWS S3 バケット
@@ -168,14 +168,18 @@ DATABASE_URL="mysql://username:password@localhost:3306/database"
 # AWS S3
 S3_NORMAL_BUCKET="your-normal-bucket"
 S3_HA_BUCKET="your-ha-bucket"
-S3_NORMAL_PUBLIC_BASE_URL="https://your-domain.com"
-AWS_ACCESS_KEY_ID="your-access-key"
-AWS_SECRET_ACCESS_KEY="your-secret-key"
-AWS_REGION="your-region"
+NEXT_PUBLIC_S3_NORMAL_PUBLIC_BASE_URL="https://your-domain.com"
+NEXT_PUBLIC_S3_HA_PUBLIC_BASE_URL="https://your-ha-domain.com"
+S3_NORMAL_ACCESS_KEY="your-access-key"
+S3_NORMAL_SECRET_KEY="your-secret-key"
+S3_NORMAL_ENDPOINT="https://your-s3-endpoint"
+S3_HA_ACCESS_KEY="your-ha-access-key"
+S3_HA_SECRET_KEY="your-ha-secret-key"
+S3_HA_ENDPOINT="https://your-ha-s3-endpoint"
 
 # Google API
-GOOGLE_CLIENT_ID="your-google-client-id"
-GOOGLE_API_KEY="your-google-api-key"
+NEXT_PUBLIC_GOOGLE_CLIENT_ID="your-google-client-id"
+NEXT_PUBLIC_GOOGLE_API_KEY="your-google-api-key"
 
 # GIF アニメーション対応（既定: 有効）
 # false にすると GIF を静止画像として書き出せます
@@ -185,12 +189,13 @@ NEXT_PUBLIC_ENABLE_GIF_ANIMATION="false"
 DISCORD_CLIENT_ID="your-discord-client-id"
 DISCORD_CLIENT_SECRET="your-discord-client-secret"
 
-# NextAuth
+# Auth.js とアップロード用セッション
 NEXTAUTH_SECRET="your-nextauth-secret"
-NEXTAUTH_URL="http://localhost:3000"
+IRON_SESSION_PASSWORD="a-password-at-least-32-characters-long"
+IRON_SESSION_COOKIE_NAME="imageslide-upload"
 ```
 
-`NEXT_PUBLIC_ENABLE_GIF_ANIMATION` はブラウザ向けの設定です。変更後は開発サーバーを再起動し、プロダクション環境では変更後に再ビルドしてください。有効時、DeckCraft は GIF を含むスライドを 10 fps のアニメーションとして書き出します。対応形式は v0.3.x の EIA v1 RGB24 (cropped) で、ループの長さは最大 10 秒です。無効時は静止画像になります。
+`NEXT_PUBLIC_ENABLE_GIF_ANIMATION` はブラウザ向けの設定です。変更後はサーバーを再起動してください。プロダクション環境でも再ビルドは不要です。有効時、DeckCraft は GIF を含むスライドを 10 fps のアニメーションとして書き出します。対応形式は v0.3.x の EIA v1 RGB24 (cropped) で、ループの長さは最大 10 秒です。無効時は静止画像になります。
 
 ### インストールと起動
 
@@ -201,11 +206,15 @@ pnpm install
 # データベースマイグレーション
 npx prisma migrate dev
 
+# DeckCraft をビルド（フォントカタログは別途用意）
+git submodule update --init --recursive
+pnpm build:deckcraft
+
 # 開発サーバーの起動
 pnpm dev
 ```
 
-アプリケーションは [http://localhost:3000](http://localhost:3000) で起動します。
+Vite は既定で [http://localhost:5173](http://localhost:5173) で起動します。フォントカタログの準備と Nginx の設定は [DeckCraft integration](docs/deckcraft-poc.md) を参照してください。
 
 ## 開発
 
@@ -230,10 +239,9 @@ npx prisma studio          # データベースGUI
 
 ```
 src/
-├── app/                    # Next.js App Router
-│   ├── api/               # APIルート
-│   ├── (_)/               # レイアウトグループ
-│   └── globals.css        # グローバルスタイル
+├── routes/                 # TanStack Router のルート
+├── server.ts               # Hono API と Start のサーバーエントリ
+├── app/                    # 画面と API ハンドラ
 ├── components/            # 共通コンポーネント
 ├── lib/                   # ユーティリティとヘルパー
 │   ├── eia/              # EIA v1エンコーダー

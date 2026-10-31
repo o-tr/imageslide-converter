@@ -1,7 +1,7 @@
 "use client";
 import type { PatchRequest } from "@/app/api/my/files/[fileId]/route";
-import { LoadingOutlined } from "@ant-design/icons";
-import { Input, message } from "antd";
+import { Input, message } from "@/components/primitives";
+import { LoadingOutlined } from "@/components/primitives-icons";
 import { type FC, useCallback, useRef, useState } from "react";
 
 export const EditableFileName: FC<{

@@ -2,7 +2,7 @@ import {
   UPLOAD_STEP,
   UploadSteps,
 } from "@/app/(_convert)/convert/_components/UploadSteps";
-import { Flex, Spin } from "antd";
+import { Flex, Spin } from "@/components/primitives";
 import { Convert } from "./_components/convert";
 
 export default function Page() {

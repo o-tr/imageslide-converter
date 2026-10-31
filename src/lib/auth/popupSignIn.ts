@@ -1,4 +1,4 @@
-import { signIn } from "next-auth/react";
+import { signIn } from "@/compat/auth-client";
 
 type PopupSignInOptions = {
   onSuccess?: () => void | Promise<void>;

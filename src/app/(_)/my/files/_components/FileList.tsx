@@ -1,10 +1,7 @@
 "use client";
 import type { FileItem } from "@/_types/api/getMyFiles";
 import type { PatchRequest } from "@/app/api/my/files/[fileId]/route";
-import { deleteRegisteredFile } from "@/lib/service/deleteRegisteredFile";
-import { getMyFiles } from "@/lib/service/getMyFiles";
-import { patchMyFile } from "@/lib/service/patchMyFile";
-import { postMigrateHA } from "@/lib/service/postMigrateHA";
+import { signIn } from "@/compat/auth-client";
 import {
   Flex,
   Modal,
@@ -12,9 +9,12 @@ import {
   type SpinProps,
   Table,
   type TableColumnsType,
-} from "antd";
-import type { SorterResult } from "antd/es/table/interface";
-import { signIn } from "next-auth/react";
+} from "@/components/primitives";
+import type { SorterResult } from "@/components/primitives";
+import { deleteRegisteredFile } from "@/lib/service/deleteRegisteredFile";
+import { getMyFiles } from "@/lib/service/getMyFiles";
+import { patchMyFile } from "@/lib/service/patchMyFile";
+import { postMigrateHA } from "@/lib/service/postMigrateHA";
 import { type FC, useCallback, useEffect, useMemo, useState } from "react";
 import { Actions } from "./Actions";
 import { EditableFileName } from "./EditableFileName";

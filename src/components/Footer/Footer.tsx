@@ -1,10 +1,10 @@
-import { Flex } from "antd";
-import Link from "next/link";
-import { AntFooter } from "./AntFooter";
+import Link from "@/compat/link";
+import { Flex } from "@/components/primitives";
+import { PageFooter } from "./PageFooter";
 
 export const Footer = () => {
   return (
-    <AntFooter>
+    <PageFooter>
       <Flex justify={"center"} align={"center"} gap={"middle"}>
         <p>
           <Link href={"https://docs.ootr.jp/"} target={"_blank"}>
@@ -27,6 +27,6 @@ export const Footer = () => {
           Copyright &copy; 2024 ootr. Licensed under the MIT License.
         </p>
       </div>
-    </AntFooter>
+    </PageFooter>
   );
 };

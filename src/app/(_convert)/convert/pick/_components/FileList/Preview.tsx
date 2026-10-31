@@ -1,4 +1,4 @@
-import { Spin } from "antd";
+import { Spin } from "@/components/primitives";
 import { type FC, useEffect, useState } from "react";
 
 export const Preview: FC<{ canvas: OffscreenCanvas; className?: string }> = ({

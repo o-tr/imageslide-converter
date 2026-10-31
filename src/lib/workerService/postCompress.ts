@@ -9,7 +9,9 @@ import type { Resolution } from "@/const/resolutions";
 
 const worker = (
   typeof window !== "undefined"
-    ? new Worker(new URL("../../worker/compress.ts", import.meta.url))
+    ? new Worker(new URL("../../worker/compress.ts", import.meta.url), {
+        type: "module",
+      })
     : undefined
 ) as Worker;
 
@@ -19,6 +21,11 @@ export const postCompress = (
   version: number,
   scale: number,
   resolution: Resolution,
+  onProgress?: (
+    completed: number,
+    total: number,
+    phase: "prepare" | "crop",
+  ) => void,
 ): Promise<string[] | Buffer[]> => {
   console.log("postCompress");
 
@@ -64,6 +71,10 @@ export const postCompress = (
   console.log("postCompress", message);
   return new Promise<string[] | Buffer[]>((resolve, reject) => {
     const handler = (event: MessageEvent<WorkerResponse>) => {
+      if (event.data.type === "compress-progress") {
+        onProgress?.(event.data.completed, event.data.total, event.data.phase);
+        return;
+      }
       if (event.data.type === "compress") {
         cleanup();
         resolve(event.data.data);
