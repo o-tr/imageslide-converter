@@ -1,8 +1,9 @@
 "use client";
-import { Button, Dropdown, type MenuProps } from "antd";
-import { signOut, useSession } from "next-auth/react";
-import Image from "next/image";
-import Link from "next/link";
+import { signOut, useSession } from "@/compat/auth-client";
+import Image from "@/compat/image";
+import Link from "@/compat/link";
+import { Button, Dropdown, type MenuProps } from "@/components/primitives";
+import { buttonVariants } from "@/components/ui/button";
 
 export const ManageUser = () => {
   const { data: session, status } = useSession();
@@ -20,11 +21,17 @@ export const ManageUser = () => {
   if (status !== "authenticated" || !session?.user) return null;
   return (
     <>
-      <Link href={"/convert/pick"}>
-        <Button>Upload</Button>
+      <Link
+        href={"/convert/pick"}
+        className={buttonVariants({ variant: "outline" })}
+      >
+        Upload
       </Link>
-      <Link href={"/my/files"}>
-        <Button>Files</Button>
+      <Link
+        href={"/my/files"}
+        className={buttonVariants({ variant: "outline" })}
+      >
+        Files
       </Link>
       <Dropdown menu={{ items }} placement="bottomRight">
         <Button

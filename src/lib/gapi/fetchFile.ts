@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 export const fetchFileBuffer = async (fileId: string) => {
   const response = (await gapi.client.drive.files.get({
     fileId: fileId,

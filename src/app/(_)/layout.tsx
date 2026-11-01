@@ -1,7 +1,7 @@
 import { HeaderLogo } from "@/app/(_)/_components/HeaderLogo";
-import { AntContent } from "@/components/AntContent";
 import { AppShell } from "@/components/AppShell";
-import { Flex } from "antd";
+import { PageContent } from "@/components/PageContent";
+import { Flex } from "@/components/primitives";
 import type { ReactNode } from "react";
 
 export default function MainLayout({
@@ -11,7 +11,7 @@ export default function MainLayout({
 }>) {
   return (
     <AppShell>
-      <AntContent className={"flex flex-col"}>
+      <PageContent className={"flex flex-col"}>
         <HeaderLogo />
         <Flex
           className={"px-8 flex-1 overflow-y-scroll"}
@@ -20,7 +20,7 @@ export default function MainLayout({
         >
           {children}
         </Flex>
-      </AntContent>
+      </PageContent>
     </AppShell>
   );
 }

@@ -1,8 +1,8 @@
 "use client";
 import { IsGooglePickerReadyAtom } from "@/atoms/google-picker";
+import Script from "@/compat/script";
 import { GOOGLE_API_KEY } from "@/const/env";
 import { useSetAtom } from "jotai";
-import Script from "next/script";
 import { type FC, useEffect, useState } from "react";
 
 declare global {

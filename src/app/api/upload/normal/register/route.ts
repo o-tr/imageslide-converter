@@ -4,8 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { s3NormalClient } from "@/lib/s3/normal";
 import { getAuthorizedUser } from "@/utils/getAuthorizedUser";
 import { PutObjectTaggingCommand } from "@aws-sdk/client-s3";
-import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
 import { z } from "zod";
 
 const RequestSchema = z.object({
@@ -14,7 +12,6 @@ const RequestSchema = z.object({
   version: z.number(),
   format: z.string(),
   totalSize: z.number(),
-  count: z.number(),
 });
 
 export const POST = async (request: Request) => {
@@ -22,7 +19,7 @@ export const POST = async (request: Request) => {
     const _body = await request.json();
     const { success, data } = RequestSchema.safeParse(_body);
     if (!success || !data) {
-      return NextResponse.json(
+      return Response.json(
         {
           status: "error",
           error: "Invalid request",
@@ -30,9 +27,9 @@ export const POST = async (request: Request) => {
         { status: 400 },
       );
     }
-    const session = await getSession(await cookies());
+    const session = await getSession();
     if (!session.fileId?.includes(data.fileId)) {
-      return NextResponse.json(
+      return Response.json(
         {
           status: "error",
           error: "Invalid request",
@@ -47,7 +44,8 @@ export const POST = async (request: Request) => {
         bucket: S3_NORMAL_BUCKET,
         fileId: data.fileId,
         totalSize: data.totalSize,
-        count: data.count,
+        // Uploads are always one object (<fileId>_0); count stays for older records.
+        count: 1,
         version: data.version,
         format: data.format,
         user: user
@@ -60,36 +58,25 @@ export const POST = async (request: Request) => {
       },
     });
 
-    await Promise.all(
-      Array.from({ length: data.count }).map(async (_, index) => {
-        const fileName = `${data.fileId}_${index}`;
-        await s3NormalClient.send(
-          new PutObjectTaggingCommand({
-            Bucket: S3_NORMAL_BUCKET,
-            Key: fileName,
-            Tagging: {
-              TagSet: [
-                {
-                  Key: "registered",
-                  Value: "true",
-                },
-                {
-                  Key: "guest",
-                  Value: user ? "false" : "true",
-                },
-              ],
-            },
-          }),
-        );
+    await s3NormalClient.send(
+      new PutObjectTaggingCommand({
+        Bucket: S3_NORMAL_BUCKET,
+        Key: `${data.fileId}_0`,
+        Tagging: {
+          TagSet: [
+            { Key: "registered", Value: "true" },
+            { Key: "guest", Value: user ? "false" : "true" },
+          ],
+        },
       }),
     );
 
-    return NextResponse.json({
+    return Response.json({
       status: "success",
     });
   } catch (error) {
     console.log(error);
-    return NextResponse.json(
+    return Response.json(
       {
         status: "error",
         error: "Internal Server Error",

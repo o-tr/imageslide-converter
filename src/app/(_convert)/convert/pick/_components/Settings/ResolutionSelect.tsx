@@ -1,7 +1,7 @@
 "use client";
 import { TargetResolutionAtom } from "@/atoms/convert";
+import { Flex, Select } from "@/components/primitives";
 import { RESOLUTION_DIMENSIONS, type Resolution } from "@/const/resolutions";
-import { Flex, Select } from "antd";
 import { useAtom } from "jotai";
 import type { FC } from "react";
 

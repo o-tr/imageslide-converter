@@ -1,15 +1,13 @@
 import { getSession } from "@/lib/iron-session";
-import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
 
 export const POST = async () => {
   try {
-    const session = await getSession(await cookies());
+    const session = await getSession();
     session.fileId ??= [];
     const id = crypto.randomUUID();
     session.fileId = [...session.fileId, id];
     await session.save();
-    return NextResponse.json({
+    return Response.json({
       status: "success",
       data: {
         fileId: id,
@@ -17,7 +15,7 @@ export const POST = async () => {
     });
   } catch (error) {
     console.log(error);
-    return NextResponse.json(
+    return Response.json(
       {
         status: "error",
         error: "Internal Server Error",

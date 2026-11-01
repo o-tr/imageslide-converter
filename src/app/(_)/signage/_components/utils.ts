@@ -1,9 +1,10 @@
+import { createId } from "@/lib/createId";
 import type { SlideConfig } from "./types";
 
 export const createSignboardImage = (): SlideConfig => ({
-  id: crypto.randomUUID(),
+  id: createId(),
   file: null,
   transition: "None",
 });
 
-export const createUniqueId = (): string => crypto.randomUUID();
+export const createUniqueId = (): string => createId();

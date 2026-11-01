@@ -1,1 +1,5 @@
-(npx prisma generate > /dev/null)&&(npx prisma migrate deploy)&&./node_modules/next/dist/bin/next start
+#!/bin/sh
+set -e
+npx prisma generate >/dev/null
+npx prisma migrate deploy
+exec node .output/server/index.mjs

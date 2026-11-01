@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 import type {
   EIAFileV1,
   EIAFileV1CroppedPart,
@@ -5,30 +6,20 @@ import type {
   EIASignageManifest,
 } from "@/_types/eia/v1";
 import type { RawImageObjV1Cropped } from "@/_types/text-zip/v1";
-import { FileSizeLimit } from "@/const/convert";
-import lz4 from "lz4js";
+import { EIA_SIZE_LIMIT_ERROR, FileSizeLimit } from "@/const/convert";
+import { compressLz4Best } from "./lz4Search";
 
 export const compressEIAv1Base64 = async (
   data: RawImageObjV1Cropped[],
   signage?: EIASignageManifest,
-  count = 1,
-  stepSize = 10,
-): Promise<Buffer[]> => {
-  const partCount = Math.ceil(data.length / (count * stepSize)) * stepSize;
-  const result: Buffer[] = [];
-
-  for (let i = 0; i < count; i++) {
-    const part = data.slice(i * partCount, (i + 1) * partCount);
-    const compressedPart = await compressEIAv1Base64Part(part, signage);
-
-    if (compressedPart.length > FileSizeLimit) {
-      return compressEIAv1Base64(data, signage, count + 1);
-    }
-
-    result.push(Buffer.from(compressedPart, "utf-8"));
+): Promise<Buffer> => {
+  const compressed = await compressEIAv1Base64Part(data, signage);
+  if (compressed.length > FileSizeLimit) {
+    throw new Error(
+      `${EIA_SIZE_LIMIT_ERROR}: compressed size ${compressed.length} exceeds the limit of ${FileSizeLimit} bytes`,
+    );
   }
-
-  return result;
+  return Buffer.from(compressed, "utf-8");
 };
 
 const compressEIAv1Base64Part = async (
@@ -42,7 +33,7 @@ const compressEIAv1Base64Part = async (
 
   for (const image of data) {
     if (!image.cropped) {
-      const compressed = Buffer.from(lz4.compress(image.buffer)).toString(
+      const compressed = Buffer.from(compressLz4Best(image.buffer)).toString(
         "base64",
       );
       buffer.push(compressed);
@@ -80,7 +71,7 @@ const compressEIAv1Base64Part = async (
     }
 
     const mergedBuffer = Buffer.concat(fileBuffer);
-    const compressed = Buffer.from(lz4.compress(mergedBuffer)).toString(
+    const compressed = Buffer.from(compressLz4Best(mergedBuffer)).toString(
       "base64",
     );
     buffer.push(compressed);

@@ -1,6 +1,6 @@
 # ImageSlide Converter
 
-スライドをImageSlide対応フォーマット（TextZip、EIA v1）に変換するWebアプリケーションです。プレゼンテーション、PDFファイル、画像をアップロードして、TextZip形式またはEIA (Efficient Image Archive) 形式に変換できます。
+スライドをImageSlide対応フォーマット（EIA v1）に変換するWebアプリケーションです。プレゼンテーション、PDFファイル、画像をアップロードして、EIA (Efficient Image Archive) 形式に変換できます。
 
 ## 主な機能
 
@@ -19,16 +19,12 @@
 - **ランダムアクセス**: 全体の展開なしに任意のフレームに直接アクセス可能
 - **差分エンコーディング**: フレーム間の変化部分のみを保存する最適化
 
-#### TextZip v1
-- **ZIPコンテナ**: 標準のZIP形式による互換性
-- **複数テクスチャフォーマット**: RGB24、RGBA32、DXT1、クロップ最適化版をサポート
-- **拡張メタデータ**: 注釈やクロップ情報の埋め込み対応
-- **JSONマニフェスト**: 構造化されたファイル情報管理
+#### 変換の仕組み
+- **類似度グラフによる親選択**: デッキ全体から似たスライドを親に選び、キーフレームも自動で決定（固定間隔なし）
+- **近ロスレス前処理**: 隣接ピクセルとの差が各チャンネル2以内なら揃えて、LZ4が使える一致を増やす（`IMAGE_NEAR_LOSSLESS_TOLERANCE`、0で無効）
+- **1ファイル出力**: 変換結果は常に1ファイル。圧縮後が95MBを超える場合は分割せずエラーにします（スライド枚数または解像度を下げてください）
 
-#### TextZip v0
-- **軽量フォーマット**: シンプルなZIPベースの構造
-- **RGBA32専用**: 32ビットRGBAフォーマットのみサポート
-- **基本メタデータ**: ファイルパスと画像サイズ情報
+> 旧形式（TextZip v0 / v1）への変換は廃止しました。既にアップロード済みのファイルは引き続きプレビューできます。
 
 ### 🔐 認証とファイル管理
 - **Discord OAuth**: Discordアカウントでのユーザー認証
@@ -40,20 +36,20 @@
 
 ### 🌐 Google Drive連携
 - **Google Drive API**: ファイルの直接インポート
-- **Google Slides API**: プレゼンテーションファイルのPDF変換
+- **Google Slides / Drive API**: スライドを PPTX に変換して編集
 - **OAuth2認証**: セキュアなGoogleアカウント連携
 
 ## 技術スタック
 
 ### フロントエンド
-- **Next.js 14**: React フレームワーク（App Router）
+- **TanStack Start / Router、Vite**: React フレームワークとビルド
 - **TypeScript**: 型安全な開発
-- **Ant Design**: UIコンポーネントライブラリ
+- **shadcn/ui / Radix UI**: UI コンポーネント
 - **Tailwind CSS**: ユーティリティファーストCSS
 - **Jotai**: 状態管理
 
 ### バックエンド
-- **NextAuth.js 5**: 認証システム
+- **Hono / Auth.js**: API と Discord 認証
 - **Prisma**: ORM とデータベース管理
 - **MySQL**: メインデータベース
 - **AWS S3**: ファイルストレージ
@@ -74,47 +70,21 @@
 ## 使用方法
 
 1. **ファイル選択**: PDFファイル、画像ファイル、またはGoogle Driveからファイルを選択
-2. **ImageSlideバージョン選択**: 対象となるImageSlideのバージョンを選択
-3. **フォーマット設定**: 
-   - **自動選択**: 最適なフォーマットを自動判定（推奨）
-   - **手動選択**: 特定のフォーマットを指定
-   - **圧縮優先**: EIA v1 RGB24-croppedで最大圧縮
-   - **互換性優先**: TextZip v1で幅広い対応
-4. **変換実行**: 変換処理を開始（プログレスバー表示）
-5. **ダウンロード**: 変換されたファイルをダウンロード
-
-### 📋 フォーマット選択ガイド
-
-**最高圧縮率が欲しい場合:**
-- EIA v1 RGB24-cropped（推定80%削減）
-
-**互換性を重視する場合:**
-- TextZip v1 RGBA32またはRGB24
-
-**シンプルな構造が欲しい場合:**
-- TextZip v0 RGBA32
+2. **解像度設定**: 出力する解像度を選択（サイズ上限を超える場合は下げてください）
+3. **変換実行**: 変換処理を開始（プログレスバー表示）
+4. **アップロード**: 変換されたファイルをアップロードしてURLを取得
 
 ### 💡 最適化のヒント
-
-#### **最適な圧縮を得るために**
-1. **スライドプレゼンテーション**: EIA v1 RGB24-croppedが最適（80-94%削減）
-2. **背景が一定の画像**: クロップ最適化版フォーマットを選択
-3. **透明度が不要**: RGB24を選択してファイルサイズを削減
+- スライドプレゼンテーションは差分エンコーディングにより大幅に小さくなります（80-94%削減）
+- 変換後が95MBを超える場合は、解像度を下げるかスライド枚数を減らしてください
 
 ## サポートフォーマット仕様
 
-### 🎯 ImageSlideバージョン対応表
-
-| ImageSlideバージョン | サポートフォーマット |
-|---------------------|---------------------|
-| **v0.0.x** | TextZip v0 (RGBA32) |
-| **v0.1.x** | TextZip v1 (RGBA32, RGB24) |
-| **v0.2.x** | TextZip v1 (RGBA32, RGB24, DXT1) |
-| **v0.3.x** | TextZip v1 RGB24-cropped, **EIA v1** RGB24-cropped |
+出力は **EIA v1 RGB24-cropped**（ImageSlide v0.3.x 対応）のみです。サイネージ出力では、非標準拡張の `lz4-base64` 版も選択できます。
 
 #### **メタデータサポート**
 - **note拡張**: テキスト注釈の埋め込み
-- **cropped拡張**: 差分領域情報（TextZip v1、EIA v1）
+- **cropped拡張**: 差分領域情報（EIA v1）
 - **カスタム拡張**: 将来の機能拡張に対応
 
 ## 詳細ドキュメント
@@ -126,25 +96,14 @@
 - [EIA v1 実装ガイド](./docs/eia-v1-implementation-guide.md) - 実装者向けガイド
 - [EIA v1 ドキュメント](./docs/README.md) - 概要とクイックリファレンス
 
-### フォーマット移行ガイド
-- **TextZip v0 → v1**: 複数テクスチャフォーマット対応、拡張メタデータ
-- **TextZip v1 → EIA v1**: バイナリコンテナ化、圧縮率大幅向上
-- **自動最適化**: 最適なフォーマットの自動選択機能
-
 ## よくある質問・トラブルシューティング
 
-### 🔧 フォーマット選択に迷った場合
-**Q: どのフォーマットを選べばいいかわからない**
-- A: 「自動選択」を使用するか、EIA v1 RGB24-croppedを試してください
-
-**Q: ファイルサイズが大きすぎる**
-- A: クロップ最適化版（EIA v1 RGB24-cropped）を使用してください
-
-**Q: 古いImageSlideバージョンで読み込めない**
-- A: 対象バージョンを確認し、対応するTextZipフォーマットを選択してください
+### 🔧 変換に失敗する場合
+**Q: 「変換後のサイズが上限を超えました」と表示される**
+- A: 解像度を下げるか、スライド枚数を減らしてください（EIA v1 は1ファイル95MBまで）
 
 ### ⚠️ 制限事項
-- **ファイルサイズ制限**: 95MB（圧縮前）
+- **ファイルサイズ制限**: 変換後95MB（超過時はエラー）
 - **対応画像形式**: PNG、JPEG、JPG
 - **最大解像度**: システムメモリに依存
 - **同時変換**: 1ファイルずつ処理
@@ -152,7 +111,7 @@
 ## セットアップ
 
 ### 前提条件
-- Node.js 22.0.0以上
+- Node.js 24.0.0以上
 - pnpm
 - MySQL データベース
 - AWS S3 バケット
@@ -168,23 +127,34 @@ DATABASE_URL="mysql://username:password@localhost:3306/database"
 # AWS S3
 S3_NORMAL_BUCKET="your-normal-bucket"
 S3_HA_BUCKET="your-ha-bucket"
-S3_NORMAL_PUBLIC_BASE_URL="https://your-domain.com"
-AWS_ACCESS_KEY_ID="your-access-key"
-AWS_SECRET_ACCESS_KEY="your-secret-key"
-AWS_REGION="your-region"
+NEXT_PUBLIC_S3_NORMAL_PUBLIC_BASE_URL="https://your-domain.com"
+NEXT_PUBLIC_S3_HA_PUBLIC_BASE_URL="https://your-ha-domain.com"
+S3_NORMAL_ACCESS_KEY="your-access-key"
+S3_NORMAL_SECRET_KEY="your-secret-key"
+S3_NORMAL_ENDPOINT="https://your-s3-endpoint"
+S3_HA_ACCESS_KEY="your-ha-access-key"
+S3_HA_SECRET_KEY="your-ha-secret-key"
+S3_HA_ENDPOINT="https://your-ha-s3-endpoint"
 
 # Google API
-GOOGLE_CLIENT_ID="your-google-client-id"
-GOOGLE_API_KEY="your-google-api-key"
+NEXT_PUBLIC_GOOGLE_CLIENT_ID="your-google-client-id"
+NEXT_PUBLIC_GOOGLE_API_KEY="your-google-api-key"
+
+# GIF アニメーション対応（既定: 有効）
+# false にすると GIF を静止画像として書き出せます
+NEXT_PUBLIC_ENABLE_GIF_ANIMATION="false"
 
 # Discord OAuth
 DISCORD_CLIENT_ID="your-discord-client-id"
 DISCORD_CLIENT_SECRET="your-discord-client-secret"
 
-# NextAuth
+# Auth.js とアップロード用セッション
 NEXTAUTH_SECRET="your-nextauth-secret"
-NEXTAUTH_URL="http://localhost:3000"
+IRON_SESSION_PASSWORD="a-password-at-least-32-characters-long"
+IRON_SESSION_COOKIE_NAME="imageslide-upload"
 ```
+
+`NEXT_PUBLIC_ENABLE_GIF_ANIMATION` はブラウザ向けの設定です。変更後はサーバーを再起動してください。プロダクション環境でも再ビルドは不要です。有効時、DeckCraft は GIF を含むスライドを 10 fps のアニメーションとして書き出します。対応形式は v0.3.x の EIA v1 RGB24 (cropped) で、ループの長さは最大 10 秒です。無効時は静止画像になります。
 
 ### インストールと起動
 
@@ -195,11 +165,15 @@ pnpm install
 # データベースマイグレーション
 npx prisma migrate dev
 
+# DeckCraft をビルド（フォントカタログは別途用意）
+git submodule update --init --recursive
+pnpm build:deckcraft
+
 # 開発サーバーの起動
 pnpm dev
 ```
 
-アプリケーションは [http://localhost:3000](http://localhost:3000) で起動します。
+Vite は既定で [http://localhost:5173](http://localhost:5173) で起動します。フォントカタログの準備と Nginx の設定は [DeckCraft integration](docs/deckcraft-poc.md) を参照してください。
 
 ## 開発
 
@@ -224,10 +198,9 @@ npx prisma studio          # データベースGUI
 
 ```
 src/
-├── app/                    # Next.js App Router
-│   ├── api/               # APIルート
-│   ├── (_)/               # レイアウトグループ
-│   └── globals.css        # グローバルスタイル
+├── routes/                 # TanStack Router のルート
+├── server.ts               # Hono API と Start のサーバーエントリ
+├── app/                    # 画面と API ハンドラ
 ├── components/            # 共通コンポーネント
 ├── lib/                   # ユーティリティとヘルパー
 │   ├── eia/              # EIA v1エンコーダー

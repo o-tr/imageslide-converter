@@ -1,4 +1,5 @@
 import type { SelectedFile } from "@/_types/file-picker";
+import { createId } from "@/lib/createId";
 
 export const img2selectedFiles = async (
   file: File,
@@ -6,7 +7,7 @@ export const img2selectedFiles = async (
   const canvas = await imgFile2offscreenCanvas(file);
   return [
     {
-      id: crypto.randomUUID(),
+      id: createId(),
       fileName: file.name,
       canvas,
       metadata: {

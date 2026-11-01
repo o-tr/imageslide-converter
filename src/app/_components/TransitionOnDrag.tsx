@@ -1,7 +1,7 @@
 "use client";
 import { IsDragOverAtom } from "@/atoms/file-drop";
+import { useRouter } from "@/compat/navigation";
 import { useAtomValue } from "jotai";
-import { useRouter } from "next/navigation";
 import { type FC, useEffect } from "react";
 
 export const TransitionOnDrag: FC = () => {

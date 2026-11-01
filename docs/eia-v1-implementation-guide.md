@@ -107,52 +107,15 @@ for (const part of file.r) {
 
 ## 3. ファイルサイズ管理
 
-### 3.1 チャンク戦略
+### 3.1 サイズ上限
 
-大きなデータセットは自動的に複数ファイルに分割されます：
+プレーヤーが読み込めるファイルは100MBまでです。`compressEIAv1` は1つのアーカイブだけを作り、圧縮後サイズが `FileSizeLimit`（95MB）を超える場合は分割せずに `EIA_SIZE_LIMIT_EXCEEDED` で始まるエラーを投げます。呼び出し側（変換画面）はスライド枚数または解像度を減らすよう利用者に案内します。
 
 ```typescript
-const FileSizeLimit = 95 * 1024 * 1024; // ファイルあたり95MB
+const FileSizeLimit = 95 * 1024 * 1024; // アーカイブあたり95MB
 
-// 圧縮後サイズが上限を超えた場合、stepSize を半減してから count を増やす戦略で再試行
-if (compressedPart.length > FileSizeLimit) {
-  const reducedStepSize = Math.max(1, Math.floor(stepSize / 2));
-  const stepCandidates =
-    reducedStepSize < stepSize
-      ? [reducedStepSize, stepSize]
-      : [stepSize];
-
-  let nextSplit: { count: number; stepSize: number } | null = null;
-  for (const candidateStepSize of stepCandidates) {
-    // 実装では normalizedStepSize（stepSize を data.length で正規化した値）を使用
-    const startCount =
-      candidateStepSize === stepSize ? count + 1 : 1;
-    for (
-      let candidateCount = startCount;
-      candidateCount <= data.length;
-      candidateCount++
-    ) {
-      if (
-        calculatePartCount(candidateCount, candidateStepSize) < partCount
-      ) {
-        nextSplit = { count: candidateCount, stepSize: candidateStepSize };
-        break;
-      }
-    }
-    if (nextSplit) break;
-  }
-
-  if (!nextSplit) {
-    throw new Error("Unable to split oversized EIA part");
-  }
-
-  return compressEIAv1(
-    data,
-    signage,
-    nextSplit.count,
-    nextSplit.stepSize,
-    animationMap,
-  );
+if (compressed.length > FileSizeLimit) {
+  throw new Error(`${EIA_SIZE_LIMIT_ERROR}: compressed size ... exceeds the limit`);
 }
 ```
 

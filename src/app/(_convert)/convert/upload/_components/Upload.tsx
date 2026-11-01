@@ -1,110 +1,141 @@
 "use client";
 import { ResultAtom } from "@/atoms/convert";
+import { DeckCraftSessionAtom } from "@/atoms/deckcraft";
 import { OutputFileNameAtom, SelectedFilesAtom } from "@/atoms/file-drop";
+import { useRouter } from "@/compat/navigation";
+import { Alert, Button, Flex, Spin } from "@/components/primitives";
 import { getNormalFileId } from "@/lib/service/getNormalFileId";
 import { getNormalPreSignedPut } from "@/lib/service/getNormalPreSignedPut";
 import { postRegisterFile } from "@/lib/service/postRegisterFile";
-import { Flex, List, Spin } from "antd";
-import axios, { type AxiosProgressEvent } from "axios";
-import { useAtomValue } from "jotai";
-import { useRouter } from "next/navigation";
-import { type FC, useEffect, useRef, useState } from "react";
+import axios from "axios";
+import { useAtomValue, useSetAtom } from "jotai";
+import { type FC, useEffect, useState } from "react";
 import { Completed } from "./Completed";
 import { Preparing } from "./Preparing";
 
+type Stage = "preparing" | "uploading" | "registering";
+
 export const Upload: FC = () => {
   const result = useAtomValue(ResultAtom);
-  const [progress, setProgress] = useState<{ [fileName: string]: number }>({});
-
+  const setResult = useSetAtom(ResultAtom);
+  const session = useAtomValue(DeckCraftSessionAtom);
   const files = useAtomValue(SelectedFilesAtom);
   const outputFileName = useAtomValue(OutputFileNameAtom);
   const router = useRouter();
-  const initRef = useRef(false);
+  const [progress, setProgress] = useState(0);
+  const [stage, setStage] = useState<Stage>("preparing");
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: attempt starts a fresh upload after a retry.
   useEffect(() => {
-    if (initRef.current) return;
     if (!result || result.data.length === 0) {
-      router.push("./pick");
+      router.replace("/convert/pick");
       return;
     }
-    initRef.current = true;
-    void (async () => {
-      const data = result.data.map<{ fileSize: number; file: File }>(
-        (input) => {
-          const file = new File(
-            [
-              typeof input === "string"
-                ? new TextEncoder().encode(input)
-                : new Uint8Array(input),
-            ],
-            typeof input === "string" ? "file.txt" : "file.bin",
-            {
-              type:
-                typeof input === "string"
-                  ? "text/plain"
-                  : "application/octet-stream",
-            },
-          );
-          return { fileSize: input.length, file };
-        },
-      );
-      const fileId = await getNormalFileId();
-      const contentLengths = data.map((input) => input.fileSize);
-      const preSignedPut = await getNormalPreSignedPut(fileId, contentLengths);
-      await Promise.all(
-        preSignedPut.map(async (val) => {
-          const { file } = data[val.index];
-          const onProgress = (progressEvent: AxiosProgressEvent) => {
-            setProgress((pv) => ({
-              ...pv,
-              [`${fileId}_${val.index}`]:
-                progressEvent.loaded / (progressEvent.total ?? 1),
-            }));
-          };
-          await axios.put(val.url, file, {
-            headers: {
-              "Content-Type": file.type || "application/octet-stream",
-            },
-            onUploadProgress: onProgress,
-          });
-        }),
-      );
-      await postRegisterFile(
-        fileId,
-        outputFileName || files[0]?.fileName || "untitled",
-        data.length,
-        data.reduce((acc, { fileSize }) => acc + fileSize, 0),
-        result.format,
-        result.version,
-      );
+    const controller = new AbortController();
+    let cancelled = false;
+    let currentStage: Stage = "preparing";
+    setError(null);
+    setProgress(0);
+    setStage("preparing");
 
-      router.replace(`/files/${fileId}`);
-    })();
-  }, [result, files, router, outputFileName]);
+    // Defer the first request so Strict Mode's setup/cleanup cycle can cancel it.
+    void Promise.resolve().then(async () => {
+      if (cancelled) return;
+      try {
+        const file = new File([new Uint8Array(result.data)], "file.bin", {
+          type: "application/octet-stream",
+        });
+        const fileId = await getNormalFileId(controller.signal);
+        const preSignedPut = await getNormalPreSignedPut(
+          fileId,
+          file.size,
+          controller.signal,
+        );
+        if (preSignedPut.fileId !== fileId)
+          throw new Error("Invalid upload URL");
+        if (cancelled) return;
+        currentStage = "uploading";
+        setStage(currentStage);
+        await axios.put(preSignedPut.url, file, {
+          signal: controller.signal,
+          headers: { "Content-Type": "application/octet-stream" },
+          onUploadProgress: (event) => {
+            if (!cancelled)
+              setProgress(
+                Math.min(1, event.loaded / (event.total || file.size || 1)),
+              );
+          },
+        });
+        if (cancelled) return;
+        currentStage = "registering";
+        setStage(currentStage);
+        await postRegisterFile(
+          fileId,
+          outputFileName || files[0]?.fileName || "untitled",
+          file.size,
+          result.format,
+          result.version,
+          controller.signal,
+        );
+        if (!cancelled) router.replace(`/files/${fileId}`);
+      } catch (cause) {
+        if (cancelled) return;
+        controller.abort();
+        console.error("Upload failed:", cause);
+        const action =
+          currentStage === "preparing"
+            ? "アップロードの準備"
+            : currentStage === "uploading"
+              ? "ファイルの送信"
+              : "ファイルの登録";
+        const status =
+          axios.isAxiosError(cause) && cause.response
+            ? `（HTTP ${cause.response.status}）`
+            : "";
+        setError(
+          `${action}に失敗しました${status}。時間をおいて再試行してください。`,
+        );
+      }
+    });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [result, files, router, outputFileName, attempt]);
 
-  if (Object.keys(progress).length === 0) {
-    return <Preparing />;
+  if (error) {
+    return (
+      <div className="grid flex-1 place-items-center px-4">
+        <div className="flex w-full max-w-lg flex-col items-center gap-4">
+          <Alert type="error" message={error} />
+          <Button
+            type="primary"
+            onClick={() => setAttempt((value) => value + 1)}
+          >
+            アップロードを再試行
+          </Button>
+          <Button
+            onClick={() => {
+              router.push("/convert/pick");
+              setResult(undefined);
+            }}
+          >
+            {session ? "キャンセルして編集に戻る" : "キャンセルして戻る"}
+          </Button>
+        </div>
+      </div>
+    );
   }
-  if (
-    Object.entries(progress).reduce((acc, [_, value]) => acc + value, 0) ===
-    result?.data.length
-  ) {
-    return <Completed />;
-  }
-
+  if (stage === "preparing") return <Preparing />;
+  if (stage === "registering") return <Completed />;
   return (
-    <div className={"flex-1 grid place-items-center"}>
-      <List
-        itemLayout="horizontal"
-        dataSource={Object.entries(progress)}
-        renderItem={(item) => (
-          <List.Item>
-            <Flex gap={"middle"} align={"center"}>
-              <Spin percent={Math.floor(item[1] * 100)} size={"large"} />
-              <div>{item[0]}</div>
-            </Flex>
-          </List.Item>
-        )}
-      />
+    <div className="grid flex-1 place-items-center">
+      <Flex gap="middle" align="center">
+        <Spin percent={Math.floor(progress * 100)} size="large" />
+        <div>アップロード中</div>
+      </Flex>
     </div>
   );
 };

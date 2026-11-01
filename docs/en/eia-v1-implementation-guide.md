@@ -107,53 +107,15 @@ for (const part of file.r) {
 
 ## 3. File Size Management
 
-### 3.1 Chunking Strategy
+### 3.1 Size limit
 
-Large datasets are automatically split into multiple files:
+The player can load files of at most 100 MB. `compressEIAv1` builds a single archive and, when the compressed size exceeds `FileSizeLimit` (95 MB), throws an error starting with `EIA_SIZE_LIMIT_EXCEEDED` instead of splitting it. The conversion screen then asks the user to reduce the number of slides or the resolution.
 
 ```typescript
-const FileSizeLimit = 95 * 1024 * 1024; // 95MB per file
+const FileSizeLimit = 95 * 1024 * 1024; // 95MB per archive
 
-// If the compressed size exceeds the limit, retry by halving stepSize first,
-// then increasing the split count.
-if (compressedPart.length > FileSizeLimit) {
-  const reducedStepSize = Math.max(1, Math.floor(stepSize / 2));
-  const stepCandidates =
-    reducedStepSize < stepSize
-      ? [reducedStepSize, stepSize]
-      : [stepSize];
-
-  let nextSplit: { count: number; stepSize: number } | null = null;
-  for (const candidateStepSize of stepCandidates) {
-    // Implementation uses normalizedStepSize (stepSize clamped to data.length)
-    const startCount =
-      candidateStepSize === stepSize ? count + 1 : 1;
-    for (
-      let candidateCount = startCount;
-      candidateCount <= data.length;
-      candidateCount++
-    ) {
-      if (
-        calculatePartCount(candidateCount, candidateStepSize) < partCount
-      ) {
-        nextSplit = { count: candidateCount, stepSize: candidateStepSize };
-        break;
-      }
-    }
-    if (nextSplit) break;
-  }
-
-  if (!nextSplit) {
-    throw new Error("Unable to split oversized EIA part");
-  }
-
-  return compressEIAv1(
-    data,
-    signage,
-    nextSplit.count,
-    nextSplit.stepSize,
-    animationMap,
-  );
+if (compressed.length > FileSizeLimit) {
+  throw new Error(`${EIA_SIZE_LIMIT_ERROR}: compressed size ... exceeds the limit`);
 }
 ```
 

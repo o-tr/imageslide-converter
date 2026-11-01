@@ -1,6 +1,6 @@
 import type { FileItem } from "@/_types/api/getMyFiles";
 import { DeleteButton } from "@/app/(_)/my/files/_components/DeleteButton";
-import { Button, Flex, Tooltip } from "antd";
+import { Button, Flex, Tooltip } from "@/components/primitives";
 import type { FC } from "react";
 import { MdOutlineOpenInNew } from "react-icons/md";
 

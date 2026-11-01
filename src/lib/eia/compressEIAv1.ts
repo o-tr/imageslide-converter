@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 import type { RawAnimationData } from "@/_types/eia/rawAnimationData";
 import type {
   EIAAnimFramePoolItem,
@@ -12,10 +13,16 @@ import type {
   EIASignageManifest,
 } from "@/_types/eia/v1";
 import type { RawImageObjV1Cropped } from "@/_types/text-zip/v1";
-import { IMAGE_DIFF_THRESHOLD } from "@/const/config";
-import { FileSizeLimit } from "@/const/convert";
-import lz4 from "lz4js";
+import { EIA_SIZE_LIMIT_ERROR, FileSizeLimit } from "@/const/convert";
+import { hasSimilarPixels } from "./animationSimilarity";
+import { type EiaCompressionCache, equalBytes } from "./compressionCache";
+import { compressLz4Best } from "./lz4Search";
 
+// Native Node buffers compare without copying; the browser polyfill does not.
+const HAS_NATIVE_BUFFER =
+  typeof process !== "undefined" &&
+  !!process.versions?.node &&
+  globalThis.Buffer === Buffer;
 const SIMILARITY_THRESHOLD_RATIO = 0.005;
 const IMAGE_FORMAT_RGBA32 = "RGBA32";
 
@@ -30,150 +37,61 @@ type FrameDimensions = { w: number; h: number };
 export const compressEIAv1 = async (
   data: RawImageObjV1Cropped[],
   signage?: EIASignageManifest,
-  count = 1,
-  stepSize = 10,
   animationMap?: Map<number, RawAnimationData[]>,
-): Promise<Buffer[]> => {
-  if (!Number.isInteger(count) || count <= 0) {
-    throw new Error(`Invalid count: ${count} (must be a positive integer)`);
-  }
-  if (!Number.isInteger(stepSize) || stepSize <= 0) {
-    throw new Error(
-      `Invalid stepSize: ${stepSize} (must be a positive integer)`,
-    );
-  }
-  if (data.length === 0) return [];
+  compressionCache?: EiaCompressionCache,
+): Promise<Buffer> => {
+  if (data.length === 0) throw new Error("No slides to compress");
 
-  const normalizedStepSize = Math.max(1, Math.min(stepSize, data.length));
-  const partCount =
-    Math.ceil(data.length / (count * normalizedStepSize)) * normalizedStepSize;
-  const calculatePartCount = (targetCount: number, targetStepSize: number) =>
-    Math.ceil(data.length / (targetCount * targetStepSize)) * targetStepSize;
-  const result: Buffer[] = [];
+  // Decoders need every base before the slides that reference it.
   const imagesByIndex = new Map<number, RawImageObjV1Cropped>();
   for (const image of data) imagesByIndex.set(image.index, image);
+  const orderedImages: RawImageObjV1Cropped[] = [];
+  const orderedVisited = new Set<number>();
+  const visitImage = (index: number) => {
+    if (orderedVisited.has(index)) return;
+    const image = imagesByIndex.get(index);
+    if (!image) return;
+    orderedVisited.add(index);
+    if (image.cropped) visitImage(image.cropped.baseIndex);
+    orderedImages.push(image);
+  };
+  for (const image of data) visitImage(image.index);
 
-  for (let i = 0; i < count; i++) {
-    const partStart = i * partCount;
-    const partEnd = (i + 1) * partCount;
-    const part = data.slice(partStart, partEnd);
-    if (part.length === 0) break;
-
-    const partIndices = new Set(part.map((image) => image.index));
-    let expanded = true;
-    while (expanded) {
-      expanded = false;
-      for (const index of Array.from(partIndices)) {
-        const image = imagesByIndex.get(index);
-        if (image?.cropped && !partIndices.has(image.cropped.baseIndex)) {
-          partIndices.add(image.cropped.baseIndex);
-          expanded = true;
-        }
-      }
-    }
-    const partImages = data.filter((image) => partIndices.has(image.index));
-    const partImageSet = new Set(partImages.map((image) => image.index));
-    const partIndexMap = new Map(
-      partImages.map((image) => [image.index, image]),
+  const compressed = await compressEIAv1Part(
+    orderedImages,
+    signage,
+    animationMap,
+    compressionCache,
+  );
+  // The player cannot load a larger file, and splitting a deck across files
+  // is not supported: reject so the caller can ask for fewer or smaller slides.
+  if (compressed.length > FileSizeLimit) {
+    throw new Error(
+      `${EIA_SIZE_LIMIT_ERROR}: compressed size ${compressed.length} exceeds the limit of ${FileSizeLimit} bytes`,
     );
-    const orderedPartImages: RawImageObjV1Cropped[] = [];
-    const orderedVisited = new Set<number>();
-    const visitImage = (index: number) => {
-      if (orderedVisited.has(index) || !partImageSet.has(index)) return;
-      orderedVisited.add(index);
-      const image = partIndexMap.get(index);
-      if (image?.cropped) visitImage(image.cropped.baseIndex);
-      orderedPartImages.push(image ?? (undefined as never));
-    };
-    for (const image of partImages) visitImage(image.index);
-
-    // Build animation map for this part's indices
-    let partAnimMap: Map<number, RawAnimationData[]> | undefined;
-    if (animationMap) {
-      partAnimMap = new Map();
-      for (const image of orderedPartImages) {
-        const anims = animationMap.get(image.index);
-        if (anims) partAnimMap.set(image.index, anims);
-      }
-      if (partAnimMap.size === 0) partAnimMap = undefined;
-    }
-    const compressedPart = await compressEIAv1Part(
-      orderedPartImages,
-      signage,
-      partAnimMap,
-    );
-
-    if (compressedPart.length > FileSizeLimit) {
-      if (part.length <= 1) {
-        throw new Error(
-          `Slide at index ${part[0]?.index ?? "?"} exceeds file size limit ` +
-            `(${compressedPart.length} > ${FileSizeLimit}) and cannot be split further`,
-        );
-      }
-
-      const reducedStepSize = Math.max(1, Math.floor(normalizedStepSize / 2));
-      const stepCandidates =
-        reducedStepSize < normalizedStepSize
-          ? [reducedStepSize, normalizedStepSize]
-          : [normalizedStepSize];
-
-      let nextSplit: { count: number; stepSize: number } | null = null;
-      for (const candidateStepSize of stepCandidates) {
-        const startCount =
-          candidateStepSize === normalizedStepSize ? count + 1 : 1;
-        for (
-          let candidateCount = startCount;
-          candidateCount <= data.length;
-          candidateCount++
-        ) {
-          if (
-            calculatePartCount(candidateCount, candidateStepSize) < partCount
-          ) {
-            nextSplit = {
-              count: candidateCount,
-              stepSize: candidateStepSize,
-            };
-            break;
-          }
-        }
-        if (nextSplit) break;
-      }
-
-      if (!nextSplit) {
-        throw new Error(
-          `Unable to split oversized EIA part for slide index ${part[0]?.index ?? "?"}`,
-        );
-      }
-
-      return compressEIAv1(
-        data,
-        signage,
-        nextSplit.count,
-        nextSplit.stepSize,
-        animationMap,
-      );
-    }
-
-    result.push(compressedPart);
   }
-
-  return result;
+  return compressed;
 };
 
 const compressEIAv1Part = async (
   data: RawImageObjV1Cropped[],
   signage?: EIASignageManifest,
   animationMap?: Map<number, RawAnimationData[]>,
+  compressionCache?: EiaCompressionCache,
 ) => {
   const imagesByIndex = new Map<number, RawImageObjV1Cropped>();
   for (const image of data) imagesByIndex.set(image.index, image);
 
+  // A validated chain stays acyclic throughout this synchronous pass.
+  const verifiedAcyclic = new Set<number>();
   const usedFormats = new Set<string>();
   const usedFeatures = new Set<string>();
   const usedExtensions = new Set<EIAExtension>();
   const files: EIAFileV1[] = [];
   const usedNames = new Set<string>();
-  const buffer: Buffer[] = [];
+  // Compressed frames are immutable for the duration of this synchronous
+  // serialization pass. Buffer.concat accepts Uint8Array views directly.
+  const buffer: Uint8Array[] = [];
   let bufferLength = 0;
 
   for (const image of data) {
@@ -202,7 +120,9 @@ const compressEIAv1Part = async (
           `Buffer length mismatch for slide ${image.index}: expected ${expectedBytes}, got ${image.buffer.length}`,
         );
       }
-      const compressed = Buffer.from(lz4.compress(image.buffer));
+      const compressed =
+        compressionCache?.compressImage(image.buffer) ??
+        compressLz4Best(image.buffer);
       buffer.push(compressed);
       usedFormats.add(image.format);
       files.push({
@@ -231,7 +151,7 @@ const compressEIAv1Part = async (
       // Detect crop reference cycles
       const visitedIndices = new Set<number>();
       let currentIndex: number | undefined = image.index;
-      while (currentIndex !== undefined) {
+      while (currentIndex !== undefined && !verifiedAcyclic.has(currentIndex)) {
         if (visitedIndices.has(currentIndex)) {
           throw new Error(
             `Circular crop reference detected involving slide ${image.index}`,
@@ -242,6 +162,7 @@ const compressEIAv1Part = async (
         if (!currentImage || !currentImage.cropped) break;
         currentIndex = currentImage.cropped.baseIndex;
       }
+      for (const index of visitedIndices) verifiedAcyclic.add(index);
 
       let fileBufferLength = 0;
       const fileBuffer: Buffer[] = [];
@@ -299,8 +220,13 @@ const compressEIAv1Part = async (
         );
       }
 
-      const mergedBuffer = Buffer.concat(fileBuffer);
-      const compressed = Buffer.from(lz4.compress(mergedBuffer));
+      const mergeRects = () =>
+        fileBuffer.length === 1
+          ? fileBuffer[0]
+          : Buffer.concat(fileBuffer, fileBufferLength);
+      const compressed =
+        compressionCache?.compressRects(cropped.rects, mergeRects) ??
+        compressLz4Best(mergeRects());
       buffer.push(compressed);
 
       files.push({
@@ -312,7 +238,7 @@ const compressEIAv1Part = async (
         h: image.rect.height,
         s: bufferLength,
         l: compressed.length,
-        u: mergedBuffer.length,
+        u: fileBufferLength,
         e: Object.keys(ext).length > 0 ? ext : undefined,
         r: parts,
       });
@@ -467,7 +393,9 @@ const compressEIAv1Part = async (
                 `Buffer length mismatch for animation frame ${originalIndex}: expected ${expectedBytes}, got ${frame.buffer.length}`,
               );
             }
-            const compressed = Buffer.from(lz4.compress(frame.buffer));
+            const compressed =
+              compressionCache?.compressImage(frame.buffer) ??
+              compressLz4Best(frame.buffer);
             pool.push({
               t: "m",
               f: anim.format,
@@ -545,8 +473,15 @@ const compressEIAv1Part = async (
               fileBufferLength += rect.buffer.length;
             }
 
-            const mergedBuffer = Buffer.concat(fileBuffer);
-            const compressed = Buffer.from(lz4.compress(mergedBuffer));
+            const mergeRects = () =>
+              fileBuffer.length === 1
+                ? fileBuffer[0]
+                : Buffer.concat(fileBuffer, fileBufferLength);
+            const compressed =
+              compressionCache?.compressRects(
+                frame.cropped.rects,
+                mergeRects,
+              ) ?? compressLz4Best(mergeRects());
             const poolItem: EIAAnimFramePoolItemCropped = {
               t: "c",
               f: anim.format,
@@ -555,7 +490,7 @@ const compressEIAv1Part = async (
               b: basePoolIndex,
               s: animBufferLength,
               l: compressed.length,
-              u: mergedBuffer.length,
+              u: fileBufferLength,
               r: parts,
             };
             pool.push(poolItem);
@@ -780,41 +715,18 @@ const findMatchingPoolIndex = (
         continue;
       }
     }
-    if (poolBuffers[i].equals(decoded)) return i;
-    if (requireExactMatch) continue;
-    const diff = computeDiffMask(poolBuffers[i], decoded, width, height, bpp);
-    const diffCount = countDiffPixels(diff);
-    if (diffCount <= threshold) return i;
-  }
-  return -1;
-};
-
-const computeDiffMask = (
-  a: Buffer,
-  b: Buffer,
-  width: number,
-  height: number,
-  bpp: number,
-): Uint8Array => {
-  const result = new Uint8Array(width * height);
-  const actualDiffThreshold = IMAGE_DIFF_THRESHOLD * bpp;
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * bpp;
-      let diff = 0;
-      for (let channel = 0; channel < bpp; channel++) {
-        diff += Math.abs(a[idx + channel] - b[idx + channel]);
-      }
-      result[y * width + x] = diff > actualDiffThreshold ? 1 : 0;
+    if (requireExactMatch) {
+      const candidate = poolBuffers[i];
+      const exact =
+        HAS_NATIVE_BUFFER &&
+        Buffer.isBuffer(candidate) &&
+        Buffer.isBuffer(decoded)
+          ? candidate.equals(decoded)
+          : equalBytes(candidate, decoded);
+      if (exact) return i;
+    } else if (hasSimilarPixels(poolBuffers[i], decoded, bpp, threshold)) {
+      return i;
     }
   }
-  return result;
-};
-
-const countDiffPixels = (diff: Uint8Array): number => {
-  let count = 0;
-  for (let i = 0; i < diff.length; i++) {
-    if (diff[i] !== 0) count++;
-  }
-  return count;
+  return -1;
 };

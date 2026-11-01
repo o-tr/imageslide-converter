@@ -10,13 +10,7 @@ worker.addEventListener(
     console.log("compress start", event.data);
     if (event.data.type !== "compress-signage") return;
     try {
-      const {
-        files: _files,
-        format,
-        signage,
-        scale,
-        resolution,
-      } = event.data.data;
+      const { files: _files, format, signage, resolution } = event.data.data;
 
       const files = _files.map((file) => {
         // ファイルごとにアスペクト比を維持したスケールを計算
@@ -25,7 +19,7 @@ worker.addEventListener(
           file.bitmap.width,
           file.bitmap.height,
         );
-        const finalScale = scale * resolutionScale;
+        const finalScale = resolutionScale;
         const { animations: _a, bitmap: _b, ...rest } = file;
         const canvas =
           finalScale === 1

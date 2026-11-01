@@ -1,6 +1,6 @@
+import { useSession } from "@/compat/auth-client";
+import { Button } from "@/components/primitives";
 import { popupSignIn } from "@/lib/auth/popupSignIn";
-import { Button } from "antd";
-import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export const SignIn = () => {

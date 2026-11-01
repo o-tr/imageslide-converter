@@ -1,6 +1,6 @@
 import type { SelectedFileAnimation } from "@/_types/file-picker";
 import type { WorkerMessage, WorkerResponse } from "@/_types/worker";
-import { TargetFormats } from "@/const/convert";
+import { selectedFiles2EIAv1RGB24Cropped } from "@/lib/selectedFiles2EIA/selectedFiles2EIAv1RGB24Cropped";
 import { getAnimationFrameScale } from "@/utils/getAnimationFrameScale";
 import { getResolutionScale } from "@/utils/getResolutionScale";
 
@@ -12,9 +12,9 @@ worker.addEventListener(
     console.log("compress start", event.data);
     if (event.data.type !== "compress") return;
     try {
-      const { files: _files, format, scale, resolution } = event.data.data;
+      const { files: _files, resolution } = event.data.data;
 
-      const files = _files.map((file) => {
+      const files = _files.map((file, index) => {
         try {
           // ファイルごとにアスペクト比を維持したスケールを計算
           const resolutionScale = getResolutionScale(
@@ -28,7 +28,7 @@ worker.addEventListener(
           let effectiveScaleY: number;
           let canvas: OffscreenCanvas;
 
-          const finalScale = scale * resolutionScale;
+          const finalScale = resolutionScale;
           if (finalScale === 1) {
             effectiveScaleX = 1;
             effectiveScaleY = 1;
@@ -119,15 +119,33 @@ worker.addEventListener(
             });
           }
 
-          return { ...file, canvas, animations };
+          const prepared = { ...file, canvas, animations };
+          const progress: WorkerResponse = {
+            type: "compress-progress",
+            phase: "prepare",
+            completed: index + 1,
+            total: _files.length,
+          };
+          worker.postMessage(progress);
+          return prepared;
         } finally {
           file.bitmap.close();
         }
       });
       console.log("compress", files);
-      const converter = TargetFormats.find((f) => f.id === format)?.converter;
-      if (!converter) throw new Error("converter not found");
-      const result = await converter(files);
+      const result = await selectedFiles2EIAv1RGB24Cropped(
+        files,
+        undefined,
+        (completed, total) => {
+          const progress: WorkerResponse = {
+            type: "compress-progress",
+            phase: "crop",
+            completed,
+            total,
+          };
+          worker.postMessage(progress);
+        },
+      );
       const message: WorkerResponse = {
         type: "compress",
         data: result,

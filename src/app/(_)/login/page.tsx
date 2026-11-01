@@ -1,5 +1,5 @@
 "use client";
-import { Spin } from "antd";
+import { Spin } from "@/components/primitives";
 import { Suspense } from "react";
 import { Redirect } from "./_components/Redirect";
 

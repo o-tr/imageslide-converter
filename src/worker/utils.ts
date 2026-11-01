@@ -5,6 +5,7 @@ import type {
   TypedWorkerWorker,
   TypedWorkerWorkerResponse,
 } from "@/_types/lib/worker";
+import { createId } from "@/lib/createId";
 
 const worker = this as unknown as TypedWorkerWorker;
 
@@ -15,7 +16,7 @@ export const executeClientTask = async <
   transfer?: Transferable[],
 ): Promise<TypedWorkerClientMethodMap[T]["response"]> => {
   let resolve: (value: TypedWorkerWorkerResponse) => void;
-  const executeTaskId = crypto.randomUUID();
+  const executeTaskId = createId();
   const promise = new Promise<TypedWorkerWorkerResponse>((_resolve) => {
     resolve = _resolve;
   });

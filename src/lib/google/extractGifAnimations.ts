@@ -1,4 +1,7 @@
-import type { SelectedFileAnimation, SkippedAnimation } from "@/_types/file-picker";
+import type {
+  SelectedFileAnimation,
+  SkippedAnimation,
+} from "@/_types/file-picker";
 import type { SlidePageElement } from "@/_types/google-slides-api";
 import type { AnimatedGifCandidate } from "@/_types/lib/google/gifAnimation";
 import type {
@@ -393,12 +396,7 @@ const findTransparentOverlapRects = (
   intersectionRects: PixelRect[],
   sampledFrameIndices: Set<number>,
 ): PixelRect[] => {
-  const {
-    rawFrames,
-    gifWidth,
-    gifHeight,
-    pixelRect: upperPixelRect,
-  } = upper;
+  const { rawFrames, gifWidth, gifHeight, pixelRect: upperPixelRect } = upper;
 
   // Slide-coordinate intersection → upper GIF logical-screen coordinates.
   const scaleX = gifWidth / upperPixelRect.w;
@@ -826,16 +824,14 @@ export const extractGifAnimations = async (
       if (!rectsIntersect(upper.candidate.pixelRect, lower.candidate.pixelRect))
         continue;
 
-      const ix =
-        Math.max(
-          upper.candidate.pixelRect.x,
-          lower.candidate.pixelRect.x,
-        );
-      const iy =
-        Math.max(
-          upper.candidate.pixelRect.y,
-          lower.candidate.pixelRect.y,
-        );
+      const ix = Math.max(
+        upper.candidate.pixelRect.x,
+        lower.candidate.pixelRect.x,
+      );
+      const iy = Math.max(
+        upper.candidate.pixelRect.y,
+        lower.candidate.pixelRect.y,
+      );
       const iw =
         Math.min(
           upper.candidate.pixelRect.x + upper.candidate.pixelRect.w,

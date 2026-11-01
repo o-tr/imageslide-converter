@@ -1,12 +1,11 @@
 import { formatDateJST } from "@/utils/formatDateJST";
 import { getAuthorizedUser } from "@/utils/getAuthorizedUser";
 import { addDay } from "@formkit/tempo";
-import { NextResponse } from "next/server";
 
 export const GET = async () => {
   const user = await getAuthorizedUser();
   if (!user)
-    return NextResponse.json(
+    return Response.json(
       { status: "error", error: "Unauthorized" },
       { status: 401 },
     );
@@ -21,7 +20,7 @@ export const GET = async () => {
     expireAt: formatDateJST(addDay(new Date(file.createdAt), file.ha ? 7 : 30)),
   }));
 
-  return NextResponse.json({
+  return Response.json({
     status: "success",
     data: {
       files,

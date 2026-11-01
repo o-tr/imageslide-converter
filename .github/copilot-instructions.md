@@ -1,26 +1,25 @@
 # プロジェクト INSTRUCTIONS
 
 ## プロジェクト概要
-このリポジトリは「imageslide-converter」という名称で、画像やPDFなどのファイルをスライド形式に変換・管理するWebアプリケーションのようです。Next.js（TypeScript）、Prisma、Tailwind CSSなどのモダンな技術スタックを採用しています。
+このリポジトリは「imageslide-converter」という名称で、画像やPDFなどのファイルをスライド形式に変換・管理するWebアプリケーションのようです。TanStack Start（TypeScript）、Hono、Prisma、Tailwind CSSなどのモダンな技術スタックを採用しています。
 
 ## 主なディレクトリ・ファイル構成
-- `src/`：アプリケーションの主要なソースコード。`app/`（Next.jsのApp Router）、`atoms/`（Recoil等の状態管理用）、`components/`（UIコンポーネント）、`const/`（定数）、`lib/`（各種ライブラリ・ユーティリティ）、`utils/`（補助関数）、`worker/`（Web Worker関連）などに細分化。
+- `src/`：アプリケーションの主要なソースコード。`routes/`（TanStack Router）、`server.ts`（Hono API）、`app/`（画面とAPIハンドラ）、`atoms/`（Jotaiによる状態管理）、`components/`（UIコンポーネント）、`const/`（定数）、`lib/`（各種ライブラリ・ユーティリティ）、`utils/`（補助関数）、`worker/`（Web Worker関連）などに細分化。
 - `prisma/`：Prismaのスキーマとマイグレーションファイル。DB設計・管理用。
 - `public/`：静的ファイル（画像、WASM、公開用リソースなど）。
 - `docs/`：仕様書や実装ガイドなどのドキュメント。
 - `docker/`：Docker関連スクリプト。
 - `package.json`：依存パッケージ・スクリプト管理。
-- `next.config.mjs`：Next.jsの設定。
-- `tailwind.config.ts`：Tailwind CSSの設定。
+- `vite.config.mts`：ViteとTanStack Startの設定。
 - `lefthook.yml`：Gitフックの設定。
 
 ## 技術スタック・特徴
-- **Next.js（TypeScript）**：フロントエンド・バックエンド統合型Webアプリ。
+- **TanStack Start / Vite / Hono（TypeScript）**：画面・ルーティングとAPI。
 - **Prisma**：DB ORM。`prisma/schema.prisma`でDBスキーマ管理。
 - **Tailwind CSS**：ユーティリティファーストなCSSフレームワーク。
 - **Web Worker**：`src/worker/`で画像圧縮や変換などの重い処理を非同期実行。
 - **Google API連携**：Google SlidesやDriveとの連携用コードあり。
-- **Docker対応**：`Dockerfile`、`docker/env-replacer.sh`などでコンテナ化可能。
+- **Docker対応**：`Dockerfile`、`docker/nginx/`などでコンテナ化可能。
 - **CI/CD・品質管理**：`lefthook.yml`でコミットフック、`biome.json`でコードフォーマットやLint設定。
 
 ## 代表的な機能
@@ -31,7 +30,7 @@
 - Dockerによるデプロイ容易化
 
 ## 開発・運用のポイント
-- Next.jsのApp Router構成（`src/app/`）
+- TanStack Routerのルート（`src/routes/`）とHonoのAPI（`src/server.ts`）
 - 型定義は`src/_types/`に集約
 - 各種ユーティリティ・サービスは`src/lib/`や`src/utils/`に分離
 - Prismaマイグレーションは`prisma/migrations/`で管理

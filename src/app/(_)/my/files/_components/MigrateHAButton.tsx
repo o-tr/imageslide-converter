@@ -1,4 +1,4 @@
-import { Button, Modal, Tooltip } from "antd";
+import { Button, Modal, Tooltip } from "@/components/primitives";
 import { type FC, useState } from "react";
 import { BiSolidCloudUpload } from "react-icons/bi";
 

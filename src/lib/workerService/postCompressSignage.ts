@@ -6,7 +6,9 @@ import type { Resolution } from "@/const/resolutions";
 
 const worker = (
   typeof window !== "undefined"
-    ? new Worker(new URL("../../worker/compressSignage.ts", import.meta.url))
+    ? new Worker(new URL("../../worker/compressSignage.ts", import.meta.url), {
+        type: "module",
+      })
     : undefined
 ) as Worker;
 
@@ -14,18 +16,14 @@ export const postCompressSignage = (
   files: SelectedFile[],
   signage: EIASignageManifest,
   format: TTextureConverterFormat,
-  version: number,
-  scale: number,
   resolution: Resolution,
-): Promise<string[] | Buffer[]> => {
+): Promise<Buffer> => {
   console.log("postCompressSignage");
   const message: WorkerMessage = {
     type: "compress-signage",
     data: {
       format,
-      version,
       signage,
-      scale,
       resolution,
       // Signage path does not support GIF animations; they are intentionally excluded.
       files: files.map((file) => {
@@ -36,7 +34,7 @@ export const postCompressSignage = (
     },
   };
   console.log("postCompressSignage", message);
-  return new Promise<string[] | Buffer[]>((resolve, reject) => {
+  return new Promise<Buffer>((resolve, reject) => {
     const handler = (event: MessageEvent<WorkerResponse>) => {
       if (event.data.type === "compress-signage") {
         cleanup();

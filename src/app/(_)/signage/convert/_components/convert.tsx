@@ -1,10 +1,11 @@
 "use client";
 import { ResultAtom, TargetResolutionAtom } from "@/atoms/convert";
 import { SignageConvertAtom } from "@/atoms/signage-convert";
+import { useRouter } from "@/compat/navigation";
+import { message } from "@/components/primitives";
+import { OUTPUT_VERSION } from "@/const/convert";
 import { postCompressSignage } from "@/lib/workerService/postCompressSignage";
-import { message } from "antd";
 import { useAtomValue, useSetAtom } from "jotai";
-import { useRouter } from "next/navigation";
 import { type FC, useEffect, useRef } from "react";
 
 export const Convert: FC = () => {
@@ -25,12 +26,12 @@ export const Convert: FC = () => {
     if (initRef.current) return;
     initRef.current = true;
 
-    postCompressSignage(_files, signage, format, 1, 1, resolution)
+    postCompressSignage(_files, signage, format, resolution)
       .then((result) => {
         setResults({
           data: result,
           format: format,
-          version: 1,
+          version: OUTPUT_VERSION,
         });
         router.push("/convert/upload");
       })

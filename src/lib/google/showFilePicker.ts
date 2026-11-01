@@ -12,7 +12,7 @@ export const showFilePicker = async (
     .setTitle("Select a slide")
     .setOAuthToken(token)
     .setSelectableMimeTypes(
-      "application/vnd.google-apps.presentation,application/pdf,image/png,image/jpeg,image/jpg",
+      "application/vnd.google-apps.presentation,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/pdf,image/png,image/jpeg,image/jpg",
     )
     .setDeveloperKey(GOOGLE_API_KEY)
     .setCallback(callback)

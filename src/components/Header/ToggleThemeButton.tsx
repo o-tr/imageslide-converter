@@ -1,15 +1,35 @@
 "use client";
-import { ThemeIsDarkAtom } from "@/atoms/theme";
-import { Button } from "antd";
-import { useAtom } from "jotai";
+import { useTheme } from "@/components/ThemeProvider";
+import { Button, Dropdown } from "@/components/primitives";
 import type { FC } from "react";
 import { MdOutlineNightlight, MdOutlineWbSunny } from "react-icons/md";
 
 export const ToggleThemeButton: FC = () => {
-  const [isDarkMode, setIsDarkMode] = useAtom(ThemeIsDarkAtom);
+  const { theme, resolvedTheme, setTheme } = useTheme();
   return (
-    <Button onClick={() => setIsDarkMode((pv) => !pv)}>
-      {isDarkMode ? <MdOutlineNightlight /> : <MdOutlineWbSunny />}
-    </Button>
+    <Dropdown
+      trigger={["click"]}
+      menu={{
+        selectable: true,
+        selectedKeys: [theme ?? "system"],
+        onClick: ({ key }) => {
+          if (key === "system" || key === "light" || key === "dark")
+            setTheme(key);
+        },
+        items: [
+          { key: "system", label: "システム設定に従う" },
+          { key: "light", label: "ライト" },
+          { key: "dark", label: "ダーク" },
+        ],
+      }}
+    >
+      <Button aria-label="テーマを選択">
+        {resolvedTheme === "dark" ? (
+          <MdOutlineNightlight />
+        ) : (
+          <MdOutlineWbSunny />
+        )}
+      </Button>
+    </Dropdown>
   );
 };

@@ -1,8 +1,8 @@
 "use client";
 
-import { Spin } from "antd";
-import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { signIn } from "@/compat/auth-client";
+import { useRouter } from "@/compat/navigation";
+import { Spin } from "@/components/primitives";
 import { useEffect, useRef } from "react";
 
 export default function PopupSignInPage() {

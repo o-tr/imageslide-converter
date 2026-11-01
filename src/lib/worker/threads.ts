@@ -2,6 +2,7 @@ import type {
   TypedWorkerClient,
   TypedWorkerWorkerMessage,
 } from "@/_types/lib/worker/typedWorker";
+import { createId } from "@/lib/createId";
 import { registerExecuteHandler } from "@/lib/worker/tasks/execute";
 
 let workerReadyResolve: () => void = () => {};
@@ -14,14 +15,16 @@ export const threads = Array.from(
   (_, i) => {
     const worker = (
       typeof window !== "undefined"
-        ? new Worker(new URL("../../worker/worker.ts", import.meta.url))
+        ? new Worker(new URL("../../worker/worker.ts", import.meta.url), {
+            type: "module",
+          })
         : undefined
     ) as TypedWorkerClient;
     if (!worker) {
       return;
     }
     registerExecuteHandler(worker);
-    const requestId = crypto.randomUUID();
+    const requestId = createId();
     worker.postMessage({
       type: "init",
       threadId: i,

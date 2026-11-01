@@ -1,4 +1,4 @@
-import { Button, Popconfirm, Tooltip } from "antd";
+import { Button, Popconfirm, Tooltip } from "@/components/primitives";
 import type { FC } from "react";
 import { MdDeleteOutline } from "react-icons/md";
 

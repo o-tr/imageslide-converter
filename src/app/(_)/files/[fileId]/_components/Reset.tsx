@@ -1,16 +1,16 @@
 "use client";
 import { ResultAtom } from "@/atoms/convert";
-import { SelectedFilesAtom } from "@/atoms/file-drop";
+import { SetDeckCraftSessionAtom } from "@/atoms/deckcraft";
 import { useSetAtom } from "jotai/index";
 import { type FC, useEffect } from "react";
 
 export const Reset: FC = () => {
   const setResult = useSetAtom(ResultAtom);
-  const setFiles = useSetAtom(SelectedFilesAtom);
+  const setSession = useSetAtom(SetDeckCraftSessionAtom);
 
   useEffect(() => {
     setResult(undefined);
-    setFiles([]);
-  }, [setResult, setFiles]);
+    setSession(null);
+  }, [setResult, setSession]);
   return <></>;
 };

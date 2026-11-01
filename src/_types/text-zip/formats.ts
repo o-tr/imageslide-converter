@@ -1,7 +1,7 @@
 import type { SelectedFile } from "@/_types/file-picker";
 import type { EIASignageManifest } from "../eia/v1";
 
-export const ContainerFormat = ["text-zip-v0", "text-zip-v1", "eia-v1"];
+export const ContainerFormat = ["eia-v1"];
 
 export const TextureFormat = [
   "RGBA32",
@@ -14,10 +14,6 @@ export type TTextureFormat = (typeof TextureFormat)[number];
 export type TContainerFormat = (typeof ContainerFormat)[number];
 
 export const TextureConverterFormat = [
-  "text-zip-v0-RGBA32",
-  "text-zip-v1-RGB24",
-  "text-zip-v1-RGBA32",
-  "text-zip-v1-RGB24-cropped",
   "eia-v1-RGB24-cropped",
   "eia-v1-RGB24-cropped-base64",
 ] as const satisfies `${TContainerFormat}-${TTextureFormat}`[];
@@ -39,12 +35,15 @@ export type FormatItemType = {
       converter: (
         selectedFiles: SelectedFile[],
         signage?: EIASignageManifest,
-      ) => Promise<string[] | Buffer[]>;
+        onProgress?: (completed: number, total: number) => void,
+      ) => Promise<Buffer>;
     }
   | {
       signageSupport?: false;
       converter: (
         selectedFiles: SelectedFile[],
-      ) => Promise<string[] | Buffer[]>;
+        signage?: undefined,
+        onProgress?: (completed: number, total: number) => void,
+      ) => Promise<Buffer>;
     }
 );

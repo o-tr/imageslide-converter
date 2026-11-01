@@ -1,12 +1,12 @@
 "use client";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
 import { SignageConvertAtom } from "@/atoms/signage-convert";
+import { useRouter } from "@/compat/navigation";
+import { Radio } from "@/components/primitives";
 import { Button } from "@/components/ui/button";
 import { DndContext } from "@dnd-kit/core";
-import { Radio } from "antd";
 import { useSetAtom } from "jotai";
 import { PlusCircle } from "lucide-react";
-import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 import { SignboardTableHeader } from "./_components/SignboardTableHeader";
 import SlideRow from "./_components/SlideRow";
@@ -118,7 +118,9 @@ function SignboardEditorPage() {
           </h3>
           <Radio.Group
             value={selectedFormat}
-            onChange={(e) => setSelectedFormat(e.target.value)}
+            onChange={(e) =>
+              setSelectedFormat(e.target.value as typeof selectedFormat)
+            }
           >
             <Radio.Button value="eia-v1-RGB24-cropped">
               EIA v1 RGB24 (cropped)

@@ -4,7 +4,6 @@ import { s3HAClient } from "@/lib/s3/ha";
 import { s3NormalClient } from "@/lib/s3/normal";
 import { getAuthorizedUser } from "@/utils/getAuthorizedUser";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { NextResponse } from "next/server";
 import { z } from "zod";
 
 export const DELETE = async (
@@ -14,13 +13,13 @@ export const DELETE = async (
   const { fileId } = await params;
   const user = await getAuthorizedUser();
   if (!user)
-    return NextResponse.json(
+    return Response.json(
       { status: "error", error: "Unauthorized" },
       { status: 401 },
     );
   const file = user.files.find((file) => file.fileId === fileId);
   if (!file)
-    return NextResponse.json(
+    return Response.json(
       { status: "error", error: "File not found" },
       { status: 404 },
     );
@@ -43,7 +42,7 @@ export const DELETE = async (
       },
     }),
   ]);
-  return NextResponse.json({ status: "success" });
+  return Response.json({ status: "success" });
 };
 
 const PatchRequestSchema = z.object({
@@ -59,20 +58,20 @@ export const PATCH = async (
   const { fileId } = await params;
   const user = await getAuthorizedUser();
   if (!user)
-    return NextResponse.json(
+    return Response.json(
       { status: "error", error: "Unauthorized" },
       { status: 401 },
     );
   const file = user.files.find((file) => file.fileId === fileId);
   if (!file)
-    return NextResponse.json(
+    return Response.json(
       { status: "error", error: "File not found" },
       { status: 404 },
     );
 
   const { success, data } = PatchRequestSchema.safeParse(await request.json());
   if (!success) {
-    return NextResponse.json(
+    return Response.json(
       {
         status: "error",
         error: "Invalid request",
@@ -87,5 +86,5 @@ export const PATCH = async (
     },
     data,
   });
-  return NextResponse.json({ status: "success" });
+  return Response.json({ status: "success" });
 };

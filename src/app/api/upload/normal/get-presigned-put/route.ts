@@ -4,8 +4,6 @@ import { getSession } from "@/lib/iron-session";
 import { s3NormalClient } from "@/lib/s3/normal";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
 import { z } from "zod";
 
 const generatePreSignedPutUrl = async (
@@ -24,19 +22,14 @@ const generatePreSignedPutUrl = async (
 
 const GetPreSignedPutSchema = z.object({
   fileId: z.string(),
-  data: z.array(
-    z.object({
-      index: z.number(),
-      contentLength: z.number(),
-    }),
-  ),
+  contentLength: z.number(),
 });
 
 export const POST = async (request: Request) => {
   const _body = await request.json();
   const body = GetPreSignedPutSchema.safeParse(_body);
   if (!body.success) {
-    return NextResponse.json(
+    return Response.json(
       {
         status: "error",
         error: "Invalid request",
@@ -44,9 +37,9 @@ export const POST = async (request: Request) => {
       { status: 400 },
     );
   }
-  const session = await getSession(await cookies());
+  const session = await getSession();
   if (!session?.fileId) {
-    return NextResponse.json(
+    return Response.json(
       {
         status: "error",
         error: "Invalid request",
@@ -54,10 +47,10 @@ export const POST = async (request: Request) => {
       { status: 400 },
     );
   }
-  const { fileId, data } = body.data;
+  const { fileId, contentLength } = body.data;
 
-  if (data.some((val) => val.contentLength > ActualFileSizeLimit)) {
-    return NextResponse.json(
+  if (contentLength > ActualFileSizeLimit) {
+    return Response.json(
       {
         status: "error",
         error: "Invalid request",
@@ -66,20 +59,15 @@ export const POST = async (request: Request) => {
     );
   }
 
-  const result = await Promise.all(
-    data.map(async (val) => ({
-      fileId: fileId,
-      index: val.index,
-      url: await generatePreSignedPutUrl(
-        `${fileId}_${val.index}`,
-        val.contentLength,
-      ),
-      publicUrl: `${S3_NORMAL_PUBLIC_BASE_URL}/${fileId}_${val.index}`,
-    })),
-  );
-
-  return NextResponse.json({
+  // Every upload is a single object; index 0 keeps the key readable by the
+  // viewer and player, which address files as <fileId>_<index>.
+  const key = `${fileId}_0`;
+  return Response.json({
     status: "success",
-    data: result,
+    data: {
+      fileId,
+      url: await generatePreSignedPutUrl(key, contentLength),
+      publicUrl: `${S3_NORMAL_PUBLIC_BASE_URL}/${key}`,
+    },
   });
 };

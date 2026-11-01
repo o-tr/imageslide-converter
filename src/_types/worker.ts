@@ -23,9 +23,6 @@ export type WorkerMessage =
       type: "compress";
       data: {
         files: WorkerFile[];
-        format: TTextureConverterFormat;
-        version: number;
-        scale: number;
         resolution: Resolution;
       };
     }
@@ -34,8 +31,6 @@ export type WorkerMessage =
       data: {
         files: WorkerFile[];
         format: TTextureConverterFormat;
-        version: number;
-        scale: number;
         resolution: Resolution;
         signage: EIASignageManifest;
       };
@@ -43,8 +38,14 @@ export type WorkerMessage =
 
 export type WorkerResponse =
   | {
+      type: "compress-progress";
+      phase: "prepare" | "crop";
+      completed: number;
+      total: number;
+    }
+  | {
       type: "compress";
-      data: string[] | Buffer[];
+      data: Buffer;
     }
   | {
       type: "compress-error";
@@ -52,7 +53,7 @@ export type WorkerResponse =
     }
   | {
       type: "compress-signage";
-      data: string[] | Buffer[];
+      data: Buffer;
     }
   | {
       type: "compress-signage-error";

@@ -1,10 +1,10 @@
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
-import { Layout } from "antd";
+import { Layout } from "@/components/primitives";
 import type { ReactNode } from "react";
 
 /**
- * アプリケーション共通のシェル（Header + Footer + Ant Layout）。
+ * アプリケーション共通のシェル（Header + Footer）。
  * ポップアップなどHeader/Footer不要なルートグループでは使用しない。
  */
 export function AppShell({ children }: { children: ReactNode }) {

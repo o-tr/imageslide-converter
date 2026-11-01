@@ -6,15 +6,14 @@ import axios from "axios";
 
 export const getNormalPreSignedPut = async (
   fileId: string,
-  contentLengths: number[],
-): Promise<PreSignedPutItem[]> => {
-  const _response = await axios.post("/api/upload/normal/get-presigned-put", {
-    fileId,
-    data: contentLengths.map((contentLength, index) => ({
-      index,
-      contentLength,
-    })),
-  });
+  contentLength: number,
+  signal?: AbortSignal,
+): Promise<PreSignedPutItem> => {
+  const _response = await axios.post(
+    "/api/upload/normal/get-presigned-put",
+    { fileId, contentLength },
+    { signal },
+  );
   const { success, data } = getNormalPreSignedPutResponseSchema.safeParse(
     _response.data,
   );
