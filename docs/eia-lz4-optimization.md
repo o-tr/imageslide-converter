@@ -48,17 +48,23 @@ buffers, the median batch CPU time increased from 1.7 to 9.4 ms due to cache
 bookkeeping and input copies. These measurements exclude browser and other
 conversion work; the cache may provide no benefit when content does not repeat.
 
-When a cropped slide or animation frame already has a cached compressed
-payload, EIA serialization no longer concatenates its source rectangles
-again. On a cache miss, a single rectangle is passed directly to the encoder;
-multiple rectangles are concatenated as before. Geometry and byte-length
-validation still runs before either path, and the manifest records the sum of
-the rectangle lengths. Cache-hit and miss archives are tested for byte-for-byte
-equality. In an artificial Node benchmark with 25 cached deltas containing two
-512×512 RGB rectangles each, eight warmed alternating serialization runs had
-median CPU times of 14.60 → 0.30 ms and the new path avoided 37.5 MiB of
-temporary rectangle concatenation per run. This isolates serialization, uses
-repeated cached data, and is not an end-to-end or browser measurement.
+EIA serialization reuses cached compressed rectangles; on a cache miss,
+a single rectangle is passed directly, while multiple are concatenated.
+Geometry and byte lengths are checked. Crop selection uses one buffer.
+In headless Chrome, 20 batches of five synthetic extractions gave medians of
+0.06 → 0.06 ms (one 192×192 rectangle), 0.14 → 0.08 ms (two), and
+0.60 → 0.38 ms (eight). Sixteen synthetic decks with 218 rectangles produced
+identical lz4js EIA archives; five decks with 75 rectangles also matched using
+the production encoder. A copy-only test measured 0.02 / 0.24 / 0.93 ms for
+64 KiB / 1 MiB / 4 MiB; reuse took <0.01 ms (20 batches of ten). Full-width
+crops now copy contiguous rows once: Chrome medians for width 1,920 were
+0.12 → 0.04 ms at height 540 and 0.22 → 0.10 ms at height 1,080 (20 batches
+of five). Applying a 1,920×540 stripe to a 1,920×1,080 image took
+1.8 → 1.7 ms in Chrome (16 samples); outputs matched. Short buffers use the
+row-wise path. These are not end-to-end timings. For 25 cached two-rectangle
+deltas, Node serialization medians were 14.60 → 0.30 ms, avoiding 37.5 MiB
+of concatenation per run (eight samples; synthetic repeated cached data).
+
 Compressed frames are also retained as Uint8Array views until the final EIA
 concatenation, instead of copying every frame into an intermediate Buffer.
 Serialization is synchronous and the compressed frames are immutable during
@@ -79,11 +85,14 @@ alternating Node measurements of the dual-hash byte scan had median CPU times
 of 10.14 → 5.26 ms. This excludes canvas conversion, equality verification,
 cropping, and browser overhead.
 
-Identical slide images can use a one-pixel no-op delta. If a master has a
-smaller compressed payload plus metadata than a delta, it is used instead.
-The existing keyframe and maximum reference-depth limits still apply. The
-existing color-difference threshold is unchanged; a threshold-suppressed but
-non-identical image is not replaced by the no-op delta.
+Identical images can use a one-pixel delta subject to size and depth limits.
+Crops reuse the input only without suppressed differences and when rectangles
+cover every component. Five production and 1,500 lz4js decks matched; the
+last 1,000 had 4,000 deltas and 1,866 reuses. Chrome
+crop medians were 12.75 → 11.15 ms (exact) and 13.10 → 12.80 ms (suppressed),
+eight samples, encoder stubbed. Local flag tracking gave Chrome scan medians
+2.60 → 2.65 ms (equal), 3.90 → 3.50 ms (small), 4.00 → 3.70 ms (mixed);
+16 samples, 3,000 matching masks and stats. Not end-to-end measurements.
 
 When comparing a delta with a master, a conservative LZ4 expansion bound can
 prove that the delta wins before encoding the master: a compressed byte can
@@ -610,19 +619,15 @@ batches measured post-pass CPU times of 3.20 → 2.30 ms, 1.71 → 1.93 ms, and
 49.1 → 52.4 ms. The latter two samples traded some CPU time for less temporary
 buffer allocation; whole-conversion results can differ.
 
-An exploratory offset-remapping pass examined all 37,703 overlapping matches
-of at most 64 bytes in the same 28 outputs. For each match it searched up to
-256 earlier positions in a four-byte hash chain for an equivalent match that
-would require fewer doubling-copy calls. It found no improvement in this
-corpus. This bounded experiment does not rule out improvements from deeper
-searches, other inputs, or longer matches; the pass was not enabled.
+A remapping pass found no improvement in 37,703 overlapping matches of at
+most 64 bytes across 28 outputs, searching up to 256 earlier hash candidates.
+For five current private outputs, 23 matches exceeded 65,535 bytes. Of those,
+ten had non-unit offsets below 32,768; checking larger multiples of their
+existing offset found no copy-count reduction. Other candidate offsets and
+inputs remain untested; no remapping pass is enabled.
 
-A separate tie-break experiment preferred the shorter frame when two deep
-search candidates had exactly the same estimated decoder cost. It changed no
-output on 500 small synthetic inputs. Because this result does not establish a
-benefit on representative slides, and changing the intermediate parse can
-affect the later literal-merge choice, the production selection remains
-unchanged.
+Preferring the shorter frame on equal estimated cost changed no output on
+500 synthetic inputs. It was not adopted without representative benefits.
 
 A 16-bit rolling-hash prefilter was also tested. Exact byte comparison still
 preserved output, but collisions increased encoder CPU time: two private
@@ -784,14 +789,13 @@ change in these samples. In one separate 4 MiB noise run per version, peak
 Node RSS was 128,700 → 124,852 KiB, with identical frame bytes; this is not
 a browser-memory or general peak-memory guarantee.
 
-A four-pixel DataView equality precheck for RGB difference generation was
-also tried. In eight warmed alternating Node measurements on synthetic
-1280×720 pairs, medians improved from 2.47 to 0.59 ms for identical pixels
-and from 1.38 to 0.83 ms for sparse changes, but regressed from 2.49 to
-3.08 ms for dissimilar images and from 1.61 to 2.10 ms for one-unit channel
-changes throughout. An adaptive variant also regressed on the latter cases.
-The precheck was therefore not adopted; these microbenchmarks do not cover
-browser behavior or all image distributions.
+A four-pixel RGB precheck gave Node medians 2.47 → 0.59 ms (equal),
+1.38 → 0.83 ms (sparse), 2.49 → 3.08 ms (dissimilar), 1.61 → 2.10 ms
+(small changes), eight samples at 1280×720. A sample-gated prototype gave
+Chrome scan medians 2.5 → 0.9 ms (equal), 2.7 → 1.3 ms (sparse), 3.5 →
+3.3 ms (small), 3.7 → 4.1 ms (mixed), 16 samples at 1920×1080. Chrome crop
+medians were 11.10 → 10.95 ms (exact), 12.55 → 12.60 ms (suppressed), eight
+samples with encoder stubbed. Neither variant was adopted.
 
 A prototype combined candidate-size and decoder-work scans in the literal
 post-pass. On a synthetic 512 KiB mixed input, six warmed alternating Node
@@ -913,28 +917,23 @@ were 20.04 seconds for each version. The prototype adds candidate comparison
 and can run another post-pass, so it was not adopted without evidence of a
 benefit. This bounded experiment does not rule out useful cases elsewhere.
 
-Connected-component extraction can now consume a mask whose caller owns it
-instead of allocating a separate visited array. The crop pipeline uses this
-path only after parent selection has finished with the mask; the default API
-still leaves its input unchanged. This avoids one byte of temporary storage
-per image pixel for that pass. Bounds and ordering matched the previous
-implementation on 500 randomized masks; the retained reference test covers
-both consuming and non-consuming paths. Six warmed alternating Node timings on
-1280×720 synthetic masks had median times of 12.65 → 12.52 ms for a solid
-mask, 1.70 → 1.06 ms for sparse points, and 3.57 → 3.30 ms for a rectangular
-region. These exclude mask creation, downstream work and browser overhead.
+Connected-component extraction can consume an exclusively owned mask; its
+default API preserves input. Bounds and order matched 500 randomized masks.
+Six Node samples at 1280×720 gave medians 12.65 → 12.52 ms (solid),
+1.70 → 1.06 ms (sparse), 3.57 → 3.30 ms (rectangle).
 
-Connected-component extraction now processes contiguous horizontal runs and
-queues seeds for neighboring runs. Isolated first pixels take a direct path;
-the component's topmost, leftmost starting position and four-neighbor
-connectivity remain unchanged. Results and consumed masks matched the prior
-implementation on 3,000 randomized masks, with winding, hole and diagonal
-cases retained in tests. Six warmed alternating Node timings on 1280×720
-synthetic masks had medians of 12.44 → 3.66 ms for a solid region, 3.33 →
-1.60 ms for a rectangle, 28.28 → 25.46 ms for a checkerboard, and 7.33 →
-7.04 ms for sparse noise. One isolated 1920×1080 solid-mask run per version
-measured peak Node RSS of 100,496 → 68,660 KiB. These are limited Node
-measurements and exclude mask creation and downstream work.
+Horizontal-run traversal matched 3,000 randomized masks. Six Node samples
+at 1280×720 gave 12.44 → 3.66 ms (solid), 3.33 → 1.60 ms (rectangle),
+28.28 → 25.46 ms (checkerboard), 7.33 → 7.04 ms (sparse). One 1920×1080
+solid run had peak RSS 100,496 → 68,660 KiB.
+
+For complete binary masks, the crop path skips zeros using indexOf. Ten
+thousand randomized masks matched previous bounds and consumed bytes; 1,000
+synthetic lz4js decks produced identical archives. Twelve Chrome samples at
+1920×1080 had medians 0.85 → 0.40 ms (empty), 1.30 → 0.55 ms (sparse),
+6.20 → 4.30 ms (solid), 2.30 → 0.65 ms (rectangle). Eight crop samples gave
+11.20 → 9.50 ms (exact) and 13.10 → 11.50 ms (suppressed pixel), encoder
+stubbed. These measurements are not end-to-end.
 
 Parent selection now reuses a discarded difference mask for later candidates,
 while retaining the current winner separately. A reused workspace is cleared
@@ -1317,45 +1316,46 @@ alternating Node samples gave medians of 88.39 → 63.42, 74.58 → 50.55 and
 93.73 → 75.13 ms. One private slide comparison was 24.27 → 24.11 seconds
 with identical output. These measurements do not establish browser performance.
 
-The periodic insertion limit was subsequently raised to 16,383 bytes, which
-includes 5,760-byte RGB and 7,680-byte RGBA full-HD rows as well as 11,520-byte
-RGB 4K rows. The four-period requirement bounds the hash table to 65,532 bytes.
-Five warmed alternating Node samples on synthetic 3 MiB inputs with these
-periods had median complete-encoder CPU times of 116.03 → 97.61, 140.53 →
-104.90 and 159.57 → 122.79 ms. Frames across those periods and the 16,383/
-16,384 boundary matched. One private slide comparison measured 24.36 → 24.38
-seconds with identical bytes. These limited measurements do not establish
-browser or general performance.
+The periodic insertion limit was raised to 16,383 bytes, covering 5,760-byte
+RGB, 7,680-byte RGBA and 11,520-byte RGB rows. Five Node samples gave median
+encoder CPU times 116.03 → 97.61, 140.53 → 104.90 and 159.57 → 122.79 ms.
+A private slide was 24.36 → 24.38 seconds, byte-identical. Periodic bucket
+indices now use 16-bit storage, halving the table to at most 32,766 bytes.
+Chrome measured 18.56 / 18.28 / 18.44 / 18.35 seconds on one private slide
+(before/after/after/before); 50,811-byte frames matched and decoded.
+Each match context now reuses and grows its table. Instrumented runs on two
+private inputs reduced allocations 302 → 9 and 183 → 4; frames matched. A
+multi-block Node pair measured 18.82 → 18.82 CPU seconds. At most two cached
+tables retain 65,532 bytes; these are limited, non-browser measurements.
 
-The crop comparison can reuse a cached size for a different array with
-identical content. Its fingerprint is only a prefilter; all bytes must match
-before reuse, and the identity cache avoids future comparisons. For small
-targets the lower-bound scan often finishes sooner, so content lookup is
-skipped when the target is less than 1/128 of input length. On one private
-4.95 MB input with a 100,000-byte target, seven warmed alternating Node
-measurements had median CPU times of 15.46 → 1.85 ms. A 20,000-byte target
-using the ordinary scan measured 2.27 → 2.28 ms. Tests cover sampled-hash
-collisions, distinct matching arrays, the small-target path and crop selection.
-The benchmark uses a stub result of the actual encoded size; it does not
-measure end-to-end conversion or browser performance.
+Extending the limit to 32,767 with a two-period minimum preserved frames but
+Chrome medians regressed 14.15 → 15.35 ms for period 23,040 and 14.80 →
+16.45 ms for 32,767 (12 samples). Unchanged boundary periods 16,383 and
+32,768 measured 15.25 → 15.35 and 14.50 → 14.40 ms. Not adopted; full
+conversion was not measured.
 
-Content-cache comparisons also recognize distinct views of the same backing
-buffer at the same byte offset and length under the cache's existing immutable
-input contract. Different offsets still require comparison. Eight warmed
-alternating Node batches of five lookups for 4 MiB views measured median CPU
-times of 7.86 → 0.018 ms. The encoder was stubbed, so this measures lookup only
-and does not establish end-to-end or browser performance.
+Crop comparison can reuse an exact cached size after verifying all bytes.
+For a 4.95 MB input, seven Node samples gave median 15.46 → 1.85 ms at a
+100,000-byte target; a 20,000-byte scan was 2.27 → 2.28 ms. The encoder was
+stubbed; tests cover collisions and different contents.
 
-For split rolling-hash powers, exponents below 2,048 now use the already
-available low-power table directly; larger exponents retain the original
-quotient/remainder calculation. This adds no retained table and produces the
-same powers. Four warmed alternating Node samples of a depth-2,048 search had
-middle values of 674.01/684.91 → 578.81/591.16, 895.17/906.15 →
-853.11/857.34 and 1,147.08/1,167.33 → 1,066.50/1,070.32 ms on three
-private inputs. One reverse-order complete-encoder comparison measured
-34.14 → 33.00 seconds with identical bytes. Twenty-four unaligned large
-search frames and 10 boundary frames matched and round-tripped. These limited
-Node samples do not establish browser or general performance.
+Cache comparisons reuse identical immutable ranges. Eight Node batches of
+five 4 MiB lookups measured 7.86 → 0.018 ms (encoder stubbed); other offsets
+still require comparison. Small-target bounds now reuse the same range too.
+On one 4.95 MB input at a 20,000-byte target, Node medians were 2.39 → 0.004
+ms (same range) and 2.37 → 2.39 ms (different buffer), 12 samples. Headless
+Chrome medians were 2.0 → <0.1 ms, 1.7 → 1.7 ms (different buffer), and
+1.7 → 1.8 ms (different offset), 15 samples. Encoder was stubbed; these are
+lookup-only measurements, not complete conversion.
+
+Split rolling-hash powers below 2,048 use the existing low-power table;
+larger exponents retain quotient/remainder calculation. Four warmed Node
+samples of depth-2,048 search had middle CPU pairs 674.01/684.91 →
+578.81/591.16, 895.17/906.15 → 853.11/857.34 and 1,147.08/1,167.33 →
+1,066.50/1,070.32 ms on three private inputs. A full-encoder comparison was
+34.14 → 33.00 seconds with identical bytes. Twenty-four unaligned searches
+and 10 boundary frames matched and round-tripped; browser performance is
+not established.
 
 Two further exact-output search experiments were measured on private inputs.
 Extending the unrolled word comparison only after a 64-byte match improved
@@ -1365,15 +1365,93 @@ measured 21.35 → 21.52 seconds in one complete-encoder comparison. Neither
 change was adopted. These limited Node samples do not establish general
 regressions or browser behavior.
 
-Unsigned hash-chain workspaces were tested without changing the underlying
-32-bit values. A Uint32Array for the bucket heads slowed two of three private
-searches; using it only for previous positions had mixed results. One
-reverse-order complete-encoder comparison for the latter measured 32.68 →
-33.11 seconds with identical output. The variants were not adopted; these
-limited Node measurements do not establish general or browser behavior.
+Unsigned hash-chain arrays were mixed or slower on private searches. One
+full Node encoding was 32.68 → 33.11 seconds with identical output. Not adopted.
 
 Cache views use word reads and DataView. On a
 4.95 MB input, median Node lookup times were 1.89 → 0.66 ms aligned, 1.87 →
 0.64 ms equally misaligned and 1.86 → 0.95 ms for differing offsets (eight
 samples); 10,000 comparisons matched. Unrolling by two or four was slower in
 these tests and was not adopted. These measure lookup only.
+
+Float-word comparison was slower on a 4 MiB input: Node medians 0.48 →
+0.85 ms (15 batches of five); not adopted.
+
+Chrome 4 MiB word comparisons (21 batches of five) measured 0.42 → 0.36 ms
+(pattern), 0.48 → 0.82 ms (zero), 0.48 → 1.16 ms (NaNs), 0.48 → 0.44 ms
+(random). This isolates the inner loop; float performance depends on input.
+
+Discarding oversized candidate blocks preserves statistics. A 5 MiB Chrome
+smoke test matched checksums and statistics. In a 20 MiB Node test with a
+1.6 MB ceiling and forced GC, retained buffers previously reached 21,053,952
+bytes; the new list cleared at block two, where ArrayBuffer totals were
+51.7 → 47.5 MB. This is not browser peak memory. Private-slide full-encoder
+Node CPU times were 19.71 / 19.62 / 19.93 / 20.04 seconds
+(before/after/after/before); 58,479-byte frames matched. Enabled.
+
+Four 4 MiB-plus patterned, zero, random and mixed inputs had identical
+search statistics and bytes at six ceilings; unlimited frames decoded with
+lz4js. Another 160 varied small complete encodings matched and round-tripped.
+
+A statistics-only search matched four synthetic multiblock inputs at six
+ceilings, but private-slide Node CPU times were 19.66 / 20.65 / 20.62 /
+19.50 seconds (before/after/after/before); identical frames. Not adopted.
+
+Generation stamps slowed four Node scans: 1.95 → 2.55, 11.35 → 15.17,
+10.90 → 14.55 and 9.26 → 12.33 ms (12 batches of five).
+
+Rolling-word reads gave Node scan medians of 1.84 → 2.09, 11.67 → 13.15,
+11.13 → 12.54 and 9.48 → 10.63 ms (same input and targets; 12 batches of
+five). Initial bounds matched; this slower prototype was not adopted.
+
+Checking the early-stop bound every 1,024 unique hashes rather than 256 gave
+1.83 → 1.85, 11.66 → 11.66, 11.17 → 11.21 and 9.45 → 9.46 ms (same input,
+targets and samples). Initial decisions matched; the original remains.
+These tests measure scans, not browser or full conversion.
+
+Reusing compressed-block buffers gave private-slide Node CPU times of 20.02 /
+19.88 / 19.53 / 19.86 seconds (before/after/after/before), identical frames;
+not adopted due to small benefit and extra retained memory.
+
+One slide with 0/1/3/5% extra literal budget produced 58,479 / 59,054 /
+60,200 / 61,320 bytes. TypeUdon/udon-rs instructions were 5,136,206 /
+5,040,525 / 4,887,426 / 4,769,451; UdonSharp/udon-rs 2,262,443 / 2,235,936 /
+2,197,622 / 2,168,634. Both probes, lz4js and liblz4 decoded exactly.
+
+Three further inputs with 1% extra budget: before → after frame bytes /
+TypeUdon instructions / UdonSharp instructions:
+- 50,811 → 51,307 / 7,889,496 → 7,793,232 / 2,134,687 → 2,112,753
+- 1,006,300 → 1,016,263 / 130,949,323 → 126,379,094 / 32,358,643 → 31,202,057
+- 179,913 → 181,709 / 23,282,129 → 22,558,976 / 6,910,190 → 6,740,616
+Both probes, lz4js and liblz4 decoded exactly. These samples do not measure VRChat wall
+time; current policy does not spend extra budget.
+
+Rerunning literal merging changed none of 28 earlier private frames.
+
+A Math.max/mask rewrite showed no full-encoder benefit; not adopted.
+
+Priority changes did not improve 28 frames at the size ceiling. With 1%
+extra, one candidate saved five bytes and VM instructions but did not change
+the full-encoder output. Not adopted.
+
+A 640×360 Chrome deck gave crop medians 2.60 → 2.15 ms and total
+57.95 → 57.35 ms (12 samples); production-encoder archives matched.
+
+Eight-byte lookahead postponed beyond four bytes for all five tested minimum
+lengths on two private inputs, preventing that profile-skipping proof.
+
+First-lookahead reuse matched 1,200 frames. Chrome: 19.87 / 19.12 / 19.11 /
+19.81 s and 7.40 → 7.23 s. Second-lookahead reuse invalidates on hash
+conflicts; 1,200 frames and 14 window-boundary frames and stats matched.
+Chrome: 19.81 / 19.02 / 18.91 / 19.56 s and 7.41 → 7.32 s. Frames matched.
+
+Third-lookahead reuse invalidates after conflicting insertions. 1,200 frames,
+14 boundary frames and stats matched. Node CPU: 16.50 / 15.97 / 15.86 /
+16.40 s and 6.29 / 6.21 / 6.14 / 6.12 s; multi-block timings inconclusive.
+Chrome: 18.83 / 17.86 / 18.04 / 19.09 s, 7.27 → 7.21 s and multi-block
+22.35 / 22.12 / 22.08 / 22.32 s. Frames matched.
+
+A fourth-position prototype matched 1,200 frames and stats. Two private inputs
+at depth 8192/lookahead 8 gave middle Node CPU pairs 1,733.54/1,741.68 →
+1,720.10/1,721.63 ms and 579.05/581.99 → 585.64/585.77 ms (four samples).
+Mixed results did not justify adoption; full conversion unmeasured.

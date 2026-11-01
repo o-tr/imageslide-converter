@@ -143,6 +143,24 @@ export class EiaCompressionCache {
     // output. A cached frame gives its exact size without rescanning input.
     const compressed = this.images.get(input);
     if (compressed) return compressed.length;
+    if (
+      input.length > MAX_STRONG_CONTENT_INPUT &&
+      stopAt * 128 < input.length &&
+      stopAt > Math.ceil(input.length / 255)
+    ) {
+      for (const entry of this.recentContent) {
+        if (entry.length !== input.length) continue;
+        const previous = entry.weakInput?.deref();
+        if (
+          previous &&
+          previous.buffer === input.buffer &&
+          previous.byteOffset === input.byteOffset
+        ) {
+          this.images.set(input, entry.result);
+          return entry.result.length;
+        }
+      }
+    }
     // For small targets the bound can often stop after scanning a small
     // prefix, so a full-content comparison would cost more than it saves.
     if (this.recentContent.length > 0 && stopAt * 128 >= input.length) {

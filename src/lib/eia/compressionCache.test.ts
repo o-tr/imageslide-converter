@@ -92,6 +92,20 @@ describe("EIA per-conversion compression cache", () => {
     expect(encode).toHaveBeenCalledTimes(2);
   });
 
+  it("reuses an exact cached size for a matching view at small targets", () => {
+    const encode = vi.fn(() => new Uint8Array(777));
+    const cache = new EiaCompressionCache(encode);
+    const storage = new Uint8Array(65_538);
+    storage[0] = 1;
+    const first = storage.subarray(0, 65_537);
+    const same = storage.subarray(0, 65_537);
+    const different = storage.subarray(1, 65_538);
+    cache.compressImage(first);
+    expect(cache.frameSizeLowerBound(same, 400)).toBe(777);
+    expect(cache.frameSizeLowerBound(different, 400)).toBeLessThan(777);
+    expect(encode).toHaveBeenCalledTimes(1);
+  });
+
   it("reuses matching views but checks different ranges of the same buffer", () => {
     const encode = vi.fn((bytes: Uint8Array) => Uint8Array.of(bytes[1]));
     const cache = new EiaCompressionCache(encode);

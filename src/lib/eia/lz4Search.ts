@@ -31,6 +31,7 @@ type MatchContext = {
   words: DataView;
   prefix?: Uint32Array;
   powers?: PowerTable;
+  periodHashes?: Uint16Array;
   // An exhaustive search with no emitted match proves the block is empty
   // for any lookahead at higher thresholds and search depths as well.
   emptyProof?: { minimum: number; depth: number };
@@ -92,8 +93,7 @@ function compressBlock(
 ): Uint8Array | null {
   const end = input.length;
   const { words } = context;
-  // Hash mismatches prove a prefix differs; hash matches are still checked
-  // byte-for-byte. Deferral does not change the filter or its collision safety.
+  // Hash hits are verified byte-for-byte.
   const prefix = context.prefix ?? new Uint32Array(0);
   const powers = context.powers;
   const values = powers?.values ?? LOW_POWERS;
@@ -276,10 +276,24 @@ function compressBlock(
     return { bestLength, bestOffset, hash };
   };
 
+  // A postponed match advances one position without changing the index after
+  // the first lookahead. That result is valid for the next main iteration.
+  let pending: ReturnType<typeof findMatch> | undefined;
+  let pendingSecond: ReturnType<typeof findMatch> | undefined;
+  let pendingThird: ReturnType<typeof findMatch> | undefined;
   while (pos <= end - 12) {
     // findMatch already computed this position's hash. Reuse it for the
     // insertion; hashes for the remaining matched positions are unchanged.
-    const { bestLength, bestOffset, hash } = findMatch(pos);
+    const { bestLength, bestOffset, hash } = pending ?? findMatch(pos);
+    pending = undefined;
+    // Inserting this position changes only its hash chain. The overwritten
+    // ring entry is already outside the later position's search window.
+    const saved = pendingSecond?.hash !== hash ? pendingSecond : undefined;
+    // The third-position result also survives only an unrelated insertion.
+    const savedThird = pendingThird?.hash !== hash ? pendingThird : undefined;
+    // If we postpone immediately, the third position becomes the second.
+    pendingSecond = savedThird;
+    pendingThird = undefined;
     previous[pos & 0xffff] = heads[hash];
     heads[hash] = pos + 1;
     // One-byte lazy matching avoids committing to a short match just before
@@ -293,7 +307,16 @@ function compressBlock(
         ahead <= lookahead && pos + ahead <= end - 12;
         ahead++
       ) {
-        if (findMatch(pos + ahead).bestLength > bestLength + ahead) {
+        const next =
+          ahead === 1 && saved
+            ? saved
+            : ahead === 2 && savedThird
+              ? savedThird
+              : findMatch(pos + ahead);
+        if (ahead === 1) pending = next;
+        if (ahead === 2) pendingSecond = next;
+        if (ahead === 3) pendingThird = next;
+        if (next.bestLength > bestLength + ahead) {
           postpone = true;
           break;
         }
@@ -303,6 +326,9 @@ function compressBlock(
       pos++;
       continue;
     }
+    pending = undefined;
+    pendingSecond = undefined;
+    pendingThird = undefined;
     if (bestLength < minimumMatch) {
       pos++;
       continue;
@@ -321,9 +347,7 @@ function compressBlock(
     output[written++] = bestOffset >>> 8;
     if (matchCode >= 15) lengthBytes(matchCode - 15);
     const matchEnd = pos + bestLength;
-    // If no search position remains, the index is never read again. Any
-    // position older than the window at matchEnd is also permanently out of
-    // reach, so a long match only needs its last 65,535 bytes indexed.
+    // Only the final window can affect later searches.
     if (matchEnd <= end - 12) {
       let next = Math.max(pos + 1, matchEnd - 65535);
       // Offset one repeats a single byte. Fully contained words therefore
@@ -340,9 +364,12 @@ function compressBlock(
         bestOffset <= 16383 &&
         matchEnd - next >= Math.max(1024, bestOffset * 4)
       ) {
-        // A match repeats with its offset as the period. Cache hashes only
-        // when several periods remain, keeping the allocation bounded.
-        const hashes = new Uint32Array(bestOffset);
+        // Reuse 16-bit hashes for periodic positions.
+        let hashes = context.periodHashes;
+        if (!hashes || hashes.length < bestOffset) {
+          hashes = new Uint16Array(bestOffset);
+          context.periodHashes = hashes;
+        }
         for (let i = 0; i < bestOffset; i++) hashes[i] = hashAt(next + i);
         let phase = 0;
         for (; next <= matchEnd - 4; next++) {
@@ -407,7 +434,8 @@ function compressBlockWithProof(
   return compressed;
 }
 
-function compressLz4Frame(
+/** @internal Exposed for encoder invariant tests. */
+export function compressLz4Frame(
   input: Uint8Array,
   searchDepth: number,
   lazy: boolean,
@@ -469,10 +497,16 @@ function compressLz4Frame(
       compressed && compressed.length < raw.length ? compressed : raw;
     const length =
       payload === raw ? (payload.length | 0x80000000) >>> 0 : payload.length;
-    const size = new Uint8Array(4);
-    new DataView(size.buffer).setUint32(0, length, true);
-    parts.push(size, payload);
     total += 4 + payload.length;
+    if (total <= maxFrameLength) {
+      const size = new Uint8Array(4);
+      new DataView(size.buffer).setUint32(0, length, true);
+      parts.push(size, payload);
+    } else {
+      // The frame can no longer fit. Keep collecting search statistics, but
+      // release compressed blocks instead of retaining them until the end.
+      parts.length = 0;
+    }
   }
   // All blocks still had to be searched for their profile statistics, but
   // an oversized candidate cannot be selected. Avoid allocating and copying
@@ -676,9 +710,7 @@ export function compressLz4Best(input: Uint8Array): Uint8Array {
       30 * work.sequences + 2 * work.copies + work.extensions;
     let bestVmCost = vmCost(decodeWork(best));
     let smallerTie: Uint8Array | undefined;
-    // Once a profile has traversed every candidate within the window at
-    // every search position, increasing only its depth produces the same
-    // frame. Skip those duplicate passes without approximating the result.
+    // Exhaustive profiles need no deeper repeats.
     const completeProfiles = new Set<string>();
     for (const [depth, lookahead, matches] of [
       [2048, 1, [4, 6, 8, 10, 12]],
@@ -696,9 +728,8 @@ export function compressLz4Best(input: Uint8Array): Uint8Array {
       for (const minimumMatch of matches) {
         const profile = `${lookahead}:${minimumMatch}`;
         if (completeProfiles.has(profile)) continue;
-        // If no emitted match is below the new threshold, both searches make
-        // the same output and index insertions. A postponed shorter match
-        // advances one byte either way, even if lookahead is skipped.
+        // Raising the threshold below every emitted match preserves output;
+        // postponed shorter matches and rejections both advance one byte.
         if (previous && minimumMatch <= previous.minimumActive) {
           if (!previous.depthLimited) completeProfiles.add(profile);
           continue;

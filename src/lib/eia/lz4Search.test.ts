@@ -4,6 +4,7 @@ import lz4 from "lz4js";
 import { describe, expect, it } from "vitest";
 import {
   compressLz4Best,
+  compressLz4Frame,
   compressLz4Search,
   fitsDecodeSpeedBudget,
 } from "./lz4Search";
@@ -21,6 +22,146 @@ function randomBytes(length: number, seed: number) {
 }
 
 describe("LZ4 search encoder", () => {
+  it("preserves periodic searches as their hash workspace grows and is reused", () => {
+    let x = 1741;
+    const random = () => {
+      x ^= x << 13;
+      x ^= x >>> 17;
+      x ^= x << 5;
+      return x >>> 0;
+    };
+    const parts = [8, 64, 512, 8192, 8, 512, 8192].map((period) => {
+      const size = Math.max(10000, period * 7);
+      const data = new Uint8Array(size);
+      const base = Uint8Array.from({ length: period }, () => random() & 255);
+      for (let i = 0; i < size; i++) data[i] = base[i % period];
+      for (let i = size - 64; i < size; i++) data[i] = random() & 255;
+      return data;
+    });
+    const data = Buffer.concat(parts.map((part) => Buffer.from(part)));
+    const frame = compressLz4Search(data);
+    expect(createHash("sha256").update(frame).digest("hex")).toBe(
+      "e94d093c86f245ac4e21dc3a8533ae876a145c271b4d53faabbad31f774fec77",
+    );
+    expect(Buffer.from(lz4.decompress(frame))).toEqual(data);
+  });
+
+  it("invalidates a third-position lookahead across hash insertions", () => {
+    const data = new Uint8Array(8192);
+    let x = 725;
+    for (let i = 0; i < data.length; i++) {
+      x ^= x << 13;
+      x ^= x >>> 17;
+      x ^= x << 5;
+      const n = x >>> 0;
+      data[i] = n % 15 === 0 ? n >>> 24 : 3;
+    }
+    const frame = compressLz4Frame(data, 4, true, 6, 8);
+    expect(
+      createHash("sha256")
+        .update(frame as Uint8Array)
+        .digest("hex"),
+    ).toBe("ce8de8a4cd4dab36a43382ce6c6422c579de4750d77e163dd006193c818f63e6");
+    expect(Buffer.from(lz4.decompress(frame as Uint8Array))).toEqual(
+      Buffer.from(data),
+    );
+  });
+
+  it("invalidates a cached lookahead when its hash chain changes", () => {
+    const data = new Uint8Array(8192);
+    let x = 21;
+    for (let i = 0; i < data.length; i++) {
+      x ^= x << 13;
+      x ^= x >>> 17;
+      x ^= x << 5;
+      const n = x >>> 0;
+      data[i] = n % 15 === 0 ? n >>> 24 : 3;
+    }
+    const frame = compressLz4Frame(data, 4, true, 6, 4);
+    expect(
+      createHash("sha256")
+        .update(frame as Uint8Array)
+        .digest("hex"),
+    ).toBe("ea1a82bbc35390fec7bb8150b399b0a8b9d1a1d1306a073f98d6f4d7a69d6809");
+    expect(Buffer.from(lz4.decompress(frame as Uint8Array))).toEqual(
+      Buffer.from(data),
+    );
+  });
+
+  it("preserves postponed-lookahead search results", () => {
+    const data = new Uint8Array(4000);
+    let x = 1;
+    for (let i = 0; i < data.length; i++) {
+      x ^= x << 13;
+      x ^= x >>> 17;
+      x ^= x << 5;
+      data[i] =
+        i < 300
+          ? x & 15
+          : x & 7
+            ? data[i - 1 - ((x >>> 8) % Math.min(i, 250))]
+            : x & 15;
+    }
+    const stats = {
+      depthLimited: false,
+      minimumActive: Number.POSITIVE_INFINITY,
+    };
+    const frame = compressLz4Frame(data, 64, true, 4, 8, undefined, stats);
+    expect(
+      createHash("sha256")
+        .update(frame as Uint8Array)
+        .digest("hex"),
+    ).toBe("37b1ae0139a1076ec8afcdc917ea3edd7fb35b8bf4e2ffb64905eed756d98488");
+    expect(stats).toEqual({ depthLimited: true, minimumActive: 4 });
+    expect(Buffer.from(lz4.decompress(frame as Uint8Array))).toEqual(
+      Buffer.from(data),
+    );
+  });
+
+  it("preserves search statistics when a multi-block candidate exceeds its size limit", () => {
+    const data = randomBytes(4 * 1024 * 1024 + 65536, 901);
+    for (let i = 0; i < data.length; i += 128)
+      data.fill(42, i, Math.min(i + 96, data.length));
+    const makeStats = () => ({
+      depthLimited: false,
+      minimumActive: Number.POSITIVE_INFINITY,
+    });
+    const referenceStats = makeStats();
+    const frame = compressLz4Frame(
+      data,
+      16,
+      true,
+      4,
+      1,
+      undefined,
+      referenceStats,
+      true,
+    );
+    expect(frame).not.toBeNull();
+    if (!frame) throw new Error("Expected a frame");
+    for (const limit of [0, frame.length - 1, frame.length]) {
+      const stats = makeStats();
+      const result = compressLz4Frame(
+        data,
+        16,
+        true,
+        4,
+        1,
+        undefined,
+        stats,
+        true,
+        undefined,
+        limit,
+      );
+      expect(stats).toEqual(referenceStats);
+      if (limit < frame.length) expect(result).toBeNull();
+      else expect(result).toEqual(frame);
+    }
+    expect(Buffer.from(lz4.decompress(frame, data.length))).toEqual(
+      Buffer.from(data),
+    );
+  }, 30000);
+
   it("preserves short-match output when hash table creation is deferred", () => {
     const blockSize = 4 * 1024 * 1024;
     const data = new Uint8Array(blockSize + 65536);

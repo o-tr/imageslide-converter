@@ -155,6 +155,7 @@ export const cropImages = (
       currentImage.rect.height,
       0,
       true,
+      true,
     );
     const boundingBoxes = mergeOverlapBoundingBox(
       shrinkOverlapBoundingBox(diffBox),
@@ -198,18 +199,42 @@ export const cropImages = (
       continue;
     }
 
+    const packedPayload = options?.optimizeEia
+      ? Buffer.alloc(
+          mergedBoundingBoxes.reduce(
+            (total, box) => total + box.width * box.height * 3,
+            0,
+          ),
+        )
+      : undefined;
+    let payloadOffset = 0;
     const rects = mergedBoundingBoxes.map((box, index) => {
       const { x1: x, y1: y, width, height } = box;
-      const buffer = Buffer.alloc(width * height * 3);
-      for (let j = 0; j < height; j++) {
-        const srcStart = ((y + j) * currentImage.rect.width + x) * 3;
-        const destStart = j * width * 3;
-        currentImage.buffer.copy(
-          buffer,
-          destStart,
-          srcStart,
-          srcStart + width * 3,
-        );
+      const length = width * height * 3;
+      const buffer = packedPayload
+        ? packedPayload.subarray(payloadOffset, payloadOffset + length)
+        : Buffer.alloc(length);
+      payloadOffset += length;
+      if (
+        x === 0 &&
+        width === currentImage.rect.width &&
+        height > 0 &&
+        y >= 0 &&
+        (y + height) * width * 3 <= currentImage.buffer.length
+      ) {
+        const start = y * width * 3;
+        currentImage.buffer.copy(buffer, 0, start, start + length);
+      } else {
+        for (let j = 0; j < height; j++) {
+          const srcStart = ((y + j) * currentImage.rect.width + x) * 3;
+          const destStart = j * width * 3;
+          currentImage.buffer.copy(
+            buffer,
+            destStart,
+            srcStart,
+            srcStart + width * 3,
+          );
+        }
       }
       return { index, x, y, width, height, buffer };
     });
@@ -219,7 +244,7 @@ export const cropImages = (
     // Compare the actual LZ4 frame sizes and the extra JSON fields. Choosing a
     // smaller master also eliminates the parent dependency and rect copies.
     if (options?.optimizeEia) {
-      const payload = Buffer.concat(rects.map((rect) => rect.buffer));
+      const payload = packedPayload as Buffer;
       let offset = 0;
       const parts = rects.map((rect) => {
         const part = {
@@ -310,9 +335,27 @@ export const cropImages = (
 
     // The no-op rectangle reconstructs the parent's existing bytes exactly.
     // Buffers are immutable during conversion, so no full image copy is needed.
+    // Reuse the original only if no threshold-suppressed pixel differs and
+    // every original diff component is covered by a retained rectangle.
+    const exact =
+      !bestParent.hasSuppressedDifferences &&
+      currentImage.buffer.length ===
+        currentImage.rect.width * currentImage.rect.height * 3 &&
+      parentBuffer.length === currentImage.buffer.length &&
+      diffBox.every((v) =>
+        mergedBoundingBoxes.some(
+          (box) =>
+            v.x1 >= box.x1 &&
+            v.y1 >= box.y1 &&
+            v.x2 <= box.x2 &&
+            v.y2 <= box.y2,
+        ),
+      );
     const merged = identicalParent
       ? parentBuffer
-      : applyDiff(parentProxy, currentImage, rects);
+      : exact
+        ? currentImage.buffer
+        : applyDiff(parentProxy, currentImage, rects);
     croppedImages.push({
       ...currentImage,
       cropped: {

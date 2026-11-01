@@ -54,6 +54,85 @@ describe("EIA crop selection", () => {
     expect(result).toEqual(uncached);
   });
 
+  it("reuses only exactly reconstructible input buffers", () => {
+    for (const hidden of [false, true]) {
+      const source = randomImage(991);
+      const changed = Buffer.from(source);
+      for (let y = 12; y < 16; y++)
+        for (let x = 12; x < 16; x++) {
+          const i = (y * 32 + x) * 3;
+          changed[i] = source[i] < 128 ? 255 : 0;
+        }
+      if (hidden) changed[0] = source[0] === 255 ? 254 : source[0] + 1;
+      const result = cropImages([image(0, source), image(1, changed)], {
+        optimizeEia: true,
+        compressionCache: new EiaCompressionCache(lz4.compress),
+      });
+      const merged = result[1].cropped?.merged;
+      expect(merged).toBeDefined();
+      if (hidden) {
+        expect(merged).not.toBe(changed);
+        expect(merged?.[0]).toBe(source[0]);
+      } else expect(merged).toBe(changed);
+    }
+  });
+
+  it("preserves full-width crop rows", () => {
+    const width = 64;
+    const source = randomImage(123, width * width * 3);
+    const changed = Buffer.from(source);
+    for (let y = 20; y < 28; y++)
+      for (let x = 0; x < width; x++) changed[(y * width + x) * 3] ^= 255;
+    const result = cropImages(
+      [image(0, source, width, width), image(1, changed, width, width)],
+      {
+        optimizeEia: true,
+        compressionCache: new EiaCompressionCache(lz4.compress),
+      },
+    );
+    const rect = result[1].cropped?.rects[0];
+    expect(rect?.x).toBe(0);
+    expect(rect?.width).toBe(width);
+    expect(rect?.height).toBeLessThan(width);
+    expect(result[1].cropped?.merged).toEqual(changed);
+    if (!rect) throw new Error("Expected a crop rectangle");
+    expect(rect.buffer).toEqual(
+      changed.subarray(rect.y * width * 3, (rect.y + rect.height) * width * 3),
+    );
+  });
+
+  it("builds multiple crop rectangles in their original payload order", () => {
+    const width = 64;
+    const source = randomImage(888, width * width * 3);
+    const changed = Buffer.from(source);
+    for (const [left, top] of [
+      [4, 4],
+      [45, 45],
+    ]) {
+      for (let y = top; y < top + 6; y++) {
+        for (let x = left; x < left + 6; x++)
+          changed[(y * width + x) * 3] ^= 255;
+      }
+    }
+    const cache = new EiaCompressionCache(lz4.compress);
+    const compress = vi.spyOn(cache, "compressRects");
+    const result = cropImages(
+      [image(0, source, width, width), image(1, changed, width, width)],
+      {
+        optimizeEia: true,
+        compressionCache: cache,
+      },
+    );
+    const rects = result[1].cropped?.rects;
+    expect(rects?.length).toBeGreaterThan(1);
+    expect(result[1].cropped?.merged).toEqual(changed);
+    const payload = compress.mock.calls[0][1];
+    expect(typeof payload).not.toBe("function");
+    expect(payload).toEqual(
+      Buffer.concat(rects?.map((rect) => rect.buffer) ?? []),
+    );
+  });
+
   it("serializes a cached multi-rectangle payload without changing its bytes", async () => {
     const source = Buffer.alloc(20 * 20 * 3, 1);
     const rects = [

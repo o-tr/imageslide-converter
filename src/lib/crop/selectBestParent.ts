@@ -12,6 +12,7 @@ export type ParentCandidate = {
 export type BestParentResult = {
   parent: ParentCandidate;
   diff: Uint8Array;
+  hasSuppressedDifferences: boolean;
 };
 
 /**
@@ -101,7 +102,11 @@ export const selectBestParent = (
 
     // An equal score retains the earlier parent, so this candidate can be
     // discarded as soon as it reaches the current best count.
-    const stats = { count: 0, stopAt: bestDiffCount };
+    const stats = {
+      count: 0,
+      stopAt: bestDiffCount,
+      hasSuppressedDifferences: false,
+    };
     const diff = rgb242diff(parentProxy, currentImage, stats, scratch);
     const diffCount = stats.count;
     evaluated++;
@@ -109,7 +114,11 @@ export const selectBestParent = (
     if (diffCount < bestDiffCount) {
       bestDiffCount = diffCount;
       scratch = bestResult?.diff;
-      bestResult = { parent: candidate, diff };
+      bestResult = {
+        parent: candidate,
+        diff,
+        hasSuppressedDifferences: stats.hasSuppressedDifferences,
+      };
       // Counts cannot be negative, and equal scores retain the first parent.
       if (diffCount === 0) break;
     } else {

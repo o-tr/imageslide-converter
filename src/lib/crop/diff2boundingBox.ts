@@ -6,7 +6,16 @@ export const diff2boundingBox = (
   height: number,
   padding = 0,
   consumeMask = false,
+  binaryMask = false,
 ): BoundingBox[] => {
+  // The fast path is valid only for complete masks containing 0 or 1.
+  const fastBinary =
+    binaryMask &&
+    Number.isSafeInteger(width) &&
+    Number.isSafeInteger(height) &&
+    width > 0 &&
+    height >= 0 &&
+    width * height <= maskArray.length;
   const boxes: BoundingBox[] = [];
   // Callers with exclusive ownership can let traversal consume the mask.
   // Otherwise copy it to preserve the public function's input semantics.
@@ -15,8 +24,14 @@ export const diff2boundingBox = (
   const stack: number[] = [];
   for (let y = 0; y < height; y++)
     for (let x = 0; x < width; x++) {
-      const first = y * width + x;
-      if (remaining[first] === 0) continue;
+      let first = y * width + x;
+      if (remaining[first] === 0) {
+        if (!fastBinary) continue;
+        first = remaining.indexOf(1, first);
+        if (first < 0 || first >= width * height) return boxes;
+        y = Math.floor(first / width);
+        x = first - y * width;
+      }
       // All earlier rows and positions have already been consumed. A first
       // pixel with no right or lower neighbor is a one-pixel component.
       if (

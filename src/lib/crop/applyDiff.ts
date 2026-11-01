@@ -39,10 +39,21 @@ export const applyDiff = (
   // copy diff to result
   for (const rect of diff) {
     const { x, y, width: rectWidth, height, buffer } = rect;
-    for (let j = 0; j < height; j++) {
-      const srcStart = j * rectWidth * 3;
-      const destStart = ((y + j) * width + x) * 3;
-      buffer.copy(result, destStart, srcStart, srcStart + rectWidth * 3);
+    if (
+      x === 0 &&
+      rectWidth === width &&
+      height > 0 &&
+      y >= 0 &&
+      buffer.length >= rectWidth * height * 3 &&
+      (y + height) * width * 3 <= result.length
+    ) {
+      buffer.copy(result, y * width * 3, 0, rectWidth * height * 3);
+    } else {
+      for (let j = 0; j < height; j++) {
+        const srcStart = j * rectWidth * 3;
+        const destStart = ((y + j) * width + x) * 3;
+        buffer.copy(result, destStart, srcStart, srcStart + rectWidth * 3);
+      }
     }
   }
 

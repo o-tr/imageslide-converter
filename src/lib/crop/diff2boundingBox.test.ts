@@ -75,6 +75,15 @@ it("preserves connected-component bounds and ordering across masks and padding",
       expected,
     );
     expect(owned.every((value) => value === 0)).toBe(true);
+    const binary = Uint8Array.from(mask, (value) => (value ? 1 : 0));
+    const consumed = binary.slice();
+    expect(
+      diff2boundingBox(binary, width, height, padding, false, true),
+    ).toEqual(expected);
+    expect(
+      diff2boundingBox(consumed, width, height, padding, true, true),
+    ).toEqual(expected);
+    expect(consumed.every((value) => value === 0)).toBe(true);
   }
 });
 

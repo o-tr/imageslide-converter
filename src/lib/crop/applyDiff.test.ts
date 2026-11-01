@@ -91,3 +91,17 @@ it("copies the resolved parent when it has its own crop", () => {
   expect(result).toEqual(resolved);
   expect(result).not.toBe(resolved);
 });
+
+it("keeps the row-wise error for a truncated full-width rectangle", () => {
+  const image = {
+    index: 0,
+    rect: { width: 2, height: 3 },
+    format: "RGB24" as const,
+    buffer: Buffer.alloc(18),
+  };
+  const rects = [
+    { index: 0, x: 0, y: 0, width: 2, height: 2, buffer: Buffer.alloc(1) },
+  ];
+  expect(() => reference(image, image, rects)).toThrow(RangeError);
+  expect(() => applyDiff(image, image, rects)).toThrow(RangeError);
+});

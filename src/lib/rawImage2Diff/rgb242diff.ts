@@ -6,7 +6,11 @@ const ACTUAL_DIFF_THRESHOLD = IMAGE_DIFF_THRESHOLD * 3;
 export const rgb242diff = (
   imageA: RawImageObjV1Cropped,
   imageB: RawImageObjV1,
-  stats?: { count: number; stopAt?: number },
+  stats?: {
+    count: number;
+    stopAt?: number;
+    hasSuppressedDifferences?: boolean;
+  },
   workspace?: Uint8Array,
 ): Uint8Array => {
   const imageABuffer = imageA.cropped?.merged ?? imageA.buffer;
@@ -28,6 +32,7 @@ export const rgb242diff = (
     return result;
   }
 
+  if (stats) stats.hasSuppressedDifferences = true;
   // Parent candidates normally have the same dimensions. Scan tightly
   // packed RGB directly and skip absolute values for identical pixels.
   if (
@@ -40,6 +45,7 @@ export const rgb242diff = (
     imageABuffer.length >= result.length * 3 &&
     imageB.buffer.length >= result.length * 3
   ) {
+    if (stats) stats.hasSuppressedDifferences = false;
     // Equal views into the same storage represent the exact same image.
     if (
       imageABuffer.buffer === imageB.buffer.buffer &&
@@ -49,22 +55,28 @@ export const rgb242diff = (
       if (stats) stats.count = 0;
       return result;
     }
+    let suppressed = false;
     for (let pixel = 0, i = 0; pixel < result.length; pixel++, i += 3) {
       const r = imageABuffer[i] - imageB.buffer[i];
       const g = imageABuffer[i + 1] - imageB.buffer[i + 1];
       const b = imageABuffer[i + 2] - imageB.buffer[i + 2];
-      if (
-        (r !== 0 || g !== 0 || b !== 0) &&
-        Math.abs(r) + Math.abs(g) + Math.abs(b) > ACTUAL_DIFF_THRESHOLD
-      ) {
-        result[pixel] = 1;
-        if (++count >= stopAt) {
-          if (stats) stats.count = count;
-          return result;
-        }
+      if (r !== 0 || g !== 0 || b !== 0) {
+        if (Math.abs(r) + Math.abs(g) + Math.abs(b) > ACTUAL_DIFF_THRESHOLD) {
+          result[pixel] = 1;
+          if (++count >= stopAt) {
+            if (stats) {
+              stats.count = count;
+              stats.hasSuppressedDifferences = suppressed;
+            }
+            return result;
+          }
+        } else suppressed = true;
       }
     }
-    if (stats) stats.count = count;
+    if (stats) {
+      stats.count = count;
+      stats.hasSuppressedDifferences = suppressed;
+    }
     return result;
   }
 

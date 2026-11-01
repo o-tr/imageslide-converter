@@ -24,6 +24,27 @@ describe("RGB image diff", () => {
     expect(rgb242diff(a, b).reduce((sum, value) => sum + value, 0)).toBe(100);
   });
 
+  it("retains suppressed-difference information when a scan stops early", () => {
+    const a = {
+      index: 0,
+      rect: { width: 3, height: 1 },
+      format: "RGB24" as const,
+      buffer: Buffer.alloc(9),
+    };
+    const b = {
+      ...a,
+      index: 1,
+      buffer: Buffer.from([1, 0, 0, 255, 0, 0, 0, 0, 0]),
+    };
+    const stats = { count: 0, stopAt: 1, hasSuppressedDifferences: false };
+    expect(Array.from(rgb242diff(a, b, stats))).toEqual([0, 1, 0]);
+    expect(stats).toEqual({
+      count: 1,
+      stopAt: 1,
+      hasSuppressedDifferences: true,
+    });
+  });
+
   it("only treats matching views of the same storage as identical", () => {
     const storage = Buffer.alloc(24);
     storage.fill(255, 12);
