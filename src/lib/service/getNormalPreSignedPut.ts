@@ -7,11 +7,12 @@ import axios from "axios";
 export const getNormalPreSignedPut = async (
   fileId: string,
   contentLength: number,
+  checksumSha256: string,
   signal?: AbortSignal,
 ): Promise<PreSignedPutItem> => {
   const _response = await axios.post(
     "/api/upload/normal/get-presigned-put",
-    { fileId, contentLength },
+    { fileId, contentLength, checksumSha256 },
     { signal },
   );
   const { success, data } = getNormalPreSignedPutResponseSchema.safeParse(
