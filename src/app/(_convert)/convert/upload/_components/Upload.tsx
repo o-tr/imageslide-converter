@@ -1,5 +1,6 @@
 "use client";
 import { ResultAtom } from "@/atoms/convert";
+import { DeckCraftSessionAtom } from "@/atoms/deckcraft";
 import { OutputFileNameAtom, SelectedFilesAtom } from "@/atoms/file-drop";
 import { useRouter } from "@/compat/navigation";
 import { Alert, Button, Flex, List, Spin } from "@/components/primitives";
@@ -7,7 +8,7 @@ import { getNormalFileId } from "@/lib/service/getNormalFileId";
 import { getNormalPreSignedPut } from "@/lib/service/getNormalPreSignedPut";
 import { postRegisterFile } from "@/lib/service/postRegisterFile";
 import axios from "axios";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { type FC, useEffect, useState } from "react";
 import { Completed } from "./Completed";
 import { Preparing } from "./Preparing";
@@ -16,6 +17,8 @@ type Stage = "preparing" | "uploading" | "registering";
 
 export const Upload: FC = () => {
   const result = useAtomValue(ResultAtom);
+  const setResult = useSetAtom(ResultAtom);
+  const session = useAtomValue(DeckCraftSessionAtom);
   const files = useAtomValue(SelectedFilesAtom);
   const outputFileName = useAtomValue(OutputFileNameAtom);
   const router = useRouter();
@@ -27,7 +30,7 @@ export const Upload: FC = () => {
   // biome-ignore lint/correctness/useExhaustiveDependencies: attempt starts a fresh upload after a retry.
   useEffect(() => {
     if (!result || result.data.length === 0) {
-      router.push("./pick");
+      router.replace("/convert/pick");
       return;
     }
     const controller = new AbortController();
@@ -154,6 +157,14 @@ export const Upload: FC = () => {
             onClick={() => setAttempt((value) => value + 1)}
           >
             アップロードを再試行
+          </Button>
+          <Button
+            onClick={() => {
+              router.push("/convert/pick");
+              setResult(undefined);
+            }}
+          >
+            {session ? "キャンセルして編集に戻る" : "キャンセルして戻る"}
           </Button>
         </div>
       </div>
