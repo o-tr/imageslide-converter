@@ -859,7 +859,7 @@ export function compressLz4Best(input: Uint8Array): Uint8Array {
     // small payloads and bound work for larger ones; all candidates remain
     // standard LZ4 and the existing fast-frame size ceiling still applies.
     const profiles: readonly (readonly [number, number, readonly number[]])[] =
-      input.length >= 64 * 1024
+      input.length >= 16 * 1024
         ? [
             [64, 1, [8, 12]],
             [64, 4, input.length >= 1024 * 1024 ? [4] : [4, 8]],
