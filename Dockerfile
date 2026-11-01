@@ -10,8 +10,8 @@ RUN bash scripts/build-deckcraft.sh
 
 FROM node:24-alpine AS builder
 WORKDIR /app
-RUN apk add --no-cache openssl && npm install -g pnpm@9
-COPY package.json pnpm-lock.yaml ./
+RUN apk add --no-cache openssl && npm install -g pnpm@12.15.0
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY ./ ./
 COPY --from=deckcraft /work/public/deckcraft/ ./public/deckcraft/
