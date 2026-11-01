@@ -7,6 +7,7 @@ import { Alert, Button, Flex, Spin } from "@/components/primitives";
 import { getNormalFileId } from "@/lib/service/getNormalFileId";
 import { getNormalPreSignedPut } from "@/lib/service/getNormalPreSignedPut";
 import { postRegisterFile } from "@/lib/service/postRegisterFile";
+import { sha256Base64 } from "@/lib/sha256Base64";
 import axios from "axios";
 import { useAtomValue, useSetAtom } from "jotai";
 import { type FC, useEffect, useState } from "react";
@@ -51,6 +52,7 @@ export const Upload: FC = () => {
         const preSignedPut = await getNormalPreSignedPut(
           fileId,
           file.size,
+          await sha256Base64(result.data),
           controller.signal,
         );
         if (preSignedPut.fileId !== fileId)

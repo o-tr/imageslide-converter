@@ -13,7 +13,8 @@ describe("upload API failures", () => {
     ["initialization", (signal: AbortSignal) => getNormalFileId(signal)],
     [
       "upload URL generation",
-      (signal: AbortSignal) => getNormalPreSignedPut("id", 4, signal),
+      (signal: AbortSignal) =>
+        getNormalPreSignedPut("id", 4, `${"A".repeat(43)}=`, signal),
     ],
     [
       "registration",

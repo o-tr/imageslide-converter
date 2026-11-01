@@ -9,11 +9,15 @@ import { z } from "zod";
 const generatePreSignedPutUrl = async (
   fileName: string,
   contentLength: number,
+  checksumSha256: string,
 ): Promise<string> => {
   const command = new PutObjectCommand({
     Bucket: S3_NORMAL_BUCKET,
     Key: fileName,
     ContentLength: contentLength,
+    // Signed into the URL as x-amz-checksum-sha256, so the storage verifies the
+    // uploaded body against the hash the client computed.
+    ChecksumSHA256: checksumSha256,
     Tagging: "registered=false",
     ContentType: "text/plain",
   });
@@ -23,6 +27,8 @@ const generatePreSignedPutUrl = async (
 const GetPreSignedPutSchema = z.object({
   fileId: z.string(),
   contentLength: z.number(),
+  // Base64 of the 32-byte SHA-256 digest of the file.
+  checksumSha256: z.string().regex(/^[A-Za-z0-9+/]{43}=$/),
 });
 
 export const POST = async (request: Request) => {
@@ -47,7 +53,7 @@ export const POST = async (request: Request) => {
       { status: 400 },
     );
   }
-  const { fileId, contentLength } = body.data;
+  const { fileId, contentLength, checksumSha256 } = body.data;
 
   if (contentLength > ActualFileSizeLimit) {
     return Response.json(
@@ -66,7 +72,7 @@ export const POST = async (request: Request) => {
     status: "success",
     data: {
       fileId,
-      url: await generatePreSignedPutUrl(key, contentLength),
+      url: await generatePreSignedPutUrl(key, contentLength, checksumSha256),
       publicUrl: `${S3_NORMAL_PUBLIC_BASE_URL}/${key}`,
     },
   });
