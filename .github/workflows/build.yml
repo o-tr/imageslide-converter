@@ -11,6 +11,11 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  # Layer cache shared by every release. Runners start empty, so without it the
+  # DeckCraft wasm stage (rust toolchain + trunk + build, the bulk of the job)
+  # reruns even though vendor/deckcraft rarely changes. mode=max also exports the
+  # intermediate stages, which is what makes the deckcraft stage reusable.
+  CACHE_REF: ghcr.io/${{ github.repository }}-buildcache:release
 
 jobs:
   build-container-and-push-image:
@@ -46,6 +51,8 @@ jobs:
           context: .
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG_NAME }}
+          cache-from: type=registry,ref=${{ env.CACHE_REF }}
+          cache-to: type=registry,ref=${{ env.CACHE_REF }},mode=max,image-manifest=true,oci-mediatypes=true
 
       # nginx serves the static assets and the font image volume, and proxies
       # everything else to the app container, so it ships alongside the app.
