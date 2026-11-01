@@ -84,8 +84,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
+      # Tags pushed with GITHUB_TOKEN do not fire `on: push: tags`, so every
+      # tag-driven workflow has to be dispatched explicitly.
       - name: Trigger build workflow
         run: |
           gh workflow run build.yml --ref v${{ steps.version.outputs.new_version }}
+          gh workflow run fonts-image.yml --ref v${{ steps.version.outputs.new_version }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
