@@ -380,4 +380,47 @@ describe("EIA crop selection", () => {
     );
     expect(output[1].cropped).toBeUndefined();
   });
+
+  it("includes every ancestor when splitting a chain of cropped slides", async () => {
+    const slides = Array.from({ length: 5 }, (_, index) => {
+      const pixels = Buffer.from([index, index, index]);
+      return {
+        ...image(index, pixels, 1, 1),
+        cropped:
+          index === 0
+            ? undefined
+            : {
+                baseIndex: index - 1,
+                merged: pixels,
+                rects: [
+                  { index: 0, x: 0, y: 0, width: 1, height: 1, buffer: pixels },
+                ],
+              },
+      };
+    });
+    const archives = await compressEIAv1(slides, undefined, 5, 1);
+    expect(archives).toHaveLength(5);
+    for (const [i, archive] of archives.entries()) {
+      const end = archive.indexOf("$");
+      const manifest = JSON.parse(archive.subarray(4, end).toString());
+      expect(manifest.i.map((entry: { n: string }) => entry.n)).toEqual(
+        Array.from({ length: i + 1 }, (_, index) => String(index)),
+      );
+    }
+  });
+
+  it("rejects circular crop references", async () => {
+    const pixels = Buffer.from([1, 2, 3]);
+    const cropped = (index: number, baseIndex: number) => ({
+      ...image(index, pixels, 1, 1),
+      cropped: {
+        baseIndex,
+        merged: pixels,
+        rects: [{ index: 0, x: 0, y: 0, width: 1, height: 1, buffer: pixels }],
+      },
+    });
+    await expect(
+      compressEIAv1([image(0, pixels, 1, 1), cropped(1, 2), cropped(2, 1)]),
+    ).rejects.toThrow("Circular crop reference detected involving slide");
+  });
 });

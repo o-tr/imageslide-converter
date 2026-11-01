@@ -21,7 +21,151 @@ function randomBytes(length: number, seed: number) {
   return bytes;
 }
 
+// Independent test reader for the LZ4 block-end constraints.
+function frameHasValidEnds(frame: Uint8Array): boolean {
+  const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
+  let position = 7;
+  while (true) {
+    const header = view.getUint32(position, true);
+    position += 4;
+    if (header === 0) return true;
+    const end = position + (header & 0x7fffffff);
+    if (header & 0x80000000) {
+      position = end;
+      continue;
+    }
+    let produced = 0;
+    let lastMatch = -1;
+    let ended = false;
+    const readLength = (base: number) => {
+      let size = base;
+      if (base === 15) {
+        let byte: number;
+        do {
+          byte = frame[position++];
+          size += byte;
+        } while (byte === 255);
+      }
+      return size;
+    };
+    while (position < end) {
+      const token = frame[position++];
+      const literals = readLength(token >>> 4);
+      position += literals;
+      produced += literals;
+      if (position === end) {
+        if (lastMatch >= 0 && (literals < 5 || produced - lastMatch < 12))
+          return false;
+        ended = true;
+        break;
+      }
+      position += 2;
+      lastMatch = produced;
+      produced += readLength(token & 15) + 4;
+    }
+    if (!ended) return false;
+  }
+}
+
+function portfolioFixture(lastSample: number): Uint8Array {
+  let state = 761;
+  const random = () => {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    return state >>> 0;
+  };
+  let data = new Uint8Array();
+  for (let sample = 0; sample <= lastSample; sample++) {
+    data = new Uint8Array(256 + (random() % 3000));
+    for (let i = 0; i < data.length; i++) {
+      const value = random();
+      data[i] =
+        sample % 5 === 0
+          ? value >>> 24
+          : sample % 5 === 1
+            ? i % 127
+            : sample % 5 === 2
+              ? i % 300 < 230
+                ? i % 67
+                : value >>> 24
+              : sample % 5 === 3
+                ? value % 7
+                : i % 17
+                  ? 0
+                  : value >>> 24;
+    }
+  }
+  return data;
+}
+
 describe("LZ4 search encoder", () => {
+  it("considers post-processed alternatives without increasing frame size", () => {
+    const data = portfolioFixture(113);
+    const frame = compressLz4Best(data);
+    expect(frame.length).toBe(530);
+    expect(createHash("sha256").update(frame).digest("hex")).toBe(
+      "23e2cc70c78e65a61747ea01dc8be3497fd242303b945fcbe9219a25ec0456b5",
+    );
+    expect(Buffer.from(lz4.decompress(frame))).toEqual(Buffer.from(data));
+  });
+
+  it("rejects fast frames whose last match starts too close to the end", () => {
+    const data = portfolioFixture(23);
+    const lastMatchDistance = (frame: Uint8Array): number => {
+      const view = new DataView(
+        frame.buffer,
+        frame.byteOffset,
+        frame.byteLength,
+      );
+      const header = view.getUint32(7, true);
+      if (header & 0x80000000) return Number.POSITIVE_INFINITY;
+      const end = 11 + header;
+      let pos = 11;
+      let written = 0;
+      let last = -1;
+      const length = (initial: number) => {
+        let value = initial;
+        if (initial === 15) {
+          let extra: number;
+          do {
+            extra = frame[pos++];
+            value += extra;
+          } while (extra === 255);
+        }
+        return value;
+      };
+      while (pos < end) {
+        const token = frame[pos++];
+        const literal = length(token >>> 4);
+        pos += literal;
+        written += literal;
+        if (pos === end) {
+          expect(literal).toBeGreaterThanOrEqual(5);
+          break;
+        }
+        pos += 2;
+        last = written;
+        written += length(token & 15) + 4;
+      }
+      return last < 0 ? Number.POSITIVE_INFINITY : written - last;
+    };
+    expect(lastMatchDistance(lz4.compress(data))).toBeLessThan(12);
+    const frame = compressLz4Best(data);
+    expect(lastMatchDistance(frame)).toBeGreaterThanOrEqual(12);
+    expect(Buffer.from(lz4.decompress(frame))).toEqual(Buffer.from(data));
+  });
+
+  it("avoids a marginal same-size choice that costs more VM instructions", () => {
+    const data = portfolioFixture(2078);
+    const frame = compressLz4Best(data);
+    expect(frame.length).toBe(769);
+    expect(createHash("sha256").update(frame).digest("hex")).toBe(
+      "fe9d741a406620c71277533894cb705462f1201e2ae3fb8088ee85db3df7c0a5",
+    );
+    expect(Buffer.from(lz4.decompress(frame))).toEqual(Buffer.from(data));
+  });
+
   it("preserves periodic searches as their hash workspace grows and is reused", () => {
     let x = 1741;
     const random = () => {
@@ -176,11 +320,25 @@ describe("LZ4 search encoder", () => {
     for (let i = blockSize; i < data.length; i++) data[i] = random() % 16;
     const frame = compressLz4Best(data);
     expect(createHash("sha256").update(frame).digest("hex")).toBe(
-      "494f408cc0d90d711e2c999244ca7a0f42b90e54b66eeae43649c80cda6ad8e2",
+      "4542b4839490ac83a952ba515e3908743f3b6d87c7d140bf417ca9b6e1428ab8",
     );
     expect(
       Buffer.from(lz4.decompress(frame, data.length)).equals(Buffer.from(data)),
     ).toBe(true);
+  }, 30000);
+
+  it("round-trips a raw trailing block after a compressed block", () => {
+    const blockSize = 4 * 1024 * 1024;
+    const backing = new Uint8Array(blockSize + 65536 + 3);
+    const data = backing.subarray(3);
+    data.set(randomBytes(65536, 1881), blockSize);
+    const frame = compressLz4Best(data);
+    const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
+    const first = view.getUint32(7, true);
+    const second = view.getUint32(11 + (first & 0x7fffffff), true);
+    expect(first & 0x80000000).toBe(0);
+    expect(second >>> 31).toBe(1);
+    expect(Buffer.from(lz4.decompress(frame))).toEqual(Buffer.from(data));
   }, 30000);
 
   it("preserves output after empty block contexts are evicted", () => {
@@ -201,11 +359,76 @@ describe("LZ4 search encoder", () => {
     }
     const frame = compressLz4Best(data);
     expect(createHash("sha256").update(frame).digest("hex")).toBe(
-      "3b8507be128d33f62dbeff82c2434528bf7c614f77a7145c20c661ffd7d76c48",
+      "35b94bdf1e320883265af859264d8fd9f62ea2d7ade4b75f69c1a3f7789d1ef0",
     );
     expect(
       Buffer.from(lz4.decompress(frame, data.length)).equals(Buffer.from(data)),
     ).toBe(true);
+  }, 30000);
+
+  it("retains fallback empty-block proofs after context eviction", () => {
+    const blockSize = 4 * 1024 * 1024;
+    const prefixLength = 3 * blockSize;
+    const tail = portfolioFixture(23);
+    const data = new Uint8Array(prefixLength + tail.length);
+    // A de Bruijn prefix has no repeated four-byte sequences.
+    const sequence = new Uint8Array(5);
+    let position = 0;
+    const generate = (depth: number, period: number): void => {
+      if (position >= prefixLength) return;
+      if (depth > 4) {
+        if (4 % period === 0) {
+          for (let i = 1; i <= period && position < prefixLength; i++) {
+            data[position++] = sequence[i];
+          }
+        }
+        return;
+      }
+      sequence[depth] = sequence[depth - period];
+      generate(depth + 1, period);
+      for (
+        let value = sequence[depth - period] + 1;
+        value < 256 && position < prefixLength;
+        value++
+      ) {
+        sequence[depth] = value;
+        generate(depth + 1, depth);
+      }
+    };
+    generate(1, 1);
+    data.set(tail, prefixLength);
+    expect(frameHasValidEnds(lz4.compress(data))).toBe(false);
+
+    const contexts = new Map();
+    const proofs = new Map<number, { minimum: number; depth: number }>();
+    const stats = {
+      depthLimited: false,
+      minimumActive: Number.POSITIVE_INFINITY,
+    };
+    const frame = compressLz4Frame(
+      data,
+      64,
+      true,
+      4,
+      1,
+      contexts,
+      stats,
+      true,
+      proofs,
+    );
+    for (let i = 0; i < 3; i++) {
+      expect(proofs.get(i * blockSize)).toEqual({ minimum: 4, depth: 64 });
+    }
+    expect(contexts.has(0)).toBe(false);
+    expect(frame).not.toBeNull();
+    const encoded = compressLz4Best(data);
+    expect(createHash("sha256").update(encoded).digest("hex")).toBe(
+      "d555382456cee0da04d40ce3a97d326a7a40d008fe9ac389474a724f5dcb85c7",
+    );
+    expect(frameHasValidEnds(encoded)).toBe(true);
+    expect(Buffer.from(lz4.decompress(encoded)).equals(Buffer.from(data))).toBe(
+      true,
+    );
   }, 30000);
 
   it("preserves mixed multi-block output when empty searches are reused", () => {
@@ -227,7 +450,7 @@ describe("LZ4 search encoder", () => {
     }
     const frame = compressLz4Best(data);
     expect(createHash("sha256").update(frame).digest("hex")).toBe(
-      "1087544d87ede0d0c1fb3d38545c00b08a5573f5ca930b7c5a8255278286ba29",
+      "f705dd69899e63f5309760c4e7e665af2b1d5cfa85c4cfe3e02f7108f7377117",
     );
     expect(
       Buffer.from(lz4.decompress(frame, data.length)).equals(Buffer.from(data)),
@@ -549,7 +772,7 @@ describe("LZ4 search encoder", () => {
     }
     expect(
       createHash("sha256").update(compressLz4Best(data)).digest("hex"),
-    ).toBe("9ca9135045e36454b2ac8d5df4a937ef3b1bb9edd42f854c0a584faffc7b2457");
+    ).toBe("a170f6ef639dd5cc131bfb91f2800c083b91c537d9f147593a0319bacfccd3fa");
   });
   it("preserves the incremental search output across the match-window boundary", () => {
     const data = new Uint8Array(180_000);
@@ -763,7 +986,10 @@ describe("LZ4 search encoder", () => {
         expect(Buffer.from(lz4.decompress(best, data.length))).toEqual(
           Buffer.from(data),
         );
-        expect(best.length).toBeLessThanOrEqual(lz4.compress(data).length);
+        expect(frameHasValidEnds(best)).toBe(true);
+        const fast = lz4.compress(data);
+        const baseline = frameHasValidEnds(fast) ? fast : encoded;
+        expect(best.length).toBeLessThanOrEqual(baseline.length);
       }
     }
   }, 30000);

@@ -68,16 +68,10 @@ export const compressEIAv1 = async (
     if (part.length === 0) break;
 
     const partIndices = new Set(part.map((image) => image.index));
-    let expanded = true;
-    while (expanded) {
-      expanded = false;
-      for (const index of Array.from(partIndices)) {
-        const image = imagesByIndex.get(index);
-        if (image?.cropped && !partIndices.has(image.cropped.baseIndex)) {
-          partIndices.add(image.cropped.baseIndex);
-          expanded = true;
-        }
-      }
+    // Set iteration visits newly added bases, so each dependency is checked once.
+    for (const index of partIndices) {
+      const image = imagesByIndex.get(index);
+      if (image?.cropped) partIndices.add(image.cropped.baseIndex);
     }
     const partImages = data.filter((image) => partIndices.has(image.index));
     const partImageSet = new Set(partImages.map((image) => image.index));
@@ -179,6 +173,8 @@ const compressEIAv1Part = async (
   const imagesByIndex = new Map<number, RawImageObjV1Cropped>();
   for (const image of data) imagesByIndex.set(image.index, image);
 
+  // A validated chain stays acyclic throughout this synchronous pass.
+  const verifiedAcyclic = new Set<number>();
   const usedFormats = new Set<string>();
   const usedFeatures = new Set<string>();
   const usedExtensions = new Set<EIAExtension>();
@@ -246,7 +242,7 @@ const compressEIAv1Part = async (
       // Detect crop reference cycles
       const visitedIndices = new Set<number>();
       let currentIndex: number | undefined = image.index;
-      while (currentIndex !== undefined) {
+      while (currentIndex !== undefined && !verifiedAcyclic.has(currentIndex)) {
         if (visitedIndices.has(currentIndex)) {
           throw new Error(
             `Circular crop reference detected involving slide ${image.index}`,
@@ -257,6 +253,7 @@ const compressEIAv1Part = async (
         if (!currentImage || !currentImage.cropped) break;
         currentIndex = currentImage.cropped.baseIndex;
       }
+      for (const index of visitedIndices) verifiedAcyclic.add(index);
 
       let fileBufferLength = 0;
       const fileBuffer: Buffer[] = [];

@@ -521,6 +521,64 @@ export function compressLz4Frame(
   return frame;
 }
 
+// Search frames use the original input for every uncompressed block. Retain
+// only non-raw bytes when raw blocks dominate, and restore them on demand.
+type StoredFrame =
+  | { full: Uint8Array; length: number }
+  | {
+      compact: Uint8Array;
+      spans: { out: number; input: number; size: number }[];
+      length: number;
+    };
+function storeFrame(frame: Uint8Array, input: Uint8Array): StoredFrame {
+  const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
+  const spans: { out: number; input: number; size: number }[] = [];
+  let at = HEADER.length;
+  let inputOffset = 0;
+  let total = 0;
+  while (true) {
+    const header = view.getUint32(at, true);
+    at += 4;
+    if (header === 0) break;
+    const size = header & 0x7fffffff;
+    if (header & 0x80000000) {
+      spans.push({ out: at, input: inputOffset, size });
+      total += size;
+    }
+    inputOffset += Math.min(BLOCK_SIZE, input.length - inputOffset);
+    at += size;
+  }
+  // Avoid packing small frames where allocation costs outweigh savings.
+  if (total < 65536) return { full: frame, length: frame.length };
+  const compact = new Uint8Array(frame.length - total);
+  let from = 0;
+  let to = 0;
+  for (const span of spans) {
+    const length = span.out - from;
+    compact.set(frame.subarray(from, span.out), to);
+    to += length;
+    from = span.out + span.size;
+  }
+  compact.set(frame.subarray(from), to);
+  return { compact, spans, length: frame.length };
+}
+function restoreFrame(item: StoredFrame, input: Uint8Array): Uint8Array {
+  if ("full" in item) return item.full;
+  const frame = new Uint8Array(item.length);
+  const compact = item.compact;
+  let from = 0;
+  let to = 0;
+  for (const span of item.spans) {
+    const n = span.out - to;
+    frame.set(compact.subarray(from, from + n), to);
+    from += n;
+    to += n;
+    frame.set(input.subarray(span.input, span.input + span.size), to);
+    to += span.size;
+  }
+  frame.set(compact.subarray(from), to);
+  return frame;
+}
 function requireFrame(frame: Uint8Array | null): Uint8Array {
   if (!frame)
     throw new Error("An unlimited LZ4 frame was unexpectedly rejected");
@@ -597,9 +655,90 @@ export function fitsDecodeSpeedBudget(
   );
 }
 
+// lz4js may emit a last match fewer than 12 bytes before the block end.
+// Check its generated frame before using it as a candidate or size ceiling.
+function hasValidBlockEnds(frame: Uint8Array): boolean {
+  const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
+  let position = HEADER.length;
+  while (true) {
+    const block = view.getUint32(position, true);
+    position += 4;
+    if (block === 0) return true;
+    const end = position + (block & 0x7fffffff);
+    if (block & 0x80000000) {
+      position = end;
+      continue;
+    }
+    let written = 0;
+    let lastMatchStart = -1;
+    let endedWithLiterals = false;
+    const readLength = (initial: number) => {
+      let length = initial;
+      if (initial === 15) {
+        let b: number;
+        do {
+          b = frame[position++];
+          length += b;
+        } while (b === 255);
+      }
+      return length;
+    };
+    while (position < end) {
+      const token = frame[position++];
+      const literals = readLength(token >>> 4);
+      written += literals;
+      position += literals;
+      if (position === end) {
+        endedWithLiterals = true;
+        if (
+          lastMatchStart >= 0 &&
+          (literals < 5 || written - lastMatchStart < 12)
+        )
+          return false;
+        break;
+      }
+      position += 2;
+      lastMatchStart = written;
+      written += readLength(token & 15) + 4;
+    }
+    if (!endedWithLiterals) return false;
+  }
+}
+
 /** Favor lower decode work while limiting size growth relative to the compact candidate. */
 export function compressLz4Best(input: Uint8Array): Uint8Array {
-  const fast = lz4.compress(input);
+  const early4Stats = {
+    depthLimited: false,
+    minimumActive: Number.POSITIVE_INFINITY,
+  };
+  let fast = lz4.compress(input);
+  // The replacement is also the later 64-depth candidate; retain its
+  // statistics so the deeper-profile skipping logic can reuse it safely.
+  let fallback: Uint8Array | undefined;
+  let fallbackContexts: Map<number, MatchContext> | undefined;
+  let fallbackProofs:
+    | Map<number, { minimum: number; depth: number }>
+    | undefined;
+  // The search encoder observes the LZ4 last-match and last-literal limits.
+  if (!hasValidBlockEnds(fast)) {
+    fallbackContexts = new Map();
+    fallbackProofs = new Map();
+    fallback = requireFrame(
+      compressLz4Frame(
+        input,
+        SEARCH_DEPTH,
+        true,
+        4,
+        1,
+        fallbackContexts,
+        input.length >= 256 ? early4Stats : undefined,
+        // The rejected fast frame still indicates whether matches are sparse.
+        fast.length * 10 >= input.length * 9,
+        fallbackProofs,
+      ),
+    );
+    fast = fallback;
+  }
   const fastWork = decodeWork(fast);
   // Each raw block needs one copy and no sequence dispatch. All candidates
   // use the same block partition, so a compressed block cannot beat this
@@ -610,20 +749,18 @@ export function compressLz4Best(input: Uint8Array): Uint8Array {
   // faster for the ordinary compressible slide workload.
   const deferContext = fast.length * 10 >= input.length * 9;
   let best = fast;
-  const contexts = new Map<number, MatchContext>();
+  // Reuse indices built by the fallback search in the remaining profiles.
+  const contexts = fallbackContexts ?? new Map<number, MatchContext>();
   // Keep small empty-block proofs even when the bounded context cache evicts
   // its much larger match indices during multi-block searches.
-  const emptyProofs = new Map<number, { minimum: number; depth: number }>();
+  const emptyProofs =
+    fallbackProofs ?? new Map<number, { minimum: number; depth: number }>();
   // Sequence dispatch is substantially more expensive than a native bulk
   // copy in the measured TypeUdon decoder. Treat this as a heuristic; validate
   // it against the VM when changing either the decoder or these weights.
   const cost = (work: ReturnType<typeof decodeWork>) =>
     16 * work.sequences + 4 * work.copies + work.extensions;
   let bestCost = cost(fastWork);
-  const early4Stats = {
-    depthLimited: false,
-    minimumActive: Number.POSITIVE_INFINITY,
-  };
   const early6Stats = {
     depthLimited: false,
     minimumActive: Number.POSITIVE_INFINITY,
@@ -644,6 +781,7 @@ export function compressLz4Best(input: Uint8Array): Uint8Array {
         emptyProofs,
       ),
     () =>
+      fallback ??
       compressLz4Frame(
         input,
         SEARCH_DEPTH,
@@ -668,7 +806,7 @@ export function compressLz4Best(input: Uint8Array): Uint8Array {
   }
   // Short matches require a separate sequence and often an extra native copy.
   // Allow a small bounded size tradeoff only for a substantial estimated win,
-  // and never emit a larger frame than the original lz4js fast encoder.
+  // and never emit a larger frame than the compliant fast baseline.
   if (input.length >= 256) {
     const speed = requireFrame(
       compressLz4Frame(
@@ -710,6 +848,10 @@ export function compressLz4Best(input: Uint8Array): Uint8Array {
       30 * work.sequences + 2 * work.copies + work.extensions;
     let bestVmCost = vmCost(decodeWork(best));
     let smallerTie: Uint8Array | undefined;
+    // Keep up to four distinct size/work pairs for post-processing.
+    const portfolio: { stored: StoredFrame; cost: number }[] = [];
+    let selectedPortfolio: (typeof portfolio)[number] | undefined;
+    let tiePortfolio: (typeof portfolio)[number] | undefined;
     // Exhaustive profiles need no deeper repeats.
     const completeProfiles = new Set<string>();
     for (const [depth, lookahead, matches] of [
@@ -768,16 +910,40 @@ export function compressLz4Best(input: Uint8Array): Uint8Array {
         if (!stats.depthLimited) completeProfiles.add(profile);
         if (!candidate || candidate.length > sizeLimit) continue;
         const candidateCost = vmCost(decodeWork(candidate));
+        let inserted: (typeof portfolio)[number] | undefined;
+        if (
+          !portfolio.some(
+            (v) =>
+              v.cost === candidateCost && v.stored.length === candidate.length,
+          )
+        ) {
+          inserted = {
+            stored: storeFrame(candidate, input),
+            cost: candidateCost,
+          };
+          portfolio.push(inserted);
+          portfolio.sort(
+            (a, b) => a.cost - b.cost || a.stored.length - b.stored.length,
+          );
+          if (portfolio.length > 4 && portfolio.pop() === inserted)
+            inserted = undefined;
+        }
         if (candidateCost < bestVmCost) {
           best = candidate;
           bestVmCost = candidateCost;
+          selectedPortfolio = inserted;
           smallerTie = undefined;
+          tiePortfolio = undefined;
         } else if (
           candidateCost === bestVmCost &&
           candidate.length < (smallerTie?.length ?? best.length)
         ) {
           smallerTie = candidate;
+          tiePortfolio = inserted;
         }
+        // The pre-search best can be reused as an early candidate as well.
+        if (inserted && candidate === best) selectedPortfolio = inserted;
+        if (inserted && candidate === smallerTie) tiePortfolio = inserted;
       }
       if (depth === 2048 && lookahead === 1) {
         early4 = undefined;
@@ -813,6 +979,23 @@ export function compressLz4Best(input: Uint8Array): Uint8Array {
         (alternativeCost === originalCost && alternative.length < best.length)
       )
         best = alternative;
+    }
+    // Only replace the original result when neither size nor work increases.
+    let finalCost = vmCost(decodeWork(best));
+    for (const item of portfolio) {
+      if (item === selectedPortfolio || item === tiePortfolio) continue;
+      const post = finish(restoreFrame(item.stored, input));
+      const postCost = vmCost(decodeWork(post));
+      if (
+        post.length <= best.length &&
+        // A one-point estimate difference can reverse on the VM when a copy
+        // is traded for a length extension. Require a margin at equal size.
+        (postCost + 1 < finalCost ||
+          (postCost <= finalCost && post.length < best.length))
+      ) {
+        best = post;
+        finalCost = postCost;
+      }
     }
   }
   return best;

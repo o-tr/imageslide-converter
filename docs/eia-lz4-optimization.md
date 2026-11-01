@@ -1169,6 +1169,32 @@ to 547/556 ms. One private slide measured 24.55 → 24.92 seconds with identical
 bytes. That broader variant was not adopted; these samples do not establish
 browser performance.
 
+An independent synthetic audit compared the selected frame with the plain
+64-depth search frame on 1,000 generated inputs. The frames differed on 582;
+all 1,164 frames in those pairs decoded correctly in the TypeUdon/udon-rs
+probe. At equal size (87 pairs), the selected frame used fewer VM instructions
+in 70 and tied in 17. When the search frame was smaller (141 pairs), the
+selected frame used fewer instructions in all 141. When the selected frame
+was smaller (354 pairs), it also used fewer instructions in all 354. These are
+synthetic inputs, not measurements of Unity frame time or native extern cost.
+
+The same comparison on three private slides gave selected/search frame bytes
+50,811/50,826, 1,006,300/977,953 and 179,898/179,974. TypeUdon/udon-rs
+instruction counts were 7,889,496/11,319,315, 130,949,323/174,080,394 and
+23,227,655/34,343,404. All six frames decoded exactly. In the second case,
+the selected frame is larger but requires fewer VM instructions; this is a
+size/decode-work tradeoff, not a claim about Unity wall time or extern cost.
+
+Fallback search now stores empty-block proofs outside the bounded context
+cache so later profiles can reuse them after eviction. Three thousand
+synthetic cases matched the previous encoder. On a constructed 12 MiB-plus
+input with three match-free blocks and a nonconforming fast-frame tail, one
+instrumented Node pair recorded proof constructions 11 → 5 and proof hits
+19 → 25. Eight alternating Chrome samples gave median complete-encoder times
+1,303.8 → 669.0 ms; 12,584,511-byte outputs matched and decoded. A regression
+test checks the proofs and output after context eviction. This is a synthetic
+case and does not establish ordinary slide performance.
+
 For crop comparisons, an image already encoded by the per-conversion cache
 now uses its exact cached frame size instead of scanning the input to prove a
 lower bound. The comparison is against this encoder's output, so an exact
@@ -1300,21 +1326,18 @@ warmed alternating samples, while a single reverse-order private-slide
 encoding measured 24.00 → 24.40 seconds with identical output. The change was
 not adopted; these limited observations do not establish a general regression.
 
-The periodic index shortcut was extended from offset four to 16. Regression
-fixtures cover periods 5, 8, 16 and the offset-17 fallback. On a synthetic
-3 MiB input of long eight-byte-period runs, five warmed alternating Node
-measurements had median complete-encoder CPU times of 63.50 → 45.77 ms. A
-single reverse-order private slide comparison measured 26.44 → 24.26 seconds
-with identical bytes. These samples do not establish browser performance.
+The periodic index shortcut was extended from offset four to 16. Fixtures
+cover periods 5, 8, 16 and the offset-17 fallback. Five warmed Node samples on
+3 MiB of eight-byte-period runs gave median encoder CPU time 63.50 → 45.77 ms;
+a private slide was 26.44 → 24.26 seconds, byte-identical.
 
-Periodic insertion was then extended through offset 4,096 when at least four
-periods and 1,024 bytes remain to index. Frames for periods 17, 64, 512, 4,096
-and the 4,097 fallback matched the preceding implementation; 120 additional
-varied long-run searches and 12 complete encodings matched as well. On three
-synthetic 3 MiB inputs with 64-, 512- and 2,048-byte patterns, five warmed
-alternating Node samples gave medians of 88.39 → 63.42, 74.58 → 50.55 and
-93.73 → 75.13 ms. One private slide comparison was 24.27 → 24.11 seconds
-with identical output. These measurements do not establish browser performance.
+Periodic insertion was extended through offset 4,096 when at least four
+periods and 1,024 bytes remain. Frames for periods 17, 64, 512, 4,096 and the
+4,097 fallback, 120 varied searches and 12 complete encodings matched. On
+3 MiB inputs with 64-, 512- and 2,048-byte patterns, five warmed Node samples
+gave medians 88.39 → 63.42, 74.58 → 50.55 and 93.73 → 75.13 ms. A private
+slide was 24.27 → 24.11 seconds, byte-identical. Browser performance was not
+measured for these changes.
 
 The periodic insertion limit was raised to 16,383 bytes, covering 5,760-byte
 RGB, 7,680-byte RGBA and 11,520-byte RGB rows. Five Node samples gave median
@@ -1323,10 +1346,13 @@ A private slide was 24.36 → 24.38 seconds, byte-identical. Periodic bucket
 indices now use 16-bit storage, halving the table to at most 32,766 bytes.
 Chrome measured 18.56 / 18.28 / 18.44 / 18.35 seconds on one private slide
 (before/after/after/before); 50,811-byte frames matched and decoded.
-Each match context now reuses and grows its table. Instrumented runs on two
-private inputs reduced allocations 302 → 9 and 183 → 4; frames matched. A
-multi-block Node pair measured 18.82 → 18.82 CPU seconds. At most two cached
-tables retain 65,532 bytes; these are limited, non-browser measurements.
+Each match context now reuses and grows its table. Instrumented Node runs on
+two private inputs reduced allocations 302 → 9 and 183 → 4. Chrome measured
+18.34 / 18.21 / 18.19 / 18.15 seconds (before/after/after/before) on one input,
+7.09 → 7.22 seconds on another, and 21.78 → 21.52 seconds on a multi-block
+input (one pair each). All frames matched and decoded. A multi-block Node pair
+measured 18.82 → 18.82 CPU seconds. At most two tables retain 65,532 bytes.
+These limited samples do not demonstrate a consistent speed change.
 
 Extending the limit to 32,767 with a two-period minimum preserved frames but
 Chrome medians regressed 14.15 → 15.35 ms for period 23,040 and 14.80 →
@@ -1393,20 +1419,17 @@ Four 4 MiB-plus patterned, zero, random and mixed inputs had identical
 search statistics and bytes at six ceilings; unlimited frames decoded with
 lz4js. Another 160 varied small complete encodings matched and round-tripped.
 
-A statistics-only search matched four synthetic multiblock inputs at six
-ceilings, but private-slide Node CPU times were 19.66 / 20.65 / 20.62 /
-19.50 seconds (before/after/after/before); identical frames. Not adopted.
+Statistics-only search matched four synthetic multiblock inputs at six
+ceilings. Private-slide Node CPU: 19.66 / 20.65 / 20.62 / 19.50 s
+(before/after/after/before), identical frames; not adopted.
 
-Generation stamps slowed four Node scans: 1.95 → 2.55, 11.35 → 15.17,
-10.90 → 14.55 and 9.26 → 12.33 ms (12 batches of five).
+Generation stamps slowed Node scans: 1.95 → 2.55, 11.35 → 15.17,
+10.90 → 14.55 and 9.26 → 12.33 ms (12 batches of five). Rolling-word reads
+also slowed scans: 1.84 → 2.09, 11.67 → 13.15, 11.13 → 12.54 and 9.48 →
+10.63 ms (same input, targets and batches); bounds matched. Neither adopted.
 
-Rolling-word reads gave Node scan medians of 1.84 → 2.09, 11.67 → 13.15,
-11.13 → 12.54 and 9.48 → 10.63 ms (same input and targets; 12 batches of
-five). Initial bounds matched; this slower prototype was not adopted.
-
-Checking the early-stop bound every 1,024 unique hashes rather than 256 gave
-1.83 → 1.85, 11.66 → 11.66, 11.17 → 11.21 and 9.45 → 9.46 ms (same input,
-targets and samples). Initial decisions matched; the original remains.
+Checking every 1,024 instead of 256 hashes gave 1.83 → 1.85, 11.66 → 11.66,
+11.17 → 11.21 and 9.45 → 9.46 ms (same setup). Decisions matched; not adopted.
 These tests measure scans, not browser or full conversion.
 
 Reusing compressed-block buffers gave private-slide Node CPU times of 20.02 /
@@ -1455,3 +1478,142 @@ A fourth-position prototype matched 1,200 frames and stats. Two private inputs
 at depth 8192/lookahead 8 gave middle Node CPU pairs 1,733.54/1,741.68 →
 1,720.10/1,721.63 ms and 579.05/581.99 → 585.64/585.77 ms (four samples).
 Mixed results did not justify adoption; full conversion unmeasured.
+
+Frame scoring: two Node inputs, 25/18 calls and two repeats each. Repeats
+cost 0.19/1.49 ms of 16.21/7.78 s total. Caching not adopted; browser untested.
+
+Hash-chain array reuse: 1,200 inputs and stats matched. Chrome before/after/after/before: 17.81/18.06/17.66/18.02 s and 7.02/7.00/6.89/7.07 s; frames matched and decoded. Not adopted: up to 1 MiB retained for little observed benefit.
+
+When splitting EIA archives, each cropped slide base is now visited once while
+collecting dependencies; the original repeated full scans. A split-chain test
+checks that all ancestors remain in each archive. For synthetic chains of 100,
+1,000 and 5,000 slides, seven Node samples gave median closure-only times of
+0.245 -> 0.005, 4.16 -> 0.050 and 122.15 -> 0.228 ms. These worst-case chain
+measurements do not represent whole-conversion or browser performance.
+
+An exploratory post-pass on every size-eligible search candidate, followed by
+a final size ceiling no larger than the existing output, changed 16 of 500
+synthetic frames. All decoded with lz4js and had no higher estimated work; one
+changed 1,032 -> 1,031 bytes and work 3,376 -> 3,191. Two private inputs stayed
+byte-identical (single Node runs: 16.14 -> 16.24 and 8.50 -> 8.44 s). This is
+a prototype: VM instructions, browser cost and retained memory remain to be
+measured before considering adoption.
+
+For five of the changed synthetic frames, the TypeUdon/udon-rs probe verified
+exact decoding and instruction counts 136,540 -> 129,641, 99,612 -> 98,113,
+43,116 -> 34,614, 16,350 -> 13,254 and 75,254 -> 65,561. A Chrome private
+input with identical output took 7.04/7.44/7.37/6.88 s
+(before/after/after/before). Restricting post-passes to candidates within 30%
+of current estimated work still found all 16 synthetic improvements; Chrome
+on that input took 7.00/7.43/7.28/6.85 s. At 10%, only four improvements
+remained. These limited tests do not justify adoption yet.
+
+A bounded variant keeps up to four distinct size/work candidates and runs the
+post-pass after the main search; it replaces the existing output only if both
+size and estimated work do not increase. In 3,000 synthetic cases, 90 outputs
+changed, all passed lz4js round-trip and neither measure regressed. All five
+VM-verified examples above were rerun with this variant and matched.
+Chrome before/after/after/before was 7.04/7.04/7.02/6.88 s and
+17.79/17.83/17.94/18.14 s on two private inputs, with identical output. A
+small changed input measured about 1.82/1.82 ms per complete encoding (12
+warmed Chrome batches of 20). Up to four frame buffers can be retained; these
+limited inputs do not prove general browser performance or peak memory.
+
+A 12 MiB-plus synthetic multi-block fixture changed from 12,611,738 to
+12,611,725 bytes and estimated work 252,842 to 252,638; both decoded exactly.
+
+Portfolio entries now omit raw block payloads when they total at least 64 KiB
+and restore them from the unchanged input when evaluated. In the multi-block fixture,
+four candidates each contained 12 MiB of identical raw data. After a forced
+Node GC immediately after search, ArrayBuffer retention was 106,492,051 ->
+81,382,569 bytes (one run, not peak memory). Chrome complete-encoder times
+were 2.87/2.76/2.88/2.85 s (before/after/after/before); frames matched and
+decoded. Six mixed-block cases and 3,000 small cases also matched byte-for-byte.
+
+Increasing the portfolio from four to eight distinct size/work pairs changed
+no final frames in 3,000 synthetic cases or two private inputs; all decoded.
+The two private inputs both filled all eight slots. Chrome on one input took
+7.11/7.20/7.15/6.95 s (four/eight/eight/four); a single Node pair on the
+other took 16.06/16.13 s. The four-candidate limit remains; these bounded
+samples do not rule out improvements for other inputs.
+
+Checking portfolio rank before storing a candidate matched 3,000 synthetic
+frames and two private and one mixed-block input. Instrumented storage calls
+were 17 -> 15, 10 -> 9 and 4 -> 4; packing calls were 0 -> 0, 0 -> 0 and
+4 -> 4. Single Node times were 16.49 -> 16.44, 6.56 -> 6.38 and
+2.91 -> 2.89 s. The extra branching was not adopted without clearer benefit;
+browser performance was not measured.
+
+An audit of the 90 changed synthetic frames used the TypeUdon/udon-rs probe
+and liblz4: all 180 frames decoded with liblz4, and all 90 changed frames
+decoded in the VM probe. The previous frames yielded 22 probe status-9 errors;
+of the 68 pairs decoded by both, 67 used fewer VM instructions and one used
+more (68,645 -> 68,809). Its size was unchanged and estimated work dropped by
+only one point because one copy was replaced by one length extension. The
+portfolio now requires at least a two-point estimate reduction for equal-size
+choices. In 3,000 synthetic cases this changed only that frame back, retaining
+its size and 68,645 VM instructions. This guard is empirical and does not
+guarantee every model ranking. The 22 earlier status-9 failures need separate
+investigation; this test does not identify their cause.
+
+The earlier status-9 failures were not a VM-only discrepancy. All 22 old
+frames started their last match fewer than 12 bytes before the block end,
+violating the LZ4 block-end condition; liblz4 accepted them permissively.
+An audit of 3,000 synthetic inputs found 272 nonconforming lz4js fast frames
+and 177 nonconforming final frames in the preceding encoder. The encoder now
+checks fast-frame block endings and uses its conforming search encoder as the
+baseline when necessary. All 3,000 outputs passed the independent end-condition
+check and lz4js round-trip; 199 formerly nonconforming outputs from the earlier
+encoder were also decoded exactly by the TypeUdon/udon-rs probe. The compliant
+output can be larger than a nonconforming lz4js frame.
+
+For one private slide whose frame remained unchanged, Chrome measured complete
+encoding at 7.082/7.100/7.020/7.080 s (before/after/after/before). This
+does not measure inputs that require the additional fallback search.
+
+Replacing only the last invalid fast match with literals produced compliant
+frames but made 202 of 3,000 synthetic outputs larger than the search fallback
+(up to 117 bytes); it was not adopted. Instead, the fallback search frame and
+its depth statistics are reused for the later identical profile. All 3,000
+synthetic cases, six mixed-block cases, and a 12 MiB multi-block fixture matched
+the preceding compliant encoder byte-for-byte and decoded. On a 4 MiB-plus
+fixture requiring fallback, Chrome measured 0.730/0.577/0.600/0.691 s
+(before/after/after/before); these are limited synthetic measurements.
+
+A prototype combined fast-frame end validation with the decoder-work scan.
+All 3,000 synthetic outputs matched. Chrome on a private slide measured
+7.310/7.302/7.219/7.176 s (before/after/after/before). On a 4 MiB-plus
+synthetic fallback case, 12 warmed alternating samples had medians
+580.8 -> 592.4 ms. The combined scanner was not adopted; the limited samples
+do not demonstrate a general regression or measure all devices.
+
+Fallback search contexts are now reused by later profiles. Three thousand
+synthetic inputs and six mixed-block inputs matched byte-for-byte. On a private
+slide with a crafted nonconforming tail, one instrumented Node pair reduced
+prefix-table allocations from two to one. Chrome complete-encoder times were
+18.71/17.65/17.71/17.47 s (before/after/after/before), identical frames. A
+4 MiB-plus mixed synthetic input measured 0.597/0.589/0.585/0.585 s. These
+limited timings do not establish a general browser speedup.
+
+A one-line lz4js match-start fix changed 272 of 3,000 fast frames; all 272
+round-tripped through the TypeUdon/udon-rs probe. Using those corrected fast
+frames directly as the baseline changed 204 final outputs: 202 were larger
+(up to 117 bytes), none were smaller, and 202 had lower estimated decoder work. This trades space for work rather than preserving the existing size
+ceiling, so the prototype was not adopted. VM speed of those final-frame
+tradeoffs was not measured.
+
+When the rejected fast frame is at least 90% of the input size, the fallback
+search now defers prefix-table construction just like later sparse searches.
+Three thousand synthetic inputs, six mixed-block inputs and a 12 MiB fixture
+produced identical frames. On a 4 MiB-plus mixed input, an instrumented Node
+pair avoided two prefix allocations of 16,777,220 and 262,148 bytes. Twelve
+warmed alternating Chrome samples had median complete-encoder times of
+599.4 → 585.1 ms. These measurements do not establish peak memory or general
+browser performance.
+
+Cycle validation now memoizes chains proven acyclic within one synchronous EIA
+part serialization. A 1,000-graph differential test preserved outputs and
+error messages, and a regression test checks that cycles are still rejected.
+For a 350-slide chain of 1×1 images with compression stubbed, 12 warmed
+alternating Chrome samples gave median serialization times of 2.3 → 0.8 ms;
+archives matched byte-for-byte. This does not measure real slide compression.
