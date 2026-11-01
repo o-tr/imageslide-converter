@@ -8,7 +8,11 @@ import {
 import { SelectedFilesAtom } from "@/atoms/file-drop";
 import { useRouter } from "@/compat/navigation";
 import { Alert, Button, Flex, Spin } from "@/components/primitives";
-import { FileSizeLimit, TargetVersions } from "@/const/convert";
+import {
+  EIA_SIZE_LIMIT_ERROR,
+  FileSizeLimit,
+  TargetVersions,
+} from "@/const/convert";
 import { postCompress } from "@/lib/workerService/postCompress";
 import { getAvailableFormats } from "@/utils/getAvailableFormats";
 import { useAtomValue, useSetAtom } from "jotai";
@@ -20,7 +24,7 @@ export const Convert: FC = () => {
   const _files = useAtomValue(SelectedFilesAtom);
   const [completed, setCompleted] = useState(0);
   const [phase, setPhase] = useState<"prepare" | "crop">("prepare");
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<boolean | "size-limit">(false);
   const _resolution = useAtomValue(TargetResolutionAtom);
   const setResults = useSetAtom(ResultAtom);
   const version = useMemo(() => {
@@ -84,7 +88,11 @@ export const Convert: FC = () => {
         setResults(undefined);
         initRef.current = false;
         console.error("Compression failed:", e);
-        setFailed(true);
+        setFailed(
+          e instanceof Error && e.message.includes(EIA_SIZE_LIMIT_ERROR)
+            ? "size-limit"
+            : true,
+        );
       });
   }, [
     version,
@@ -100,7 +108,14 @@ export const Convert: FC = () => {
     return (
       <div className="grid flex-1 place-items-center px-4">
         <Flex vertical gap="middle" className="w-full max-w-lg">
-          <Alert type="error" message="変換に失敗しました" />
+          <Alert
+            type="error"
+            message={
+              failed === "size-limit"
+                ? `変換後のサイズが上限(${Math.floor(FileSizeLimit / 1024 / 1024)}MB)を超えました。スライド枚数を減らすか、解像度を下げてください。`
+                : "変換に失敗しました"
+            }
+          />
           <Button onClick={() => router.push("/convert/pick")}>
             編集に戻る
           </Button>

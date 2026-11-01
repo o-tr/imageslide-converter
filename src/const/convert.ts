@@ -12,6 +12,8 @@ import {
 } from "@/lib/selectedFiles2textZip";
 
 export const FileSizeLimit = 95 * 1024 * 1024;
+/** Prefix of the error thrown when an EIA archive would exceed FileSizeLimit. */
+export const EIA_SIZE_LIMIT_ERROR = "EIA_SIZE_LIMIT_EXCEEDED";
 export const ActualFileSizeLimit = 100 * 1024 * 1024;
 
 export const TargetVersions: {

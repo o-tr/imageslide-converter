@@ -13,7 +13,7 @@ import type {
   EIASignageManifest,
 } from "@/_types/eia/v1";
 import type { RawImageObjV1Cropped } from "@/_types/text-zip/v1";
-import { FileSizeLimit } from "@/const/convert";
+import { EIA_SIZE_LIMIT_ERROR, FileSizeLimit } from "@/const/convert";
 import { hasSimilarPixels } from "./animationSimilarity";
 import { type EiaCompressionCache, equalBytes } from "./compressionCache";
 import { compressLz4Best } from "./lz4Search";
@@ -37,131 +37,40 @@ type FrameDimensions = { w: number; h: number };
 export const compressEIAv1 = async (
   data: RawImageObjV1Cropped[],
   signage?: EIASignageManifest,
-  count = 1,
-  stepSize = 10,
   animationMap?: Map<number, RawAnimationData[]>,
   compressionCache?: EiaCompressionCache,
 ): Promise<Buffer[]> => {
-  if (!Number.isInteger(count) || count <= 0) {
-    throw new Error(`Invalid count: ${count} (must be a positive integer)`);
-  }
-  if (!Number.isInteger(stepSize) || stepSize <= 0) {
-    throw new Error(
-      `Invalid stepSize: ${stepSize} (must be a positive integer)`,
-    );
-  }
   if (data.length === 0) return [];
 
-  const normalizedStepSize = Math.max(1, Math.min(stepSize, data.length));
-  const partCount =
-    Math.ceil(data.length / (count * normalizedStepSize)) * normalizedStepSize;
-  const calculatePartCount = (targetCount: number, targetStepSize: number) =>
-    Math.ceil(data.length / (targetCount * targetStepSize)) * targetStepSize;
-  const result: Buffer[] = [];
+  // Decoders need every base before the slides that reference it.
   const imagesByIndex = new Map<number, RawImageObjV1Cropped>();
   for (const image of data) imagesByIndex.set(image.index, image);
+  const orderedImages: RawImageObjV1Cropped[] = [];
+  const orderedVisited = new Set<number>();
+  const visitImage = (index: number) => {
+    if (orderedVisited.has(index)) return;
+    const image = imagesByIndex.get(index);
+    if (!image) return;
+    orderedVisited.add(index);
+    if (image.cropped) visitImage(image.cropped.baseIndex);
+    orderedImages.push(image);
+  };
+  for (const image of data) visitImage(image.index);
 
-  for (let i = 0; i < count; i++) {
-    const partStart = i * partCount;
-    const partEnd = (i + 1) * partCount;
-    const part = data.slice(partStart, partEnd);
-    if (part.length === 0) break;
-
-    const partIndices = new Set(part.map((image) => image.index));
-    // Set iteration visits newly added bases, so each dependency is checked once.
-    for (const index of partIndices) {
-      const image = imagesByIndex.get(index);
-      if (image?.cropped) partIndices.add(image.cropped.baseIndex);
-    }
-    const partImages = data.filter((image) => partIndices.has(image.index));
-    const partImageSet = new Set(partImages.map((image) => image.index));
-    const partIndexMap = new Map(
-      partImages.map((image) => [image.index, image]),
+  const compressed = await compressEIAv1Part(
+    orderedImages,
+    signage,
+    animationMap,
+    compressionCache,
+  );
+  // The player cannot load a larger file, and splitting a deck across files
+  // is not supported: reject so the caller can ask for fewer or smaller slides.
+  if (compressed.length > FileSizeLimit) {
+    throw new Error(
+      `${EIA_SIZE_LIMIT_ERROR}: compressed size ${compressed.length} exceeds the limit of ${FileSizeLimit} bytes`,
     );
-    const orderedPartImages: RawImageObjV1Cropped[] = [];
-    const orderedVisited = new Set<number>();
-    const visitImage = (index: number) => {
-      if (orderedVisited.has(index) || !partImageSet.has(index)) return;
-      orderedVisited.add(index);
-      const image = partIndexMap.get(index);
-      if (image?.cropped) visitImage(image.cropped.baseIndex);
-      orderedPartImages.push(image ?? (undefined as never));
-    };
-    for (const image of partImages) visitImage(image.index);
-
-    // Build animation map for this part's indices
-    let partAnimMap: Map<number, RawAnimationData[]> | undefined;
-    if (animationMap) {
-      partAnimMap = new Map();
-      for (const image of orderedPartImages) {
-        const anims = animationMap.get(image.index);
-        if (anims) partAnimMap.set(image.index, anims);
-      }
-      if (partAnimMap.size === 0) partAnimMap = undefined;
-    }
-    const compressedPart = await compressEIAv1Part(
-      orderedPartImages,
-      signage,
-      partAnimMap,
-      compressionCache,
-    );
-
-    if (compressedPart.length > FileSizeLimit) {
-      if (part.length <= 1) {
-        throw new Error(
-          `Slide at index ${part[0]?.index ?? "?"} exceeds file size limit ` +
-            `(${compressedPart.length} > ${FileSizeLimit}) and cannot be split further`,
-        );
-      }
-
-      const reducedStepSize = Math.max(1, Math.floor(normalizedStepSize / 2));
-      const stepCandidates =
-        reducedStepSize < normalizedStepSize
-          ? [reducedStepSize, normalizedStepSize]
-          : [normalizedStepSize];
-
-      let nextSplit: { count: number; stepSize: number } | null = null;
-      for (const candidateStepSize of stepCandidates) {
-        const startCount =
-          candidateStepSize === normalizedStepSize ? count + 1 : 1;
-        for (
-          let candidateCount = startCount;
-          candidateCount <= data.length;
-          candidateCount++
-        ) {
-          if (
-            calculatePartCount(candidateCount, candidateStepSize) < partCount
-          ) {
-            nextSplit = {
-              count: candidateCount,
-              stepSize: candidateStepSize,
-            };
-            break;
-          }
-        }
-        if (nextSplit) break;
-      }
-
-      if (!nextSplit) {
-        throw new Error(
-          `Unable to split oversized EIA part for slide index ${part[0]?.index ?? "?"}`,
-        );
-      }
-
-      return compressEIAv1(
-        data,
-        signage,
-        nextSplit.count,
-        nextSplit.stepSize,
-        animationMap,
-        compressionCache,
-      );
-    }
-
-    result.push(compressedPart);
   }
-
-  return result;
+  return [compressed];
 };
 
 const compressEIAv1Part = async (

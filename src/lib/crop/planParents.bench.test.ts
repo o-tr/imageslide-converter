@@ -101,7 +101,7 @@ const measure = async (
   const t0 = performance.now();
   const cropped = crop(cache);
   const t1 = performance.now();
-  const out = await compressEIAv1(cropped, undefined, 1, 10, undefined, cache);
+  const out = await compressEIAv1(cropped, undefined, undefined, cache);
   if (process.env.CROP_WRITE && out.length === 1)
     writeFileSync(
       `${process.env.CROP_WRITE}/${label.replace(/[^a-z0-9]+/gi, "_")}.eia`,

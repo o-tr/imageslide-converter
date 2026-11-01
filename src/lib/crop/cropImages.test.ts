@@ -166,16 +166,12 @@ describe("EIA crop selection", () => {
     const [withCache] = await compressEIAv1(
       frames,
       undefined,
-      1,
-      10,
       undefined,
       cached,
     );
     const [withoutHit] = await compressEIAv1(
       frames,
       undefined,
-      1,
-      10,
       undefined,
       new EiaCompressionCache(lz4.compress),
     );
@@ -202,14 +198,7 @@ describe("EIA crop selection", () => {
       optimizeEia: true,
       compressionCache: cache,
     });
-    const [cached] = await compressEIAv1(
-      images,
-      undefined,
-      1,
-      10,
-      undefined,
-      cache,
-    );
+    const [cached] = await compressEIAv1(images, undefined, undefined, cache);
     const [uncached] = await compressEIAv1(images);
     expect(cached).toEqual(uncached);
   });
@@ -344,8 +333,6 @@ describe("EIA crop selection", () => {
     const [archive] = await compressEIAv1(
       [image(0, pixels)],
       undefined,
-      1,
-      10,
       animations,
     );
     vi.stubGlobal(
@@ -379,34 +366,6 @@ describe("EIA crop selection", () => {
       { optimizeEia: true },
     );
     expect(output[1].cropped).toBeUndefined();
-  });
-
-  it("includes every ancestor when splitting a chain of cropped slides", async () => {
-    const slides = Array.from({ length: 5 }, (_, index) => {
-      const pixels = Buffer.from([index, index, index]);
-      return {
-        ...image(index, pixels, 1, 1),
-        cropped:
-          index === 0
-            ? undefined
-            : {
-                baseIndex: index - 1,
-                merged: pixels,
-                rects: [
-                  { index: 0, x: 0, y: 0, width: 1, height: 1, buffer: pixels },
-                ],
-              },
-      };
-    });
-    const archives = await compressEIAv1(slides, undefined, 5, 1);
-    expect(archives).toHaveLength(5);
-    for (const [i, archive] of archives.entries()) {
-      const end = archive.indexOf("$");
-      const manifest = JSON.parse(archive.subarray(4, end).toString());
-      expect(manifest.i.map((entry: { n: string }) => entry.n)).toEqual(
-        Array.from({ length: i + 1 }, (_, index) => String(index)),
-      );
-    }
   });
 
   it("rejects circular crop references", async () => {

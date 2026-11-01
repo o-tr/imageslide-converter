@@ -122,8 +122,6 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
   return await compressEIAv1(
     croppedImages,
     signage,
-    1,
-    keyframeInterval,
     animationMap,
     compressionCache,
   );
