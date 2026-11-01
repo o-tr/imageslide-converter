@@ -1,0 +1,16 @@
+overrides:
+  "cookie@<0.7.0": ">=0.7.0"
+  "fast-xml-parser@>=4.0.0-beta.3 <5.7.0": ">=5.7.0"
+  "fast-xml-builder@<1.1.7": ">=1.1.7"
+  "source-map-js@<1.2.2": ">=1.2.2"
+  "browserslist@<4.28.7": ">=4.28.7"
+  "baseline-browser-mapping@<2.11.0": ">=2.11.0"
+  "@babel/core@<7.29.6": ">=7.29.6"
+allowBuilds:
+  "@biomejs/biome": true
+  "@prisma/client": true
+  "@prisma/engines": true
+  "lefthook": true
+  "prisma": true
+minimumReleaseAgeExclude:
+  - seroval@1.7.6
