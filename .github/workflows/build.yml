@@ -46,3 +46,15 @@ jobs:
           context: .
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG_NAME }}
+
+      # nginx serves the static assets and the font image volume, and proxies
+      # everything else to the app container, so it ships alongside the app.
+      - name: Build and push frontend (nginx) image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/nginx/Dockerfile
+          build-args: |
+            APP_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG_NAME }}
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:${{ env.TAG_NAME }}
