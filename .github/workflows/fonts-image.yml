@@ -1,25 +1,25 @@
 name: fonts-image
 
 # Publishes the Google Fonts catalog image that Kubernetes mounts as an image
-# volume for nginx (see docs/deckcraft-poc.md). It is large and changes rarely,
-# so it only builds when its inputs change or when run by hand. Reference the
-# digest shown in the job summary from the Deployment.
+# volume for nginx (see docs/deckcraft-poc.md). Its content is fixed by the
+# google/fonts commit pinned in docker/fonts/Dockerfile and the tag is that
+# commit, so the image is built only when the tag is missing from the registry.
+# Release tags and manual runs both just make sure it exists; reference the
+# digest from the job summary in the Deployment.
 on:
   workflow_dispatch:
   push:
-    branches:
-      - master
-    paths:
-      - docker/fonts/**
-      - scripts/create-google-font-pack.py
-      - .github/workflows/fonts-image.yml
+    branches-ignore:
+      - "**"
+    tags:
+      - "v*"
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}-google-fonts
 
 jobs:
-  build-and-push-fonts-image:
+  ensure-fonts-image:
     runs-on: ubuntu-latest
 
     permissions:
@@ -46,8 +46,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Check whether the image already exists
+        id: exists
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.rev.outputs.short }}
+        run: |
+          if digest=$(docker buildx imagetools inspect "$IMAGE" --format '{{.Manifest.Digest}}' 2>/dev/null); then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and push font image
         id: push
+        if: steps.exists.outputs.found != 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -56,5 +69,7 @@ jobs:
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.rev.outputs.short }}
 
       - name: Show the image digest
+        env:
+          DIGEST: ${{ steps.exists.outputs.found == 'true' && steps.exists.outputs.digest || steps.push.outputs.digest }}
         run: |
-          echo "Font image: ${REGISTRY}/${IMAGE_NAME}@${{ steps.push.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Font image: ${REGISTRY}/${IMAGE_NAME}@${DIGEST}" >> "$GITHUB_STEP_SUMMARY"
