@@ -2,10 +2,11 @@ name: fonts-image
 
 # Publishes the Google Fonts catalog image that Kubernetes mounts as an image
 # volume for nginx (see docs/deckcraft-poc.md). Its content is fixed by the
-# google/fonts commit pinned in docker/fonts/Dockerfile and the tag is that
-# commit, so the image is built only when the tag is missing from the registry.
-# Release tags and manual runs both just make sure it exists; reference the
-# digest from the job summary in the Deployment.
+# google/fonts commit pinned in docker/fonts/Dockerfile and by the packaging
+# files, so the tag is <commit>-<hash of docker/fonts/Dockerfile and
+# scripts/create-google-font-pack.py> and the image is built only when that tag
+# is missing from the registry. Release tags and manual runs both just make sure
+# it exists; reference the digest from the job summary in the Deployment.
 on:
   workflow_dispatch:
   push:
@@ -29,12 +30,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Read pinned google/fonts revision
+      - name: Compute the image version
         id: rev
         run: |
           rev=$(sed -n 's/^ARG GOOGLE_FONTS_REV=//p' docker/fonts/Dockerfile)
           test -n "$rev"
-          echo "short=${rev:0:12}" >> "$GITHUB_OUTPUT"
+          pack=$(cat docker/fonts/Dockerfile scripts/create-google-font-pack.py | sha256sum | cut -c1-8)
+          echo "short=${rev:0:12}-${pack}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

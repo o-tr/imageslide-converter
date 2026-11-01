@@ -32,7 +32,7 @@ The embedded browser build puts Back and Export in DeckCraft's title bar, hides 
 
 ## Offline Google Fonts image volume
 
-An optional, separately versioned OCI image can contain the Google Fonts catalog. The `fonts-image` workflow runs on release tags and by hand; it publishes the image to `ghcr.io/<repository>-google-fonts:<revision>` only when that tag is missing (the content is fixed by the pinned google/fonts commit) and prints the digest in the job summary. To build it yourself, run from the repository root and push it to a registry:
+An optional, separately versioned OCI image can contain the Google Fonts catalog. The `fonts-image` workflow runs on release tags and by hand; it publishes the image to `ghcr.io/<repository>-google-fonts:<revision>-<pack>` only when that tag is missing (the content is fixed by the pinned google/fonts commit, and `<pack>` is a hash of `docker/fonts/Dockerfile` and `scripts/create-google-font-pack.py`, so packaging fixes get a new tag too) and prints the digest in the job summary. To build it yourself, run from the repository root and push it to a registry:
 
 ```sh
 docker build -f docker/fonts/Dockerfile -t YOUR_REGISTRY/imageslide-google-fonts:YOUR_VERSION .
