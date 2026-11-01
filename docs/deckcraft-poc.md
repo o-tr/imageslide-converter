@@ -32,7 +32,7 @@ The embedded browser build puts Back and Export in DeckCraft's title bar, hides 
 
 ## Offline Google Fonts image volume
 
-An optional, separately versioned OCI image can contain the Google Fonts catalog. Build it from the repository root and push it to a registry:
+An optional, separately versioned OCI image can contain the Google Fonts catalog. The `fonts-image` workflow publishes it to `ghcr.io/<repository>-google-fonts:<revision>` when its inputs change on `master` or when run by hand, and prints the digest in the job summary. To build it yourself, run from the repository root and push it to a registry:
 
 ```sh
 docker build -f docker/fonts/Dockerfile -t YOUR_REGISTRY/imageslide-google-fonts:YOUR_VERSION .
@@ -41,7 +41,7 @@ docker push YOUR_REGISTRY/imageslide-google-fonts:YOUR_VERSION
 
 The build uses the pinned `google/fonts` commit in the Dockerfile, indexes the `ofl`, `apache`, and `ufl` directories, and packages supported TTF/OTF files alongside each family's license and metadata. This is a large image; updating its font revision is a deliberate, separate operation. Use the published image digest in `deploy/font-image-volume.example.yaml`, adapting the fragment to the actual Deployment.
 
-Build the frontend image from the app image with `docker build -f docker/nginx/Dockerfile --build-arg APP_IMAGE=YOUR_APP_IMAGE -t YOUR_FRONTEND_IMAGE .`. Nginx serves static frontend assets and proxies requests to the app container, while serving `/deckcraft-fonts/catalog.json` and `/deckcraft-fonts/fonts/` directly from the read-only font image volume. The image volume feature is stable and enabled by default from Kubernetes 1.36; earlier Kubernetes versions and the container runtime must support it. The repository currently has no deployment manifest, so the example is a fragment rather than a ready-to-apply Deployment.
+The tag workflow also publishes the frontend image as `ghcr.io/<repository>-frontend:<tag>` next to the app image. To build it yourself, use `docker build -f docker/nginx/Dockerfile --build-arg APP_IMAGE=YOUR_APP_IMAGE -t YOUR_FRONTEND_IMAGE .`. Nginx serves static frontend assets and proxies requests to the app container, while serving `/deckcraft-fonts/catalog.json` and `/deckcraft-fonts/fonts/` directly from the read-only font image volume. The image volume feature is stable and enabled by default from Kubernetes 1.36; earlier Kubernetes versions and the container runtime must support it. The repository currently has no deployment manifest, so the example is a fragment rather than a ready-to-apply Deployment.
 
 For local Vite development, set `DECKCRAFT_FONT_DIR` to a font pack directory; the default is `public/deckcraft/fonts`. A pack can be generated from a checkout of `google/fonts` with `python3 scripts/create-google-font-pack.py /path/to/google/fonts public/deckcraft/fonts`. The editor reports an error when the catalog or required UI fonts are unavailable.
 
