@@ -8,8 +8,14 @@ import { shrinkOverlapBoundingBox } from "@/lib/crop/shrinkOverlapBoundingBox";
 import type { EiaCompressionCache } from "@/lib/eia/compressionCache";
 import { compressLz4Best } from "@/lib/eia/lz4Search";
 import { lz4FrameSizeLowerBound } from "@/lib/eia/lz4SizeBound";
+import { rgb242diff } from "@/lib/rawImage2Diff/rgb242diff";
 import { computeThumbnail } from "./computeThumbnail";
-import { type ParentCandidate, selectBestParent } from "./selectBestParent";
+import type { ParentPlan } from "./planParents";
+import {
+  type BestParentResult,
+  type ParentCandidate,
+  selectBestParent,
+} from "./selectBestParent";
 
 export interface CropOptions {
   onProgress?: (completed: number, total: number) => void;
@@ -20,6 +26,8 @@ export interface CropOptions {
   maxNestingDepth?: number;
   optimizeEia?: boolean;
   compressionCache?: EiaCompressionCache;
+  /** Explicit dependency forest; replaces keyframes and parent search. */
+  parentPlan?: ParentPlan;
 }
 
 export const cropImages = (
@@ -91,62 +99,14 @@ export const cropImages = (
     }
   };
 
-  const firstImage = rawImages[0];
-  addAsMaster(
-    firstImage,
-    computeThumbnail(
-      firstImage.buffer,
-      firstImage.rect.width,
-      firstImage.rect.height,
-      thumbnailGridSize,
-    ),
-    0,
-    true,
-  );
-  options?.onProgress?.(1, rawImages.length);
-
-  for (let i = 1; i < rawImages.length; i++) {
-    if (i > 1) options?.onProgress?.(i, rawImages.length);
-    const currentImage = rawImages[i];
-
-    const currentThumbnail = computeThumbnail(
-      currentImage.buffer,
-      currentImage.rect.width,
-      currentImage.rect.height,
-      thumbnailGridSize,
-    );
-
-    // Keyframe: store as master file
-    if (keyframeInterval > 0 && i % keyframeInterval === 0) {
-      addAsMaster(currentImage, currentThumbnail, i, true);
-      evictOldEntries(i);
-      continue;
-    }
-
-    // Filter candidates whose nesting depth would not exceed the limit
-    const eligibleCandidates = candidates.filter(
-      (c) =>
-        (depths.get(c.index) ?? 0) < maxNestingDepth &&
-        c.rect.width === currentImage.rect.width &&
-        c.rect.height === currentImage.rect.height,
-    );
-
-    // Find the best parent among eligible candidates
-    const bestParent = selectBestParent(
-      currentImage,
-      currentThumbnail,
-      eligibleCandidates,
-      parentBuffers,
-      parentSearchTopK,
-    );
-
-    // If no suitable parent found or depth limit leaves no candidates, store as master
-    if (!bestParent) {
-      addAsMaster(currentImage, currentThumbnail, i);
-      evictOldEntries(i);
-      continue;
-    }
-
+  // Encode `currentImage` against the chosen parent, or register it as a master
+  // when the delta is not worthwhile. Callers handle window eviction.
+  const encodeAgainstParent = (
+    currentImage: RawImageObjV1,
+    currentThumbnail: Uint8Array,
+    i: number,
+    bestParent: BestParentResult,
+  ): void => {
     // The selected mask is private to this iteration and is not needed after
     // component extraction, so it can double as the visited-pixel workspace.
     const diffBox = diff2boundingBox(
@@ -195,8 +155,7 @@ export const cropImages = (
         !(options?.optimizeEia && parentBuffer.equals(currentImage.buffer)))
     ) {
       addAsMaster(currentImage, currentThumbnail, i);
-      evictOldEntries(i);
-      continue;
+      return;
     }
 
     const packedPayload = options?.optimizeEia
@@ -322,8 +281,7 @@ export const cropImages = (
         masterLength + String(masterLength).length <= deltaFixedCost
       ) {
         addAsMaster(currentImage, currentThumbnail, i);
-        evictOldEntries(i);
-        continue;
+        return;
       }
     }
     const parentProxy: RawImageObjV1Cropped = {
@@ -375,6 +333,151 @@ export const cropImages = (
       rect: currentImage.rect,
     });
     parentBuffers.set(currentImage.index, merged);
+  };
+
+  const plan = options?.parentPlan;
+  if (plan) {
+    if (plan.order.length !== rawImages.length)
+      throw new Error("parentPlan does not cover every image");
+    const noThumbnail = new Uint8Array(0);
+    const remainingChildren = new Map<number, number>();
+    for (const parent of plan.parents) {
+      if (parent !== null)
+        remainingChildren.set(parent, (remainingChildren.get(parent) ?? 0) + 1);
+    }
+    for (const [k, pos] of plan.order.entries()) {
+      options?.onProgress?.(k + 1, rawImages.length);
+      const image = rawImages[pos];
+      const parentPos = plan.parents[pos];
+      if (parentPos === null) {
+        addAsMaster(image, noThumbnail, pos, true);
+        continue;
+      }
+      const parent = rawImages[parentPos];
+      const parentBuffer = parentBuffers.get(parent.index);
+      if (!parentBuffer)
+        throw new Error("parentPlan lists a child before its parent");
+      if (
+        options?.optimizeEia &&
+        parent.rect.width === image.rect.width &&
+        parent.rect.height === image.rect.height &&
+        parent.buffer.equals(image.buffer)
+      ) {
+        // Source-identical slides show whatever the parent shows, even when
+        // the parent's reconstruction differs slightly from its source.
+        croppedImages.push({
+          ...image,
+          cropped: {
+            baseIndex: parent.index,
+            rects: [
+              {
+                index: 0,
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+                buffer: Buffer.from(parentBuffer.subarray(0, 3)),
+              },
+            ],
+            merged: parentBuffer,
+          },
+        });
+        parentBuffers.set(image.index, parentBuffer);
+        continue;
+      }
+      const stats = {
+        count: 0,
+        stopAt: Number.POSITIVE_INFINITY,
+        hasSuppressedDifferences: false,
+      };
+      const diff = rgb242diff(
+        {
+          index: parent.index,
+          rect: parent.rect,
+          format: image.format,
+          buffer: parentBuffer,
+        },
+        image,
+        stats,
+      );
+      encodeAgainstParent(image, noThumbnail, pos, {
+        parent: {
+          index: parent.index,
+          thumbnail: noThumbnail,
+          rect: parent.rect,
+        },
+        diff,
+        hasSuppressedDifferences: stats.hasSuppressedDifferences,
+      });
+      const left = (remainingChildren.get(parentPos) ?? 1) - 1;
+      remainingChildren.set(parentPos, left);
+      if (left === 0 && parent.index !== image.index) {
+        parentBuffers.delete(parent.index);
+      }
+    }
+    const rank = new Map(rawImages.map((image, pos) => [image.index, pos]));
+    return croppedImages.sort(
+      (a, b) => (rank.get(a.index) ?? 0) - (rank.get(b.index) ?? 0),
+    );
+  }
+
+  const firstImage = rawImages[0];
+  addAsMaster(
+    firstImage,
+    computeThumbnail(
+      firstImage.buffer,
+      firstImage.rect.width,
+      firstImage.rect.height,
+      thumbnailGridSize,
+    ),
+    0,
+    true,
+  );
+  options?.onProgress?.(1, rawImages.length);
+
+  for (let i = 1; i < rawImages.length; i++) {
+    if (i > 1) options?.onProgress?.(i, rawImages.length);
+    const currentImage = rawImages[i];
+
+    const currentThumbnail = computeThumbnail(
+      currentImage.buffer,
+      currentImage.rect.width,
+      currentImage.rect.height,
+      thumbnailGridSize,
+    );
+
+    // Keyframe: store as master file
+    if (keyframeInterval > 0 && i % keyframeInterval === 0) {
+      addAsMaster(currentImage, currentThumbnail, i, true);
+      evictOldEntries(i);
+      continue;
+    }
+
+    // Filter candidates whose nesting depth would not exceed the limit
+    const eligibleCandidates = candidates.filter(
+      (c) =>
+        (depths.get(c.index) ?? 0) < maxNestingDepth &&
+        c.rect.width === currentImage.rect.width &&
+        c.rect.height === currentImage.rect.height,
+    );
+
+    // Find the best parent among eligible candidates
+    const bestParent = selectBestParent(
+      currentImage,
+      currentThumbnail,
+      eligibleCandidates,
+      parentBuffers,
+      parentSearchTopK,
+    );
+
+    // If no suitable parent found or depth limit leaves no candidates, store as master
+    if (!bestParent) {
+      addAsMaster(currentImage, currentThumbnail, i);
+      evictOldEntries(i);
+      continue;
+    }
+
+    encodeAgainstParent(currentImage, currentThumbnail, i, bestParent);
 
     evictOldEntries(i);
   }

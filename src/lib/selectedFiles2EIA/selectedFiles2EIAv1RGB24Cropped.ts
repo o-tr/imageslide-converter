@@ -3,6 +3,11 @@ import type { RawAnimationData } from "@/_types/eia/rawAnimationData";
 import type { EIASignageManifest } from "@/_types/eia/v1";
 import type { SelectedFile } from "@/_types/file-picker";
 import type { RawImageObjV1, RawImageObjV1Cropped } from "@/_types/text-zip/v1";
+import {
+  IMAGE_NEAR_LOSSLESS_TOLERANCE,
+  SLIDE_PARENT_DEPTH_PENALTY,
+  SLIDE_PARENT_MAX_DEPTH,
+} from "@/const/config";
 import { IMAGE_FORMAT_RGB24 } from "@/const/imageFormat";
 import { canvas2rgb24 } from "@/lib/canvas2rawImage/canvas2rgb24";
 import {
@@ -11,7 +16,10 @@ import {
 } from "@/lib/eia/animationCache";
 import { compressEIAv1 } from "@/lib/eia/compressEIAv1";
 import { EiaCompressionCache } from "@/lib/eia/compressionCache";
+import lz4 from "lz4js";
 import { cropImages } from "../crop/cropImages";
+import { nearLossless } from "../crop/nearLossless";
+import { planParents } from "../crop/planParents";
 
 const keyframeInterval = 10;
 const canvasToBuffer = (canvas: OffscreenCanvas) => {
@@ -31,15 +39,27 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
     },
     format: IMAGE_FORMAT_RGB24,
     note: file.note,
-    buffer: canvasToBuffer(file.canvas),
+    buffer: nearLossless(
+      canvasToBuffer(file.canvas),
+      file.canvas.width,
+      file.canvas.height,
+      IMAGE_NEAR_LOSSLESS_TOLERANCE,
+    ),
   }));
   console.log(
     `before compress size: ${rawImages.reduce((acc, cur) => acc + cur.buffer.length, 0)}`,
   );
 
   const compressionCache = new EiaCompressionCache();
+  // Parents and keyframes come from a similarity graph over the whole deck
+  // instead of a fixed keyframe interval and a sliding window.
+  const parentPlan = planParents(rawImages, {
+    estimateSize: (payload) => lz4.compress(payload).length,
+    maxDepth: SLIDE_PARENT_MAX_DEPTH,
+    depthPenalty: SLIDE_PARENT_DEPTH_PENALTY,
+  });
   const croppedImages = cropImages(rawImages, {
-    keyframeInterval,
+    parentPlan,
     onProgress,
     optimizeEia: true,
     compressionCache,
