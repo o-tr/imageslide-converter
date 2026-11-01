@@ -635,7 +635,7 @@ export type SorterResult<T> = {
   order?: "ascend" | "descend" | null;
   column?: TableColumn<T>;
 };
-type TableColumn<T> = {
+export type TableColumn<T> = {
   title?: ReactNode;
   dataIndex?: keyof T;
   key: string;
@@ -648,6 +648,28 @@ type TableColumn<T> = {
   }["bivarianceHack"];
 };
 export type TableColumnsType<T> = TableColumn<T>[];
+/**
+ * Sorters after a header click. Other active columns keep their order and the
+ * clicked one cycles ascend -> descend -> unsorted, so a sort can be cleared.
+ */
+export function nextSorters<T>(
+  columns: TableColumnsType<T>,
+  column: TableColumn<T>,
+): { columnKey: string; order: "ascend" | "descend" }[] {
+  const selected = columns
+    .filter((c) => c.sortOrder && c.key !== column.key)
+    .map((c) => ({
+      columnKey: c.key,
+      order: c.sortOrder as "ascend" | "descend",
+    }));
+  if (column.sortOrder !== "descend") {
+    selected.push({
+      columnKey: column.key,
+      order: column.sortOrder === "ascend" ? "descend" : "ascend",
+    });
+  }
+  return selected;
+}
 export function Table<T>({
   columns,
   dataSource,
@@ -668,14 +690,7 @@ export function Table<T>({
 }) {
   const sort = (column: TableColumn<T>) => {
     if (!column.sorter) return;
-    const selected = columns
-      .filter((c) => c.sortOrder && c.key !== column.key)
-      .map((c) => ({ columnKey: c.key, order: c.sortOrder }));
-    selected.push({
-      columnKey: column.key,
-      order: column.sortOrder === "ascend" ? "descend" : "ascend",
-    });
-    onChange?.(null, null, selected);
+    onChange?.(null, null, nextSorters(columns, column));
   };
   return (
     <div className="relative overflow-x-auto rounded-lg border border-border">
