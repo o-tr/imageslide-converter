@@ -9,6 +9,7 @@ from pathlib import Path
 source = Path(sys.argv[1]).resolve()
 target = Path(sys.argv[2]).resolve()
 entries = []
+missing_notices = []
 for licence_group in ("ofl", "apache", "ufl"):
     group = source / licence_group
     if not group.is_dir():
@@ -41,9 +42,12 @@ for licence_group in ("ofl", "apache", "ufl"):
         if copied:
             dest_dir = target / "fonts" / licence_group / metadata.parent.name
             shutil.copy2(metadata, dest_dir / "METADATA.pb")
-            notices = [metadata.parent / name for name in ("OFL.txt", "LICENSE.txt", "UFL.txt") if (metadata.parent / name).is_file()]
+            notices = [metadata.parent / name for name in ("OFL.txt", "LICENSE.txt", "LICENCE.txt", "UFL.txt") if (metadata.parent / name).is_file()]
             if not notices:
-                raise SystemExit(f"missing license: {metadata.parent}")
+                # Some upstream families ship no licence file; METADATA.pb (copied
+                # above) still records the licence and copyright, so keep the font.
+                print(f"warning: no licence file for {metadata.parent.name}; keeping METADATA.pb only", file=sys.stderr)
+                missing_notices.append(metadata.parent.name)
             for notice in notices:
                 shutil.copy2(notice, dest_dir / notice.name)
 if not entries:
@@ -51,4 +55,5 @@ if not entries:
 entries.sort(key=lambda entry: (entry["family"].casefold(), "italic" in entry["style"].casefold(), abs(entry["weight"] - 400), entry["path"]))
 target.mkdir(parents=True, exist_ok=True)
 (target / "catalog.json").write_text(json.dumps(entries, ensure_ascii=False), encoding="utf-8")
+print(f"{len(missing_notices)} families without a licence file: {', '.join(missing_notices)}", file=sys.stderr) if missing_notices else None
 print(f"Copied {len(entries)} font files in {len({entry['family'] for entry in entries})} families")
