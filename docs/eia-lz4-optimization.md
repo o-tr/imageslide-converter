@@ -249,17 +249,16 @@ alone (with a preexisting ImageData array) had median CPU times of
 flipped-RGBA array and 6.22 MB RGB-to-Buffer copy. This does not measure
 canvas acquisition, compression, or browser performance.
 
-Animation pool matching counts differing pixels directly and stops when the
-existing similarity threshold is exceeded, instead of allocating and scanning
-a full-size mask. Exact matches and the first matching pool index retain their
-previous behavior, including exact matching for cropped-frame dependencies.
-A reference full-mask calculation was compared over 400 synthetic RGB and
-RGBA pairs at thresholds around the true count; an archive test also checks
-similar frames and crop dependencies. For synthetic 640×360 RGBA frames,
-eight warmed alternating Node batches of 100 comparisons had median CPU
-times of 0.99 → 0.0038 ms for dissimilar frames and 0.89 → 0.71 ms for a
-similar pair requiring a complete scan. This measures similarity comparison
-alone, not GIF decoding, compression, or browser performance.
+Pool order and crop dependencies remain; 400 RGB/RGBA pairs matched a full-mask reference. For 640×360 RGBA, eight Node batches of 100 had
+medians of 0.99 → 0.0038 ms dissimilar and 0.89 → 0.71 ms similar. Word
+checks skip equal pixels/groups. For 1920×1080, nine-sample RGBA medians were
+4.81 → 3.18 ms identical and 3.01 → 1.81 ms sparse aligned; unaligned were
+4.86 → 3.50 and 3.00 → 1.59 ms. RGB medians were 4.37 → 1.23 and 2.51 →
+1.54 ms. Pool matching avoids redundant and browser Buffer-copy checks; Node
+retains native equality. Headless Chrome on 1280×720 RGBA gave medians (10
+samples) of 3.6 → 0.4 ms identical and 2.8 → 0.9 ms sparse for non-exact
+matching, and 3.5 → 0.4 ms exact. These are matching-only timings. The bundle
+passed in a VM without process or global Buffer.
 
 ## Measurement (2026-11-01)
 
@@ -1097,7 +1096,7 @@ exhaustive search emitted no matches. With the same lookahead, a subsequent
 search at least as deep and with an equal or higher minimum match length must
 also emit none, so that block's search can be skipped. The proof is not used
 if the search budget was exhausted; block statistics are otherwise combined
-in the same order as before. Context eviction can only forfeit reuse.
+in the same order as before.
 
 Frames matched the previous encoder on mixed raw/compressed multi-block
 inputs, including three unaligned synthetic inputs and one 4.95 MB private
@@ -1108,3 +1107,273 @@ short-match tail measured 1,032 → 822 ms. One reverse-order private-slide
 comparison measured 25.54 → 24.81 seconds with identical output; the proof
 path was not enabled for that compressible input. These are limited Node
 measurements and do not establish browser or general performance.
+
+The empty-block proof applies across lookaheads: a postponed match requires a
+longer future match, so an exhaustive empty search proves all widths empty.
+Three full-size frames and 1,000 randomized small-block comparisons matched and
+round-tripped. Four alternating Node samples gave middle CPU pairs of
+1,763/1,763 → 1,585/1,598 ms (dense tail) and 733/737 → 531/539 ms (short).
+In headless Chrome with the normal clock, the current encoder and commit
+c1e7bb6 produced identical frames: 256 KiB mixed took 64.7 → 63.6 ms (six
+samples, medians), and 4 MiB noise plus an 8 KiB tail took 818 → 578 ms (one
+sample). On a 4.95 MB private slide, two runs each in alternating order took
+26.08–26.41 → 23.32–23.43 seconds; the 58,479-byte frames matched and
+round-tripped. These encoding-only timings are not end-to-end measurements.
+
+Empty-block proofs are retained separately from the two-entry match-context
+cache. This prevents eviction from repeating the same searches when a frame
+contains three or more blocks, while keeping the larger prefix tables bounded.
+Three- and four-block random inputs with a compressible tail produced the
+same bytes as the preceding encoder and round-tripped with lz4js. In one Node
+CPU comparison each, the three-block case took 6,595 → 2,754 ms and the
+four-block case 8,170 → 3,318 ms. These are single synthetic measurements,
+not browser or general performance guarantees.
+
+Lazy lookahead is now skipped when the current match is shorter than the
+profile's minimum: postponing or rejecting that match both advance one byte.
+The current-position search still records exhausted budgets, which is what
+matters for deciding whether a deeper search can change an accepted match.
+The resulting frames matched the preceding encoder on 1,000 varied inputs,
+1,000 reduced-block multi-block inputs, three full-size mixed-block inputs,
+and one private slide. Four warmed alternating Node CPU samples for the dense
+tail input had middle values 1,525/1,538 → 1,432/1,437 ms; the short-match
+tail measured 543/545 → 537/546 ms. One reverse-order private slide sample
+measured 26.16 → 25.85 seconds. These measurements are limited and do not
+establish browser or general performance.
+
+Candidates over the established size limit still search every block to retain
+complete profile statistics, but no longer allocate and copy the final frame.
+The earlier speed candidate also skips decoding its work estimate when its
+size alone makes it ineligible. Three 4 MiB mixed-block inputs matched the
+preceding encoder; each avoided nine approximately 4.2 MB frame copies. A
+further 1,000 randomized reduced-block comparisons matched and round-tripped.
+Four alternating Node CPU measurements showed middle pairs of 1,446/1,470 →
+1,441/1,455 ms for the dense tail and 557/559 → 551/552 ms for the short-match
+tail. One reverse-order private slide sample was 24.33 → 24.55 seconds with
+identical output. These limited measurements do not establish a browser or
+general speed improvement.
+
+When a rolling-hash table has not yet been constructed and a candidate needs
+at most eight matching bytes, the already-verified first word plus one final
+word cover the entire range. This avoids building a prefix table for blocks
+whose matches never require a longer comparison. On one mixed frame with a
+64 KiB random 16-value tail, instrumentation showed that this avoided both
+the prefix and power arrays (about 512 KiB). Four warmed Node CPU samples had
+middle pairs of 529/531 → 516/529 ms; these are too close to establish a
+speedup. The full-size frame and 1,000 randomized reduced-block cases were
+byte-identical to the previous encoder and round-tripped with lz4js.
+
+A broader variant applied the direct comparison even when a hash table was
+already available. Four warmed Node samples improved the dense-tail case from
+1,432/1,443 to 1,312/1,312 ms but regressed the short-match case from 522/538
+to 547/556 ms. One private slide measured 24.55 → 24.92 seconds with identical
+bytes. That broader variant was not adopted; these samples do not establish
+browser performance.
+
+For crop comparisons, an image already encoded by the per-conversion cache
+now uses its exact cached frame size instead of scanning the input to prove a
+lower bound. The comparison is against this encoder's output, so an exact
+cached size preserves the master-versus-delta decision. A crop test checks
+the same decision with and without the cache hit. In five warmed alternating
+Node batches of five lookups for a cached synthetic 4 MiB image, median CPU
+time fell from 67.00 ms to 0.005 ms; the benchmark supplies a stub compressed
+result and measures only the bound comparison, not end-to-end conversion.
+
+After emitting a match, the search index now inserts only positions within
+65,535 bytes of the next search position. Earlier positions can never again
+be referenced by LZ4, even when the match spans a much longer run. Search
+frames matched the previous implementation for 120 runs crossing the window
+boundary; 12 complete encodings and one private slide also matched. A
+regression fixture covers a 200,000-byte run and following mixed data. On a
+synthetic 1 MiB run followed by 64 KiB of noise, six warmed alternating Node
+CPU measurements of the complete encoder had medians of 110.90 → 65.84 ms.
+One reverse-order private-slide measurement was 24.44 → 24.63 seconds. These
+samples do not establish browser or general performance.
+
+For a match at offset one, every fully contained four-byte word consists of
+the same byte and has the same hash. Index insertion reuses that hash, while
+the final three positions still calculate their own hashes because they may
+cross the match boundary. A local head variable avoids repeated hash-table
+access during the run. The prior search and the final variant matched on 120
+window-crossing runs and 12 complete encodings; the existing long-run fixture
+also checks the transition into different bytes. On a synthetic 3 MiB input
+with repeated long uniform runs, five warmed alternating Node measurements
+of the first variant had median complete-encoder CPU times of 72.02 → 47.60
+ms. One private slide comparison of that variant measured 26.41 → 24.44
+seconds with identical bytes. A separate five-sample comparison after keeping
+the head locally measured 55.89 → 51.10 ms. These inputs and limited samples
+do not establish browser or general performance.
+
+The same insertion shortcut now covers offset-two through offset-four matches
+when at least 1,024 bytes remain to index. Their fully contained words repeat
+with the match's period, so only two to four hashes need to be computed;
+the last three positions still use ordinary hashing. Regression fixtures
+cover each period, a match longer than the LZ4 window and the transition into
+mixed data. On a synthetic 3 MiB input of long four-byte-period runs, five
+warmed alternating Node samples of the complete encoder had median CPU times
+of 63.76 → 50.81 ms. A single reverse-order private-slide comparison was
+24.08 → 24.19 seconds with identical bytes. These measurements are limited
+and do not establish browser or general performance.
+
+A per-block cache for repeated searches at the same depth and lookahead was
+also tested. It reused a small compressed block when raising the match
+threshold could not remove any of that block's emitted matches. Although
+1,000 randomized reduced-block frames matched, the measured benefit did not
+justify retaining up to 256 KiB per cached context: four warmed alternating
+Node samples gave middle pairs of 1,407/1,426 → 1,429/1,433 ms on a dense
+tail, 522/533 → 520/532 ms on a short-match tail, and 498/501 → 486/493 ms
+on a uniform tail. The cache was not adopted. These samples do not establish
+browser or general performance.
+
+When two four-byte words differ during match extension, the first differing
+byte is now derived from the least significant set bit of their XOR. This
+keeps the exact match length while avoiding a separate byte-by-byte scan of
+the already-read word. A regression test covers all four byte positions;
+120 long-run search frames, 12 complete long-run encodings, 500 varied short
+encodings and one private slide matched the prior encoder. Four warmed
+alternating Node measurements of a depth-2,048 search had middle CPU values
+of 597.10/615.91 → 580.14/582.10, 908.92/911.84 → 874.82/879.21, and
+1,164.43/1,174.21 → 1,112.11/1,128.57 ms on three private inputs. One
+reverse-order complete-encoder comparison was 22.61 → 21.48 seconds. These
+limited Node samples do not establish browser or general performance.
+
+Match-length scans now compute the remaining legal length once per search
+position instead of recomputing the block-end expression for each comparison.
+The search frames matched on 120 varied long-run cases; 12 complete encodings,
+500 shorter complete encodings and one private slide also matched. Four warmed
+alternating Node samples of a depth-2,048 search had middle CPU values of
+638.34/652.97 → 575.18/614.43, 977.48/984.72 → 918.33/921.91 and
+1,210.92/1,232.00 → 1,159.82/1,160.78 ms on three private inputs. One
+reverse-order complete-encoder comparison, run without concurrent tests,
+measured 24.21 → 23.05 seconds. These limited samples do not establish
+browser or general performance.
+
+An 18-bit hash table was tested for the exhaustive 65,535-depth search only.
+That search can still visit the entire offset window, so removing hash
+collisions preserves the order of actual matching words. Three private search
+frames matched, but two warmed alternating Node samples had CPU times of
+1,144/1,211 → 1,230/1,528, 1,939/1,952 → 2,126/2,196, and 2,496/2,615 →
+2,482/2,530 ms. The larger table was not adopted. This small sample does not
+establish a general regression or browser behavior.
+
+The pre-existing speed/size tradeoff was rechecked on two private payloads
+whose current frames were larger than an earlier encoder stage. The current
+frames were 1,006,300 versus 977,953 bytes and 622,866 versus 609,877 bytes;
+TypeUdon/udon-rs reported 130,949,323 versus 174,080,394 instructions and
+56,790,109 versus 81,491,204 instructions, respectively, with exact decoded
+bytes. The first current size also matched the immediately preceding commit.
+The exported UdonSharp assembly also returned exact bytes on both pairs,
+with 42,168,159 → 32,358,643 and 20,482,635 → 14,518,488 instructions.
+These two cases and emulator counts do not guarantee improvements for other
+inputs or Unity wall time.
+
+The current encoder was also run across all 28 retained private payloads;
+every frame round-tripped through lz4js. Compared with the earlier
+`eia-speed-final` stage, 19 frames were smaller and nine larger, totaling
+7,322,649 versus 7,238,698 bytes. These are different encoder stages, not an
+A/B test of the latest output-preserving changes; the two larger examples
+above were chosen for direct decoder measurements. The current 28 frames
+have not all been independently measured in Unity or compared byte-for-byte
+against the immediately preceding commit.
+
+Keeping the target's last matched byte in a local variable was separately
+tested. Search frames matched, but four warmed alternating Node measurements
+had middle values 653.29/680.67 → 676.73/690.26, 1,005.94/1,153.22 →
+1,049.09/1,057.54, and 1,255.36/1,259.95 → 1,258.99/1,283.81 ms on three
+private inputs. The change was not adopted; the measurements do not establish
+a general regression or browser behavior.
+
+Caching the split rolling-hash power for repeated match lengths was tested
+after sampling a slow private encoding: candidate search and its hash filter
+accounted for most of the sampled Node CPU time. One complete encoding had
+identical bytes and measured 25.03 → 24.49 seconds in a reverse-order run.
+Four warmed alternating measurements of a single depth-2,048 search had
+middle values 662.89/684.63 → 675.31/694.11, 1,006.50/1,022.11 →
+981.28/1,011.77, and 1,268.60/1,274.53 → 1,218.37/1,256.78 ms on three
+private inputs. Since the benefit was small and inconsistent, the cache was
+not adopted. The limited Node samples do not establish browser behavior.
+
+Splitting prefix-table initialization according to whether the full power
+table needed building and relying on Uint32Array assignment for unsigned
+conversion was also tried. Arrays matched exactly, but one synthetic 1 MiB
+search measured middle CPU values of 2.93/2.98 → 3.47/3.54 ms across eight
+warmed alternating samples, while a single reverse-order private-slide
+encoding measured 24.00 → 24.40 seconds with identical output. The change was
+not adopted; these limited observations do not establish a general regression.
+
+The periodic index shortcut was extended from offset four to 16. Regression
+fixtures cover periods 5, 8, 16 and the offset-17 fallback. On a synthetic
+3 MiB input of long eight-byte-period runs, five warmed alternating Node
+measurements had median complete-encoder CPU times of 63.50 → 45.77 ms. A
+single reverse-order private slide comparison measured 26.44 → 24.26 seconds
+with identical bytes. These samples do not establish browser performance.
+
+Periodic insertion was then extended through offset 4,096 when at least four
+periods and 1,024 bytes remain to index. Frames for periods 17, 64, 512, 4,096
+and the 4,097 fallback matched the preceding implementation; 120 additional
+varied long-run searches and 12 complete encodings matched as well. On three
+synthetic 3 MiB inputs with 64-, 512- and 2,048-byte patterns, five warmed
+alternating Node samples gave medians of 88.39 → 63.42, 74.58 → 50.55 and
+93.73 → 75.13 ms. One private slide comparison was 24.27 → 24.11 seconds
+with identical output. These measurements do not establish browser performance.
+
+The periodic insertion limit was subsequently raised to 16,383 bytes, which
+includes 5,760-byte RGB and 7,680-byte RGBA full-HD rows as well as 11,520-byte
+RGB 4K rows. The four-period requirement bounds the hash table to 65,532 bytes.
+Five warmed alternating Node samples on synthetic 3 MiB inputs with these
+periods had median complete-encoder CPU times of 116.03 → 97.61, 140.53 →
+104.90 and 159.57 → 122.79 ms. Frames across those periods and the 16,383/
+16,384 boundary matched. One private slide comparison measured 24.36 → 24.38
+seconds with identical bytes. These limited measurements do not establish
+browser or general performance.
+
+The crop comparison can reuse a cached size for a different array with
+identical content. Its fingerprint is only a prefilter; all bytes must match
+before reuse, and the identity cache avoids future comparisons. For small
+targets the lower-bound scan often finishes sooner, so content lookup is
+skipped when the target is less than 1/128 of input length. On one private
+4.95 MB input with a 100,000-byte target, seven warmed alternating Node
+measurements had median CPU times of 15.46 → 1.85 ms. A 20,000-byte target
+using the ordinary scan measured 2.27 → 2.28 ms. Tests cover sampled-hash
+collisions, distinct matching arrays, the small-target path and crop selection.
+The benchmark uses a stub result of the actual encoded size; it does not
+measure end-to-end conversion or browser performance.
+
+Content-cache comparisons also recognize distinct views of the same backing
+buffer at the same byte offset and length under the cache's existing immutable
+input contract. Different offsets still require comparison. Eight warmed
+alternating Node batches of five lookups for 4 MiB views measured median CPU
+times of 7.86 → 0.018 ms. The encoder was stubbed, so this measures lookup only
+and does not establish end-to-end or browser performance.
+
+For split rolling-hash powers, exponents below 2,048 now use the already
+available low-power table directly; larger exponents retain the original
+quotient/remainder calculation. This adds no retained table and produces the
+same powers. Four warmed alternating Node samples of a depth-2,048 search had
+middle values of 674.01/684.91 → 578.81/591.16, 895.17/906.15 →
+853.11/857.34 and 1,147.08/1,167.33 → 1,066.50/1,070.32 ms on three
+private inputs. One reverse-order complete-encoder comparison measured
+34.14 → 33.00 seconds with identical bytes. Twenty-four unaligned large
+search frames and 10 boundary frames matched and round-tripped. These limited
+Node samples do not establish browser or general performance.
+
+Two further exact-output search experiments were measured on private inputs.
+Extending the unrolled word comparison only after a 64-byte match improved
+some depth-2,048 searches, but one reverse-order complete-encoder comparison
+measured 21.33 → 21.99 seconds. Removing a redundant monotonic-chain check
+measured 21.35 → 21.52 seconds in one complete-encoder comparison. Neither
+change was adopted. These limited Node samples do not establish general
+regressions or browser behavior.
+
+Unsigned hash-chain workspaces were tested without changing the underlying
+32-bit values. A Uint32Array for the bucket heads slowed two of three private
+searches; using it only for previous positions had mixed results. One
+reverse-order complete-encoder comparison for the latter measured 32.68 →
+33.11 seconds with identical output. The variants were not adopted; these
+limited Node measurements do not establish general or browser behavior.
+
+Cache views use word reads and DataView. On a
+4.95 MB input, median Node lookup times were 1.89 → 0.66 ms aligned, 1.87 →
+0.64 ms equally misaligned and 1.86 → 0.95 ms for differing offsets (eight
+samples); 10,000 comparisons matched. Unrolling by two or four was slower in
+these tests and was not adopted. These measure lookup only.

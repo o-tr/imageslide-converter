@@ -8,6 +8,85 @@ import { compressEIAv1 } from "./compressEIAv1";
 import { EiaCompressionCache } from "./compressionCache";
 
 describe("animation frame similarity", () => {
+  it("avoids exact comparison for similarity-only animation frames", async () => {
+    const original = Buffer.alloc(20 * 20 * 3);
+    const similar = Buffer.from(original);
+    similar[0] = 255;
+    original.equals = () => {
+      throw new Error("unexpected exact comparison");
+    };
+    const frame = (index: number, buffer: Buffer) => ({
+      index,
+      buffer,
+      rect: { width: 20, height: 20 },
+      format: "RGB24" as const,
+    });
+    const animation = {
+      x: 0,
+      y: 0,
+      w: 20,
+      h: 20,
+      fps: 10,
+      format: "RGB24" as const,
+      frames: [frame(0, original), frame(1, similar)],
+    };
+    const [archive] = await compressEIAv1(
+      [frame(0, Buffer.alloc(20 * 20 * 3))],
+      undefined,
+      1,
+      10,
+      new Map([[0, [animation]]]),
+      new EiaCompressionCache(lz4.compress),
+    );
+    const end = archive.indexOf("$");
+    const manifest = JSON.parse(archive.subarray(4, end).toString());
+    expect(manifest.ac.anims[0].seq).toEqual([0, 0]);
+  });
+
+  it("preserves RGB thresholds across grouped pixels and trailing pixels", () => {
+    for (const firstOffset of [0, 1, 2, 3]) {
+      for (const secondOffset of [0, 1, 2, 3]) {
+        for (const pixel of [0, 1, 2, 3, 4, 7, 8]) {
+          const a = new Uint8Array(27 + firstOffset).subarray(firstOffset);
+          const b = new Uint8Array(27 + secondOffset).subarray(secondOffset);
+          b[pixel * 3] = IMAGE_DIFF_THRESHOLD * 3;
+          expect(hasSimilarPixels(a, b, 3, 0)).toBe(true);
+          b[pixel * 3]++;
+          expect(hasSimilarPixels(a, b, 3, 0)).toBe(false);
+          expect(hasSimilarPixels(a, b, 3, 1)).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("preserves RGBA similarity across different view offsets", () => {
+    for (const first of [0, 1, 2, 3]) {
+      for (const second of [0, 1, 2, 3]) {
+        const a = new Uint8Array(4096 + first).subarray(first);
+        const b = new Uint8Array(4096 + second).subarray(second);
+        b[4 * 10] = IMAGE_DIFF_THRESHOLD * 4;
+        b[4 * 20] = IMAGE_DIFF_THRESHOLD * 4 + 1;
+        b[4 * 30 + 3] = IMAGE_DIFF_THRESHOLD * 4 + 1;
+        expect(hasSimilarPixels(a, b, 4, 0)).toBe(false);
+        expect(hasSimilarPixels(a, b, 4, 1)).toBe(false);
+        expect(hasSimilarPixels(a, b, 4, 2)).toBe(true);
+      }
+    }
+  });
+
+  it("preserves RGBA thresholds for aligned and unaligned frame views", () => {
+    for (const offset of [0, 1, 2, 3]) {
+      const a = new Uint8Array(4096 + offset).subarray(offset);
+      const b = new Uint8Array(4096 + offset).subarray(offset);
+      b[4 * 10] = IMAGE_DIFF_THRESHOLD * 4;
+      b[4 * 20] = IMAGE_DIFF_THRESHOLD * 4 + 1;
+      b[4 * 30 + 3] = IMAGE_DIFF_THRESHOLD * 4 + 1;
+      expect(hasSimilarPixels(a, b, 4, 0)).toBe(false);
+      expect(hasSimilarPixels(a, b, 4, 1)).toBe(false);
+      expect(hasSimilarPixels(a, b, 4, 2)).toBe(true);
+    }
+  });
+
   it("concatenates unaligned frame views with the browser Buffer implementation", () => {
     const first = Uint8Array.of(99, 1, 2, 99).subarray(1, 3);
     const second = Uint8Array.of(99, 3, 4, 5, 99).subarray(1, 4);
@@ -67,8 +146,11 @@ describe("animation frame similarity", () => {
       format: "RGB24" as const,
       buffer,
     });
-    const original = Buffer.alloc(20 * 20 * 3);
-    const similar = Buffer.from(original);
+    const original = BrowserBuffer.alloc(20 * 20 * 3) as unknown as Buffer;
+    const similar = BrowserBuffer.from(original) as unknown as Buffer;
+    original.equals = () => {
+      throw new Error("unexpected Buffer equality comparison");
+    };
     similar.fill(255, 0, 6);
     const different = Buffer.from(original);
     different.fill(255, 0, 9);

@@ -33,6 +33,27 @@ function randomImage(seed: number, size = 32 * 32 * 3): Buffer {
 }
 
 describe("EIA crop selection", () => {
+  it("makes the same crop decision using a previously compressed master", () => {
+    const source = randomImage(111);
+    const changed = Buffer.from(source);
+    for (let y = 8; y < 16; y++)
+      for (let x = 8; x < 16; x++) changed[(y * 32 + x) * 3] ^= 255;
+    const input = [image(0, source), image(1, changed)];
+    const cached = new EiaCompressionCache(lz4.compress);
+    cached.compressImage(Buffer.from(changed));
+    const bound = vi.spyOn(cached, "frameSizeLowerBound");
+    const result = cropImages(input, {
+      optimizeEia: true,
+      compressionCache: cached,
+    });
+    const uncached = cropImages(input, {
+      optimizeEia: true,
+      compressionCache: new EiaCompressionCache(lz4.compress),
+    });
+    expect(bound).toHaveBeenCalledWith(changed, expect.any(Number));
+    expect(result).toEqual(uncached);
+  });
+
   it("serializes a cached multi-rectangle payload without changing its bytes", async () => {
     const source = Buffer.alloc(20 * 20 * 3, 1);
     const rects = [

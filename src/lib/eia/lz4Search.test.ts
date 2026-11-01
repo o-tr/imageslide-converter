@@ -21,6 +21,52 @@ function randomBytes(length: number, seed: number) {
 }
 
 describe("LZ4 search encoder", () => {
+  it("preserves short-match output when hash table creation is deferred", () => {
+    const blockSize = 4 * 1024 * 1024;
+    const data = new Uint8Array(blockSize + 65536);
+    let state = 901;
+    const random = () => {
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      return state >>> 0;
+    };
+    for (let i = 0; i < data.length; i++) data[i] = random() & 255;
+    for (let i = blockSize; i < data.length; i++) data[i] = random() % 16;
+    const frame = compressLz4Best(data);
+    expect(createHash("sha256").update(frame).digest("hex")).toBe(
+      "494f408cc0d90d711e2c999244ca7a0f42b90e54b66eeae43649c80cda6ad8e2",
+    );
+    expect(
+      Buffer.from(lz4.decompress(frame, data.length)).equals(Buffer.from(data)),
+    ).toBe(true);
+  }, 30000);
+
+  it("preserves output after empty block contexts are evicted", () => {
+    const rawLength = 3 * 4 * 1024 * 1024;
+    const data = new Uint8Array(rawLength + 65536);
+    let state = 901;
+    const random = () => {
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      return state >>> 0;
+    };
+    for (let i = 0; i < data.length; i++) data[i] = random() & 255;
+    for (let i = rawLength; i < data.length; i++) {
+      data[i] = random() % 4;
+      if (i > rawLength + 64 && random() % 3)
+        data[i] = data[i - 1 - (random() % 64)];
+    }
+    const frame = compressLz4Best(data);
+    expect(createHash("sha256").update(frame).digest("hex")).toBe(
+      "3b8507be128d33f62dbeff82c2434528bf7c614f77a7145c20c661ffd7d76c48",
+    );
+    expect(
+      Buffer.from(lz4.decompress(frame, data.length)).equals(Buffer.from(data)),
+    ).toBe(true);
+  }, 30000);
+
   it("preserves mixed multi-block output when empty searches are reused", () => {
     const blockSize = 4 * 1024 * 1024;
     const backing = new Uint8Array(blockSize + 8192 + 5);
@@ -132,6 +178,34 @@ describe("LZ4 search encoder", () => {
     );
     expect(Buffer.from(lz4.decompress(encoded, input.length))).toEqual(
       Buffer.from(input),
+    );
+  });
+
+  it("finds the first differing byte at every word boundary", () => {
+    const hash = createHash("sha256");
+    for (let n = 0; n < 128; n++) {
+      const length = 4 + (n % 32);
+      const shift = n % 4;
+      const data = new Uint8Array(128);
+      let state = n + 1;
+      for (let i = 0; i < data.length; i++) {
+        state ^= state << 13;
+        state ^= state >>> 17;
+        state ^= state << 5;
+        data[i] = state & 255;
+      }
+      const source = shift + 1;
+      const target = 64 + shift;
+      data.set(data.subarray(source, source + length), target);
+      data[target + length] ^= 0x80;
+      const frame = compressLz4Search(data);
+      hash.update(frame);
+      expect(Buffer.from(lz4.decompress(frame, data.length))).toEqual(
+        Buffer.from(data),
+      );
+    }
+    expect(hash.digest("hex")).toBe(
+      "3b9aa17bd3293d32a12dfa8d808179843a48c3e1972131696d4d2fa374520f1c",
     );
   });
 
@@ -352,6 +426,111 @@ describe("LZ4 search encoder", () => {
     expect(
       createHash("sha256").update(compressLz4Search(data)).digest("hex"),
     ).toBe("80355d174fa4799e7797c67e309d9ca83e50ec8b6be3b290cd2ff8e51228b309");
+  });
+  it("preserves search output after a match longer than the offset window", () => {
+    const data = new Uint8Array(220_000);
+    let state = 42;
+    for (let i = 200_000; i < data.length; i++) {
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      data[i] = state & 255;
+      if (i > 200_064 && (state >>> 0) % 3)
+        data[i] = data[i - 1 - ((state >>> 8) % 64)];
+    }
+    const frame = compressLz4Search(data);
+    expect(createHash("sha256").update(frame).digest("hex")).toBe(
+      "f0cf545a87f0bd7985547315a7797f61d449b3bdeaf4aada3ceeed2e481d7bc1",
+    );
+    expect(
+      Buffer.from(lz4.decompress(frame, data.length)).equals(Buffer.from(data)),
+    ).toBe(true);
+  });
+  it("preserves short-period search output across long matches", () => {
+    const cases = [
+      [2, "89a032762ee7801571b50613f720743a8a4478b9151efa153ec464914d5ae7d3"],
+      [3, "7bf5fe90dbbc7f21874c6743e205ffce4323d801d721b05e877986eca003c640"],
+      [4, "316ba41c1e3ddef9813e66ff40c83e87c020106403e1d191e5f1b52697189bf0"],
+      [5, "900be70fd59df4537ac31ff9a631c638d96ce339d92d39392c73109ff7303fd4"],
+      [8, "d0631d347d6039199bfdb94bdceaf4eed73a88fa341b52b8639328223af71e4e"],
+      [16, "42d912f641d996fe94a2c6b744e7dfb5f64e4909e617b632946064376c68de76"],
+      [17, "c6123020bfd4493e1a766bb33ed65a5030540493b58747faf271715e6eb52c35"],
+    ] as const;
+    for (const [period, digest] of cases) {
+      const data = new Uint8Array(160_000);
+      let state = 42;
+      for (let i = 0; i < 140_000; i++) data[i] = (i % period) * 41 + 1;
+      for (let i = 140_000; i < data.length; i++) {
+        state ^= state << 13;
+        state ^= state >>> 17;
+        state ^= state << 5;
+        data[i] = state & 255;
+        if (i > 140_064 && (state >>> 0) % 3)
+          data[i] = data[i - 1 - ((state >>> 8) % 64)];
+      }
+      const frame = compressLz4Search(data);
+      expect(createHash("sha256").update(frame).digest("hex")).toBe(digest);
+      expect(
+        Buffer.from(lz4.decompress(frame, data.length)).equals(
+          Buffer.from(data),
+        ),
+      ).toBe(true);
+    }
+  });
+  it("preserves output for longer repeated patterns and the cache limit", () => {
+    const cases = [
+      [17, "964fb17ebe83767f7a43ab8c13ad9379f51316aab9fbffa3af2c9a12e5896b26"],
+      [64, "6d55f70ac8733510b0309c2770447ca4a2c1b2afd932b3147301a6b49ce2142e"],
+      [512, "fdd5f8a4ef26e1207422fa31a59b9ca2641aa4f149e568483fcd497675b183f0"],
+      [
+        4096,
+        "d5c3d4c8f93e1eb52bdf5fb7dc15055c7eab0c2c18e1a30684fed48765cb06bd",
+      ],
+      [
+        4097,
+        "4ceb42078882c14a108c7ce386d915fd0edc886996d3ba8e4e20cb4837709fea",
+      ],
+      [
+        5760,
+        "e6c6e99ce9afa91cd119f8e41177c4c1bca6e7e74336f7340b810b05dec31f19",
+      ],
+      [
+        7680,
+        "4bac428a7ed48e974a3136a78a165d4d7eb75c27b3607b7fa6eab6c8388d0d44",
+      ],
+      [
+        11520,
+        "15c525b8f57b96c2308bb45db940f50709b5caa51111a76177b326b7a8400766",
+      ],
+      [
+        16383,
+        "c4de20247bd8002d1c61995176bbc01cb0fa7f4242ed3d251dcc4c1c3d6cb950",
+      ],
+      [
+        16384,
+        "1d34ec692800affb1ac0171e7fc7ea0dbe864d61bf1c3f08fc04f0b8b26ecc9f",
+      ],
+    ] as const;
+    for (const [period, digest] of cases) {
+      let state = 42;
+      const random = () => {
+        state ^= state << 13;
+        state ^= state >>> 17;
+        state ^= state << 5;
+        return state >>> 0;
+      };
+      const data = new Uint8Array(160_000);
+      for (let i = 0; i < period; i++) data[i] = random() & 255;
+      for (let i = period; i < 140_000; i++) data[i] = data[i - period];
+      for (let i = 140_000; i < data.length; i++) data[i] = random() & 255;
+      const frame = compressLz4Search(data);
+      expect(createHash("sha256").update(frame).digest("hex")).toBe(digest);
+      expect(
+        Buffer.from(lz4.decompress(frame, data.length)).equals(
+          Buffer.from(data),
+        ),
+      ).toBe(true);
+    }
   });
   it("limits the faster candidate's size and requires a substantial cost reduction", () => {
     expect(fitsDecodeSpeedBudget(1000, 1000, 1100, 1030, 900)).toBe(true);

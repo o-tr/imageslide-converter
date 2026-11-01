@@ -2,6 +2,110 @@ import { describe, expect, it, vi } from "vitest";
 import { EiaCompressionCache } from "./compressionCache";
 
 describe("EIA per-conversion compression cache", () => {
+  it("compares differently aligned views across all offsets", () => {
+    for (let firstOffset = 0; firstOffset < 4; firstOffset++) {
+      for (let secondOffset = 0; secondOffset < 4; secondOffset++) {
+        const length = 65539;
+        const first = new Uint8Array(length + firstOffset).subarray(
+          firstOffset,
+        );
+        const equal = new Uint8Array(length + secondOffset).subarray(
+          secondOffset,
+        );
+        const different = new Uint8Array(length + secondOffset).subarray(
+          secondOffset,
+        );
+        different[17] = 7;
+        const encode = vi.fn((bytes: Uint8Array) => Uint8Array.of(bytes[17]));
+        const cache = new EiaCompressionCache(encode);
+        expect(cache.compressImage(first)).toEqual(Uint8Array.of(0));
+        expect(cache.compressImage(equal)).toEqual(Uint8Array.of(0));
+        expect(cache.compressImage(different)).toEqual(Uint8Array.of(7));
+        expect(encode).toHaveBeenCalledTimes(2);
+      }
+    }
+  });
+
+  it("compares equally misaligned views and their initial alignment bytes", () => {
+    for (let offset = 1; offset <= 3; offset++) {
+      for (let delta = 0; delta < 5; delta++) {
+        const length = 65537 + delta;
+        const first = new Uint8Array(length + offset).subarray(offset);
+        const equal = new Uint8Array(length + offset + 4).subarray(offset + 4);
+        const different = new Uint8Array(length + offset + 8).subarray(
+          offset + 8,
+        );
+        different[16 + (delta % 3)] = 7;
+        const encode = vi.fn((bytes: Uint8Array) =>
+          Uint8Array.of(bytes[16], bytes[17], bytes[18]),
+        );
+        const cache = new EiaCompressionCache(encode);
+        expect(cache.compressImage(first)).toEqual(Uint8Array.of(0, 0, 0));
+        expect(cache.compressImage(equal)).toEqual(Uint8Array.of(0, 0, 0));
+        expect(cache.compressImage(different)).not.toEqual(
+          Uint8Array.of(0, 0, 0),
+        );
+        expect(encode).toHaveBeenCalledTimes(2);
+      }
+    }
+  });
+
+  it("compares aligned views through the final partial word", () => {
+    for (let length = 1024; length < 1033; length++) {
+      const first = new Uint8Array(length + 4).subarray(4);
+      const equal = new Uint8Array(length + 8).subarray(8);
+      const different = new Uint8Array(length + 12).subarray(12);
+      different[17] = 7;
+      const encode = vi.fn((bytes: Uint8Array) => Uint8Array.of(bytes[17]));
+      const cache = new EiaCompressionCache(encode);
+      expect(cache.compressImage(first)).toEqual(Uint8Array.of(0));
+      expect(cache.compressImage(equal)).toEqual(Uint8Array.of(0));
+      expect(cache.compressImage(different)).toEqual(Uint8Array.of(7));
+      expect(encode).toHaveBeenCalledTimes(2);
+    }
+  });
+
+  it("uses a cached image's exact compressed size for later comparisons", () => {
+    const encode = vi.fn(() => new Uint8Array(128));
+    const cache = new EiaCompressionCache(encode);
+    const image = new Uint8Array(4096);
+    expect(cache.frameSizeLowerBound(image, 100)).toBeLessThan(128);
+    cache.compressImage(image);
+    expect(cache.frameSizeLowerBound(image, 100)).toBe(128);
+    expect(cache.frameSizeLowerBound(image, 200)).toBe(128);
+    expect(encode).toHaveBeenCalledTimes(1);
+  });
+
+  it("checks content before reusing a cached size for a different image", () => {
+    const encode = vi.fn((bytes: Uint8Array) => new Uint8Array(128 + bytes[1]));
+    const cache = new EiaCompressionCache(encode);
+    const first = new Uint8Array(4096);
+    const equal = Uint8Array.from(first);
+    const collision = Uint8Array.from(first);
+    collision[1] = 1; // The sampled fingerprint does not inspect this byte.
+    cache.compressImage(first);
+    expect(cache.frameSizeLowerBound(equal, 1)).toBeLessThan(128);
+    expect(cache.frameSizeLowerBound(equal, 100)).toBe(128);
+    expect(cache.frameSizeLowerBound(collision, 100)).toBeLessThan(128);
+    expect(cache.compressImage(equal)).toHaveLength(128);
+    expect(cache.compressImage(collision)).toHaveLength(129);
+    expect(encode).toHaveBeenCalledTimes(2);
+  });
+
+  it("reuses matching views but checks different ranges of the same buffer", () => {
+    const encode = vi.fn((bytes: Uint8Array) => Uint8Array.of(bytes[1]));
+    const cache = new EiaCompressionCache(encode);
+    const storage = new Uint8Array(131_074);
+    const first = storage.subarray(0, 65_537);
+    const same = storage.subarray(0, 65_537);
+    const different = storage.subarray(65_537);
+    different[1] = 7;
+    expect(cache.compressImage(first)).toEqual(Uint8Array.of(0));
+    expect(cache.compressImage(same)).toEqual(Uint8Array.of(0));
+    expect(cache.compressImage(different)).toEqual(Uint8Array.of(7));
+    expect(encode).toHaveBeenCalledTimes(2);
+  });
+
   it("reuses identical immutable contents across images and rectangle arrays", () => {
     const encode = vi.fn((bytes: Uint8Array) => Uint8Array.from(bytes));
     const cache = new EiaCompressionCache(encode);

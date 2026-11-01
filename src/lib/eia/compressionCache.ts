@@ -5,6 +5,8 @@ import {
   lz4FrameSizeLowerBound,
 } from "./lz4SizeBound";
 
+const LITTLE_ENDIAN = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
+
 const MAX_STRONG_CONTENT_INPUT = 64 * 1024;
 const MAX_CONTENT_BYTES = 1024 * 1024;
 const MAX_CONTENT_ENTRIES = 32;
@@ -31,8 +33,10 @@ function fingerprint(input: Uint8Array): number {
   return hash >>> 0;
 }
 
-function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
+export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
+  // Distinct views can name the very same immutable byte range.
+  if (a.buffer === b.buffer && a.byteOffset === b.byteOffset) return true;
   // Frequent near-identical slides differ near either edge. Check those bytes
   // first, then verify the entire middle before accepting a cache hit.
   const head = Math.min(16, a.length);
@@ -41,11 +45,28 @@ function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   for (let i = tail; i < a.length; i++) if (a[i] !== b[i]) return false;
   let i = head;
   if (a.length >= 1024) {
-    // DataView handles different byte offsets, including unaligned views.
-    const aWords = new DataView(a.buffer, a.byteOffset, a.byteLength);
-    const bWords = new DataView(b.buffer, b.byteOffset, b.byteLength);
-    for (; i + 4 <= tail; i += 4) {
-      if (aWords.getUint32(i, true) !== bWords.getUint32(i, true)) return false;
+    if (((a.byteOffset ^ b.byteOffset) & 3) === 0) {
+      while ((a.byteOffset + i) & 3) {
+        if (a[i] !== b[i]) return false;
+        i++;
+      }
+      const n = Math.floor((tail - i) / 4);
+      const aWords = new Uint32Array(a.buffer, a.byteOffset + i, n);
+      const bWords = new Uint32Array(b.buffer, b.byteOffset + i, n);
+      for (let j = 0; j < n; j++) if (aWords[j] !== bWords[j]) return false;
+      i += n * 4;
+    } else {
+      while ((a.byteOffset + i) & 3) {
+        if (a[i] !== b[i]) return false;
+        i++;
+      }
+      const n = Math.floor((tail - i) / 4);
+      const aWords = new Uint32Array(a.buffer, a.byteOffset + i, n);
+      const bWords = new DataView(b.buffer, b.byteOffset + i, n * 4);
+      for (let j = 0; j < n; j++) {
+        if (aWords[j] !== bWords.getUint32(j * 4, LITTLE_ENDIAN)) return false;
+      }
+      i += n * 4;
     }
   }
   for (; i < tail; i++) if (a[i] !== b[i]) return false;
@@ -68,11 +89,7 @@ export class EiaCompressionCache {
 
   constructor(private readonly encode = compressLz4Best) {}
 
-  private compressContent(input: Uint8Array): Uint8Array {
-    const weak = input.length > MAX_STRONG_CONTENT_INPUT;
-    // WeakRef is optional in older browsers; absence merely disables reuse.
-    if (weak && typeof WeakRef === "undefined") return this.encode(input);
-    const key = fingerprint(input);
+  private findContent(input: Uint8Array, key: number): Uint8Array | undefined {
     let comparisons = 0;
     for (const entry of this.recentContent) {
       if (entry.fingerprint !== key || entry.length !== input.length) continue;
@@ -83,6 +100,15 @@ export class EiaCompressionCache {
       if (comparisons++ >= 4) break;
       if (equalBytes(previous, input)) return entry.result;
     }
+  }
+
+  private compressContent(input: Uint8Array): Uint8Array {
+    const weak = input.length > MAX_STRONG_CONTENT_INPUT;
+    // WeakRef is optional in older browsers; absence merely disables reuse.
+    if (weak && typeof WeakRef === "undefined") return this.encode(input);
+    const key = fingerprint(input);
+    const cached = this.findContent(input, key);
+    if (cached) return cached;
     const result = this.encode(input);
     const bytes = (weak ? 0 : input.length) + result.length;
     if (bytes <= MAX_CONTENT_BYTES) {
@@ -113,6 +139,19 @@ export class EiaCompressionCache {
   }
 
   frameSizeLowerBound(input: Uint8Array, stopAt: number): number {
+    // The crop comparison only needs a bound for this encoder's actual
+    // output. A cached frame gives its exact size without rescanning input.
+    const compressed = this.images.get(input);
+    if (compressed) return compressed.length;
+    // For small targets the bound can often stop after scanning a small
+    // prefix, so a full-content comparison would cost more than it saves.
+    if (this.recentContent.length > 0 && stopAt * 128 >= input.length) {
+      const matching = this.findContent(input, fingerprint(input));
+      if (matching) {
+        this.images.set(input, matching);
+        return matching.length;
+      }
+    }
     return lz4FrameSizeLowerBound(input, stopAt, this.sizeBoundWorkspace);
   }
 

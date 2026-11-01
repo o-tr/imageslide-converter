@@ -15,9 +15,14 @@ import type {
 import type { RawImageObjV1Cropped } from "@/_types/text-zip/v1";
 import { FileSizeLimit } from "@/const/convert";
 import { hasSimilarPixels } from "./animationSimilarity";
-import type { EiaCompressionCache } from "./compressionCache";
+import { type EiaCompressionCache, equalBytes } from "./compressionCache";
 import { compressLz4Best } from "./lz4Search";
 
+// Native Node buffers compare without copying; the browser polyfill does not.
+const HAS_NATIVE_BUFFER =
+  typeof process !== "undefined" &&
+  !!process.versions?.node &&
+  globalThis.Buffer === Buffer;
 const SIMILARITY_THRESHOLD_RATIO = 0.005;
 const IMAGE_FORMAT_RGBA32 = "RGBA32";
 
@@ -804,9 +809,18 @@ const findMatchingPoolIndex = (
         continue;
       }
     }
-    if (poolBuffers[i].equals(decoded)) return i;
-    if (requireExactMatch) continue;
-    if (hasSimilarPixels(poolBuffers[i], decoded, bpp, threshold)) return i;
+    if (requireExactMatch) {
+      const candidate = poolBuffers[i];
+      const exact =
+        HAS_NATIVE_BUFFER &&
+        Buffer.isBuffer(candidate) &&
+        Buffer.isBuffer(decoded)
+          ? candidate.equals(decoded)
+          : equalBytes(candidate, decoded);
+      if (exact) return i;
+    } else if (hasSimilarPixels(poolBuffers[i], decoded, bpp, threshold)) {
+      return i;
+    }
   }
   return -1;
 };
