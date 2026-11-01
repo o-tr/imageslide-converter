@@ -1,5 +1,5 @@
 import type { GoogleFilePickerCallbackData } from "@/_types/lib/google/filePicker";
-import { DeckCraftFileAtom, DeckCraftSlidesAtom } from "@/atoms/deckcraft";
+import { SetDeckCraftSessionAtom } from "@/atoms/deckcraft";
 import {
   GooglePickerTokenAtom,
   IsGooglePickerReadyAtom,
@@ -24,8 +24,7 @@ export const GooglePicker = ({
   const [messageApi, contextHolder] = message.useMessage();
   const [token, setToken] = useAtom(GooglePickerTokenAtom);
   const isApiLoaded = useAtomValue(IsGooglePickerReadyAtom);
-  const setDeckCraftFile = useSetAtom(DeckCraftFileAtom);
-  const setDeckCraftSlides = useSetAtom(DeckCraftSlidesAtom);
+  const setSession = useSetAtom(SetDeckCraftSessionAtom);
   const [validating, setValidating] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -94,7 +93,7 @@ export const GooglePicker = ({
         );
         const selectedFiles = await file2selectedFiles(fileObj);
         if (!isStillActive()) return;
-        setDeckCraftSlides(selectedFiles);
+        setSession({ kind: "slides", slides: selectedFiles });
         if (pathname !== "/convert/pick") router.push("/convert/pick");
       }
       if (
@@ -112,11 +111,12 @@ export const GooglePicker = ({
           throw new Error(`PPTX の取得に失敗しました (${response.status})`);
         const bytes = await response.arrayBuffer();
         if (!isStillActive()) return;
-        setDeckCraftFile(
-          new File([bytes], file.name ?? "presentation.pptx", {
+        setSession({
+          kind: "pptx",
+          file: new File([bytes], file.name ?? "presentation.pptx", {
             type: file.mimeType,
           }),
-        );
+        });
         if (pathname !== "/convert/pick") router.push("/convert/pick");
       }
       if (file.mimeType === "application/vnd.google-apps.presentation") {
@@ -133,11 +133,12 @@ export const GooglePicker = ({
           throw new Error(`PPTX の書き出しに失敗しました (${response.status})`);
         const bytes = await response.arrayBuffer();
         if (!isStillActive()) return;
-        setDeckCraftFile(
-          new File([bytes], `${file.name ?? "presentation"}.pptx`, {
+        setSession({
+          kind: "pptx",
+          file: new File([bytes], `${file.name ?? "presentation"}.pptx`, {
             type: mime,
           }),
-        );
+        });
         if (pathname !== "/convert/pick") router.push("/convert/pick");
       }
       if (file.mimeType?.startsWith("image/")) {
@@ -147,7 +148,7 @@ export const GooglePicker = ({
         });
         const canvas = await file2selectedFiles(fileObject);
         if (!isStillActive()) return;
-        setDeckCraftSlides(canvas);
+        setSession({ kind: "slides", slides: canvas });
         if (pathname !== "/convert/pick") router.push("/convert/pick");
       }
     } catch (e) {

@@ -20,6 +20,12 @@ At startup, the browser fetches Inter (or Noto Sans) and Noto Sans JP (or BIZ UD
 
 Local PPTX, PDF and image files, and Google Drive PPTX, PDF and images, open in DeckCraft. Google Slides are exported to PPTX and opened in DeckCraft. After editing, export to retain slide order and speaker notes and set conversion options. Non-presented (hidden) slides are excluded. Slides imported from multiple images share one slide size: the first image establishes the aspect ratio; other aspect ratios are fitted inside it.
 
+The output settings are shown after a DeckCraft export. The editor remains
+mounted while conversion and upload screens are open, so returning to the
+selection page within that flow restores the current editing session. Opening
+another source starts a new session and clears the previous export. The editor
+is unmounted when leaving the conversion flow.
+
 The DeckCraft export bridge renders slides with animated GIF pictures as full-slide animation frames at 10 fps, preserving the slide's drawing order. Their combined loop must fit within 10 seconds, and animation output requires EIA v1 RGB24 (cropped), as supported by ImageSlide v0.3.x. Set `NEXT_PUBLIC_ENABLE_GIF_ANIMATION=false` at build time to export a static image instead. Layouts, unsupported media, embedded fonts, custom typefaces and animations need validation against real presentations. Google Slides files are never modified.
 
 The embedded browser build puts Back and Export in DeckCraft's title bar, hides the File, Transitions, Animations, Slide Show and Record tabs and the slideshow status control, and translates the main ribbon tabs, common ribbon buttons and notes prompt into Japanese. Existing slide transitions and object animations are not played in image exports; GIF animation export is controlled separately as described above. DeckCraft does not yet provide a Japanese UI locale, so other menus and dialogs remain in English.

@@ -1,4 +1,4 @@
-import { DeckCraftFileAtom, DeckCraftSlidesAtom } from "@/atoms/deckcraft";
+import { SetDeckCraftSessionAtom } from "@/atoms/deckcraft";
 import { usePathname, useRouter } from "@/compat/navigation";
 import { Button, message } from "@/components/primitives";
 import { files2selectedFiles } from "@/lib/file2selectedFiles";
@@ -14,8 +14,7 @@ export const LocalFilePicker = ({
   const pathname = usePathname();
   const inputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
-  const setDeckCraftFile = useSetAtom(DeckCraftFileAtom);
-  const setSlides = useSetAtom(DeckCraftSlidesAtom);
+  const setSession = useSetAtom(SetDeckCraftSessionAtom);
 
   const onButtonClick = () => {
     inputRef.current?.click();
@@ -37,7 +36,7 @@ export const LocalFilePicker = ({
       return;
     }
     if (pptx.length) {
-      setDeckCraftFile(pptx[0]);
+      setSession({ kind: "pptx", file: pptx[0] });
       if (pathname !== "/convert/pick") router.push("/convert/pick");
       e.target.value = "";
       return;
@@ -50,7 +49,7 @@ export const LocalFilePicker = ({
     try {
       const processed = await files2selectedFiles(rest);
       if (processed.length) {
-        setSlides(processed);
+        setSession({ kind: "slides", slides: processed });
         if (pathname !== "/convert/pick") router.push("/convert/pick");
       }
     } catch (error) {

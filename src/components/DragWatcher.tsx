@@ -1,5 +1,5 @@
 "use client";
-import { DeckCraftFileAtom, DeckCraftSlidesAtom } from "@/atoms/deckcraft";
+import { SetDeckCraftSessionAtom } from "@/atoms/deckcraft";
 import { IsDragOverAtom } from "@/atoms/file-drop";
 import { Flex, message } from "@/components/primitives";
 import { files2selectedFiles } from "@/lib/file2selectedFiles";
@@ -9,8 +9,7 @@ import { TbDragDrop } from "react-icons/tb";
 
 export const DragWatcher: FC = () => {
   const [isDragOver, setIsDragOver] = useAtom(IsDragOverAtom);
-  const setDeckCraftFile = useSetAtom(DeckCraftFileAtom);
-  const setDeckCraftSlides = useSetAtom(DeckCraftSlidesAtom);
+  const setSession = useSetAtom(SetDeckCraftSessionAtom);
   useEffect(() => {
     const onDragOver = (e: DragEvent) => {
       if (!e.dataTransfer?.types.includes("Files")) return;
@@ -35,11 +34,20 @@ export const DragWatcher: FC = () => {
         ) {
           message.warning("PPTX は一度に 1 ファイルずつ開いてください");
         } else {
-          if (presentations[0]) setDeckCraftFile(presentations[0]);
-          const files = await files2selectedFiles(
-            dropped.filter((file) => !/\.pptx$/i.test(file.name)),
-          );
-          if (files.length) setDeckCraftSlides(files);
+          try {
+            if (presentations[0]) {
+              setSession({ kind: "pptx", file: presentations[0] });
+            } else {
+              const files = await files2selectedFiles(dropped);
+              if (files.length) setSession({ kind: "slides", slides: files });
+            }
+          } catch (error) {
+            message.error(
+              error instanceof Error
+                ? error.message
+                : "ファイルを開けませんでした",
+            );
+          }
         }
       }
       setIsDragOver(false);
@@ -53,7 +61,7 @@ export const DragWatcher: FC = () => {
       document.removeEventListener("dragleave", onDragLeave);
       document.removeEventListener("drop", onDrop);
     };
-  }, [setDeckCraftFile, setDeckCraftSlides, setIsDragOver]);
+  }, [setSession, setIsDragOver]);
 
   if (!isDragOver) return <></>;
   return (

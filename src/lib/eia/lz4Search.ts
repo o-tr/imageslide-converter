@@ -854,16 +854,27 @@ export function compressLz4Best(input: Uint8Array): Uint8Array {
     let tiePortfolio: (typeof portfolio)[number] | undefined;
     // Exhaustive profiles need no deeper repeats.
     const completeProfiles = new Set<string>();
-    for (const [depth, lookahead, matches] of [
-      [2048, 1, [4, 6, 8, 10, 12]],
-      [8192, 1, [4, 6, 8]],
-      [512, 4, [4, 6, 8, 10, 12]],
-      // Explore the full LZ4 offset window and wider lazy lookahead. Encoder
-      // work is deliberately traded for lower decoder work here.
-      [65535, 1, [4, 6, 8, 10, 12]],
-      [8192, 4, [4, 6, 8, 10, 12]],
-      [8192, 8, [4, 6, 8, 10, 12]],
-    ] as const) {
+    // Exhaustive offset-window searches can take minutes on slide-sized
+    // images with many similar text fragments. Keep the deep search for
+    // small payloads and bound work for larger ones; all candidates remain
+    // standard LZ4 and the existing fast-frame size ceiling still applies.
+    const profiles: readonly (readonly [number, number, readonly number[]])[] =
+      input.length >= 64 * 1024
+        ? [
+            [64, 1, [8, 12]],
+            [64, 4, input.length >= 1024 * 1024 ? [4] : [4, 8]],
+          ]
+        : [
+            [2048, 1, [4, 6, 8, 10, 12]],
+            [8192, 1, [4, 6, 8]],
+            [512, 4, [4, 6, 8, 10, 12]],
+            // Explore the full LZ4 offset window and wider lazy lookahead. Encoder
+            // work is deliberately traded for lower decoder work here.
+            [65535, 1, [4, 6, 8, 10, 12]],
+            [8192, 4, [4, 6, 8, 10, 12]],
+            [8192, 8, [4, 6, 8, 10, 12]],
+          ];
+    for (const [depth, lookahead, matches] of profiles) {
       let previous:
         | { depthLimited: boolean; minimumActive: number }
         | undefined;

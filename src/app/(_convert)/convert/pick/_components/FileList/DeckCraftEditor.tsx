@@ -5,19 +5,45 @@ import { createId } from "@/lib/createId";
 import { loadPptxFonts } from "@/lib/deckcraft/loadFonts";
 
 import type { SelectedFile } from "@/_types/file-picker";
-import { DeckCraftFileAtom, DeckCraftSlidesAtom } from "@/atoms/deckcraft";
+import {
+  type DeckCraftSession,
+  SetDeckCraftSessionAtom,
+} from "@/atoms/deckcraft";
 import { OutputFileNameAtom, SelectedFilesAtom } from "@/atoms/file-drop";
 import { useRouter } from "@/compat/navigation";
 import { useTheme } from "@/components/ThemeProvider";
-import { Alert, Button, Input, Modal, message } from "@/components/primitives";
+import {
+  Alert,
+  Button,
+  Input,
+  Modal,
+  Spin,
+  message,
+} from "@/components/primitives";
 import { useAtom, useSetAtom } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import { SettingsPanel } from "../Settings";
 
-export function DeckCraftEditor() {
-  const [file, setFile] = useAtom(DeckCraftFileAtom);
-  const [sourceSlides, setSourceSlides] = useAtom(DeckCraftSlidesAtom);
-  const isOpen = !!file || !!sourceSlides;
+/** The embedded editor writes startup failures into its loading element. */
+export function deckCraftStartupError(text: string | null): string | null {
+  const value = text?.trim();
+  if (
+    value &&
+    /^(?:フォントを読み込めませんでした|必要なフォントを読み込めませんでした|DeckCraft failed to start)/i.test(
+      value,
+    )
+  )
+    return value;
+  return null;
+}
+
+export function DeckCraftEditor({
+  session,
+  active,
+}: { session: DeckCraftSession; active: boolean }) {
+  const file = session.kind === "pptx" ? session.file : null;
+  const sourceSlides = session.kind === "slides" ? session.slides : null;
+  const closeSession = useSetAtom(SetDeckCraftSessionAtom);
   const setFiles = useSetAtom(SelectedFilesAtom);
   const [outputName, setOutputName] = useAtom(OutputFileNameAtom);
   const router = useRouter();
@@ -26,6 +52,7 @@ export function DeckCraftEditor() {
   themeRef.current = resolvedTheme;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const frame = useRef<HTMLIFrameElement>(null);
+  const startupObserver = useRef<MutationObserver | null>(null);
   const images = useRef<Promise<SelectedFile>[]>([]);
   const slideIndexes = useRef<number[]>([]);
   const animationFrames = useRef(
@@ -39,10 +66,12 @@ export function DeckCraftEditor() {
     >(),
   );
   const exporting = useRef(false);
+  const [loading, setLoading] = useState(true);
   const [editorError, setEditorError] = useState<string | null>(null);
 
+  useEffect(() => () => startupObserver.current?.disconnect(), []);
+
   useEffect(() => {
-    if (!isOpen) return;
     const controller = new AbortController();
     setEditorError(null);
     fetch("/deckcraft/index.html", {
@@ -80,10 +109,10 @@ export function DeckCraftEditor() {
           );
       });
     return () => controller.abort();
-  }, [isOpen]);
+  }, []);
 
   useEffect(() => {
-    if (!isOpen || !resolvedTheme) return;
+    if (!resolvedTheme) return;
     frame.current?.contentWindow?.postMessage(
       {
         source: "imageslide-poc",
@@ -92,10 +121,9 @@ export function DeckCraftEditor() {
       },
       window.location.origin,
     );
-  }, [isOpen, resolvedTheme]);
+  }, [resolvedTheme]);
 
   useEffect(() => {
-    if (!isOpen) return;
     let cancelled = false;
     const onMessage = async (event: MessageEvent) => {
       if (
@@ -106,6 +134,7 @@ export function DeckCraftEditor() {
         return;
       const data = event.data;
       if (data.type === "ready") {
+        startupObserver.current?.disconnect();
         if (themeRef.current) {
           frame.current?.contentWindow?.postMessage(
             {
@@ -157,17 +186,19 @@ export function DeckCraftEditor() {
             );
           }
         } catch (error) {
-          if (!cancelled)
-            message.error(
+          if (!cancelled) {
+            setEditorError(
               error instanceof Error
                 ? error.message
                 : "スライドを読み込めませんでした",
             );
+          }
         }
+      } else if (data.type === "opened") {
+        setLoading(false);
       } else if (data.type === "close") {
         setSettingsOpen(false);
-        setFile(null);
-        setSourceSlides(null);
+        closeSession(null);
       } else if (data.type === "request-export" && !exporting.current) {
         images.current = [];
         slideIndexes.current = [];
@@ -182,7 +213,12 @@ export function DeckCraftEditor() {
           window.location.origin,
         );
       } else if (data.type === "open-error") {
-        message.error(`PPTX を開けませんでした: ${data.name}`);
+        const detail = typeof data.name === "string" ? data.name.trim() : "";
+        setEditorError(
+          detail
+            ? `スライドを開けませんでした: ${detail}`
+            : "スライドを開けませんでした",
+        );
       } else if (
         data.type === "slide" &&
         exporting.current &&
@@ -349,42 +385,71 @@ export function DeckCraftEditor() {
       exporting.current = false;
       window.removeEventListener("message", onMessage);
     };
-  }, [file, isOpen, setFile, setFiles, setSourceSlides, sourceSlides]);
+  }, [closeSession, file, setFiles, sourceSlides]);
 
   const close = () => {
     setSettingsOpen(false);
-    setFile(null);
-    setSourceSlides(null);
+    closeSession(null);
+  };
+  const watchStartup = () => {
+    startupObserver.current?.disconnect();
+    const element =
+      frame.current?.contentDocument?.getElementById("deckcraft_loading");
+    if (!element) return;
+    const checkError = () => {
+      const error = deckCraftStartupError(element.textContent);
+      if (error) {
+        startupObserver.current?.disconnect();
+        setEditorError(error);
+      }
+    };
+    const observer = new MutationObserver(checkError);
+    startupObserver.current = observer;
+    observer.observe(element, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    checkError();
   };
   return (
     <>
-      {isOpen && (
-        <section className="flex min-h-0 flex-1 flex-col">
-          {editorError && (
-            <div>
-              <Button onClick={close}>戻る</Button>
-              <Alert type="error" message={editorError} />
-            </div>
-          )}
-          {!editorError && (
-            <iframe
-              ref={frame}
-              title="DeckCraft"
-              src="/deckcraft/index.html?blank"
-              className="min-h-[480px] w-full flex-1 border-0"
-              allow="fullscreen; clipboard-read; clipboard-write"
-            />
-          )}
-        </section>
-      )}
+      <section
+        className="relative flex min-h-0 flex-1 flex-col"
+        aria-busy={loading && !editorError}
+      >
+        {editorError && (
+          <div>
+            <Button onClick={close}>戻る</Button>
+            <Alert type="error" message={editorError} />
+          </div>
+        )}
+        {!editorError && (
+          <iframe
+            ref={frame}
+            title="DeckCraft"
+            src="/deckcraft/index.html?blank"
+            className="min-h-[480px] w-full flex-1 border-0"
+            allow="fullscreen; clipboard-read; clipboard-write"
+            onLoad={watchStartup}
+            aria-hidden={loading}
+            tabIndex={loading ? -1 : undefined}
+          />
+        )}
+        {loading && !editorError && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-background p-6 text-foreground">
+            <Spin size="large" />
+            <p aria-live="polite">スライドを読み込んでいます…</p>
+            <Button onClick={close}>戻る</Button>
+          </div>
+        )}
+      </section>
       <Modal
         title="出力設定"
-        open={settingsOpen}
+        open={active && settingsOpen}
         onCancel={() => setSettingsOpen(false)}
         onOk={() => {
           setSettingsOpen(false);
-          setFile(null);
-          setSourceSlides(null);
           router.push("./convert");
         }}
         okText="変換する"

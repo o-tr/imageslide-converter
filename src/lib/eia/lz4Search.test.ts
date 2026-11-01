@@ -359,7 +359,7 @@ describe("LZ4 search encoder", () => {
     }
     const frame = compressLz4Best(data);
     expect(createHash("sha256").update(frame).digest("hex")).toBe(
-      "35b94bdf1e320883265af859264d8fd9f62ea2d7ade4b75f69c1a3f7789d1ef0",
+      "7de2082ccf7a8bb43b91859cd1a6c13bc5ce6938b5c2a2f934b30eec11706601",
     );
     expect(
       Buffer.from(lz4.decompress(frame, data.length)).equals(Buffer.from(data)),
@@ -993,6 +993,20 @@ describe("LZ4 search encoder", () => {
       }
     }
   }, 30000);
+
+  it("keeps large slide-sized payloads compatible and no larger than the fast frame", () => {
+    const data = new Uint8Array(1024 * 1024);
+    const pattern = randomBytes(4096, 31);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = i % 8192 < 4096 ? pattern[i % 4096] : 255;
+    }
+    const encoded = compressLz4Best(data);
+    expect(Buffer.from(lz4.decompress(encoded, data.length))).toEqual(
+      Buffer.from(data),
+    );
+    expect(frameHasValidEnds(encoded)).toBe(true);
+    expect(encoded.length).toBeLessThanOrEqual(lz4.compress(data).length);
+  });
 
   it("writes independent valid blocks inside a compatible multi-block frame", () => {
     const data = randomBytes(4 * 1024 * 1024 + 1024, 42);

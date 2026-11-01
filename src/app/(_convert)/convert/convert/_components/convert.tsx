@@ -7,7 +7,7 @@ import {
 } from "@/atoms/convert";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
 import { useRouter } from "@/compat/navigation";
-import { Flex, Spin, message } from "@/components/primitives";
+import { Alert, Button, Flex, Spin } from "@/components/primitives";
 import { FileSizeLimit, TargetVersions } from "@/const/convert";
 import { postCompress } from "@/lib/workerService/postCompress";
 import { getAvailableFormats } from "@/utils/getAvailableFormats";
@@ -20,6 +20,7 @@ export const Convert: FC = () => {
   const _files = useAtomValue(SelectedFilesAtom);
   const [completed, setCompleted] = useState(0);
   const [phase, setPhase] = useState<"prepare" | "crop">("prepare");
+  const [failed, setFailed] = useState(false);
   const _resolution = useAtomValue(TargetResolutionAtom);
   const setResults = useSetAtom(ResultAtom);
   const version = useMemo(() => {
@@ -83,7 +84,7 @@ export const Convert: FC = () => {
         setResults(undefined);
         initRef.current = false;
         console.error("Compression failed:", e);
-        void message.error("変換に失敗しました");
+        setFailed(true);
       });
   }, [
     version,
@@ -95,6 +96,19 @@ export const Convert: FC = () => {
     setResults,
     availableFormats,
   ]);
+  if (failed) {
+    return (
+      <div className="grid flex-1 place-items-center px-4">
+        <Flex vertical gap="middle" className="w-full max-w-lg">
+          <Alert type="error" message="変換に失敗しました" />
+          <Button onClick={() => router.push("/convert/pick")}>
+            編集に戻る
+          </Button>
+        </Flex>
+      </div>
+    );
+  }
+
   return (
     <div className="grid flex-1 place-items-center">
       <Flex gap={16} align="center">
