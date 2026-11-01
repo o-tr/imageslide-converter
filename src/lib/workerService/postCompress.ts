@@ -1,5 +1,4 @@
 import type { SelectedFile } from "@/_types/file-picker";
-import type { TTextureConverterFormat } from "@/_types/text-zip/formats";
 import type {
   WorkerAnimationBitmap,
   WorkerMessage,
@@ -17,16 +16,13 @@ const worker = (
 
 export const postCompress = (
   files: SelectedFile[],
-  format: TTextureConverterFormat,
-  version: number,
-  scale: number,
   resolution: Resolution,
   onProgress?: (
     completed: number,
     total: number,
     phase: "prepare" | "crop",
   ) => void,
-): Promise<string[] | Buffer[]> => {
+): Promise<Buffer> => {
   console.log("postCompress");
 
   const transferables: Transferable[] = [];
@@ -61,15 +57,12 @@ export const postCompress = (
   const message: WorkerMessage = {
     type: "compress",
     data: {
-      format,
-      version,
-      scale,
       resolution,
       files: workerFiles,
     },
   };
   console.log("postCompress", message);
-  return new Promise<string[] | Buffer[]>((resolve, reject) => {
+  return new Promise<Buffer>((resolve, reject) => {
     const handler = (event: MessageEvent<WorkerResponse>) => {
       if (event.data.type === "compress-progress") {
         onProgress?.(event.data.completed, event.data.total, event.data.phase);

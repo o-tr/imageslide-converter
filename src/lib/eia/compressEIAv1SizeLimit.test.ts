@@ -28,10 +28,9 @@ const slide = (index: number, size: number): RawImageObjV1 => ({
 });
 
 describe("compressEIAv1 size limit", () => {
-  it("returns a single archive that fits", async () => {
-    const archives = await compressEIAv1([slide(0, 4)]);
-    expect(archives).toHaveLength(1);
-    expect(archives[0].length).toBeLessThanOrEqual(2000);
+  it("returns the archive when it fits", async () => {
+    const archive = await compressEIAv1([slide(0, 4)]);
+    expect(archive.length).toBeLessThanOrEqual(2000);
   });
 
   it("rejects an archive larger than the limit instead of splitting it", async () => {
@@ -59,7 +58,7 @@ describe("compressEIAv1 size limit", () => {
         ],
       },
     };
-    const [archive] = await compressEIAv1([child, base]);
+    const archive = await compressEIAv1([child, base]);
     const manifest = JSON.parse(
       archive.subarray(4, archive.indexOf("$")).toString(),
     );

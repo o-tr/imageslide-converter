@@ -102,10 +102,10 @@ const measure = async (
   const cropped = crop(cache);
   const t1 = performance.now();
   const out = await compressEIAv1(cropped, undefined, undefined, cache);
-  if (process.env.CROP_WRITE && out.length === 1)
+  if (process.env.CROP_WRITE)
     writeFileSync(
       `${process.env.CROP_WRITE}/${label.replace(/[^a-z0-9]+/gi, "_")}.eia`,
-      out[0],
+      out,
     );
   const t2 = performance.now();
   const byIndex = new Map(cropped.map((c) => [c.index, c]));
@@ -140,10 +140,7 @@ const measure = async (
     0,
   );
   console.log(
-    `${label.padEnd(22)} size=${out
-      .reduce((a, b) => a + b.length, 0)
-      .toString()
-      .padStart(9)}` +
+    `${label.padEnd(22)} size=${out.length.toString().padStart(9)}` +
       ` masters=${masters.toString().padStart(3)}/${deck.length} maxDepth=${maxDepth}` +
       ` rects=${rectCount} deltaRawMB=${(deltaRaw / 1e6).toFixed(1)} decodedMB=${(decoded / 1e6).toFixed(2)} chainMB=${(chainTotal / 1e6).toFixed(1)} crop=${(t1 - t0).toFixed(0)}ms enc=${(t2 - t1).toFixed(0)}ms`,
   );

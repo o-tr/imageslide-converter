@@ -12,7 +12,6 @@ const RequestSchema = z.object({
   version: z.number(),
   format: z.string(),
   totalSize: z.number(),
-  count: z.number(),
 });
 
 export const POST = async (request: Request) => {
@@ -45,7 +44,8 @@ export const POST = async (request: Request) => {
         bucket: S3_NORMAL_BUCKET,
         fileId: data.fileId,
         totalSize: data.totalSize,
-        count: data.count,
+        // Uploads are always one object (<fileId>_0); count stays for older records.
+        count: 1,
         version: data.version,
         format: data.format,
         user: user
@@ -58,27 +58,16 @@ export const POST = async (request: Request) => {
       },
     });
 
-    await Promise.all(
-      Array.from({ length: data.count }).map(async (_, index) => {
-        const fileName = `${data.fileId}_${index}`;
-        await s3NormalClient.send(
-          new PutObjectTaggingCommand({
-            Bucket: S3_NORMAL_BUCKET,
-            Key: fileName,
-            Tagging: {
-              TagSet: [
-                {
-                  Key: "registered",
-                  Value: "true",
-                },
-                {
-                  Key: "guest",
-                  Value: user ? "false" : "true",
-                },
-              ],
-            },
-          }),
-        );
+    await s3NormalClient.send(
+      new PutObjectTaggingCommand({
+        Bucket: S3_NORMAL_BUCKET,
+        Key: `${data.fileId}_0`,
+        Tagging: {
+          TagSet: [
+            { Key: "registered", Value: "true" },
+            { Key: "guest", Value: user ? "false" : "true" },
+          ],
+        },
       }),
     );
 

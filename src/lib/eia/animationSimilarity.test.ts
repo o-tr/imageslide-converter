@@ -30,7 +30,7 @@ describe("animation frame similarity", () => {
       format: "RGB24" as const,
       frames: [frame(0, original), frame(1, similar)],
     };
-    const [archive] = await compressEIAv1(
+    const archive = await compressEIAv1(
       [frame(0, Buffer.alloc(20 * 20 * 3))],
       undefined,
       new Map([[0, [animation]]]),
@@ -185,13 +185,8 @@ describe("animation frame similarity", () => {
     ]);
     const cache = new EiaCompressionCache(lz4.compress);
     cache.compressRects(cropped.cropped.rects, rect);
-    const [archive] = await compressEIAv1(
-      [slide],
-      undefined,
-      animations,
-      cache,
-    );
-    const [withoutHit] = await compressEIAv1(
+    const archive = await compressEIAv1([slide], undefined, animations, cache);
+    const withoutHit = await compressEIAv1(
       [slide],
       undefined,
       animations,
@@ -208,7 +203,7 @@ describe("animation frame similarity", () => {
     };
     const paddedCache = new EiaCompressionCache(paddedEncoder);
     paddedCache.compressRects(cropped.cropped.rects, rect);
-    const [paddedArchive] = await compressEIAv1(
+    const paddedArchive = await compressEIAv1(
       [slide],
       undefined,
       animations,

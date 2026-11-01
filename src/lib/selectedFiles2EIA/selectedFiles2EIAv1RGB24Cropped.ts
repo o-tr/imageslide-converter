@@ -30,7 +30,7 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
   selectedFiles: SelectedFile[],
   signage?: EIASignageManifest,
   onProgress?: (completed: number, total: number) => void,
-): Promise<Buffer[]> => {
+): Promise<Buffer> => {
   const rawImages = selectedFiles.map<RawImageObjV1>((file, index) => ({
     index,
     rect: {

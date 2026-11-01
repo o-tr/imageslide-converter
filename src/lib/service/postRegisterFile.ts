@@ -4,7 +4,6 @@ import axios from "axios";
 export const postRegisterFile = async (
   fileId: string,
   fileName: string,
-  count: number,
   totalSize: number,
   format: string,
   version: number,
@@ -17,7 +16,6 @@ export const postRegisterFile = async (
       fileId: fileId,
       format: format,
       version: version,
-      count: count,
       totalSize: totalSize,
     },
     { signal },

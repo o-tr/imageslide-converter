@@ -28,7 +28,7 @@ it("writes standard LZ4 frames for master and delta payloads in base64 EIA", asy
       },
     },
   ];
-  const [archive] = await compressEIAv1Base64(slides);
+  const archive = await compressEIAv1Base64(slides);
   const text = archive.toString("utf8");
   const end = text.indexOf("$");
   const manifest = JSON.parse(text.slice(4, end));

@@ -13,12 +13,12 @@ describe("upload API failures", () => {
     ["initialization", (signal: AbortSignal) => getNormalFileId(signal)],
     [
       "upload URL generation",
-      (signal: AbortSignal) => getNormalPreSignedPut("id", [4], signal),
+      (signal: AbortSignal) => getNormalPreSignedPut("id", 4, signal),
     ],
     [
       "registration",
       (signal: AbortSignal) =>
-        postRegisterFile("id", "file", 1, 4, "format", 1, signal),
+        postRegisterFile("id", "file", 4, "format", 1, signal),
     ],
   ])(
     "propagates an HTTP failure from %s and forwards cancellation",

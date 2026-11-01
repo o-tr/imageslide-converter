@@ -12,7 +12,7 @@ export const selectedFiles2EIAv1RGB24CroppedBase64 = async (
   selectedFiles: SelectedFile[],
   signage?: EIASignageManifest,
   onProgress?: (completed: number, total: number) => void,
-): Promise<Buffer[]> => {
+): Promise<Buffer> => {
   const hasAnimations = selectedFiles.some(
     (file) => !!file.animations && file.animations.length > 0,
   );
@@ -41,5 +41,5 @@ export const selectedFiles2EIAv1RGB24CroppedBase64 = async (
     `after compress size: ${croppedImages.reduce((acc, cur) => acc + (cur.cropped ? cur.cropped.rects.reduce((acc, cur) => acc + cur.buffer.length, 0) : cur.buffer.length), 0)}`,
   );
 
-  return await compressEIAv1Base64(croppedImages, signage, 1, keyframeInterval);
+  return await compressEIAv1Base64(croppedImages, signage);
 };

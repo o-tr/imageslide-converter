@@ -163,13 +163,8 @@ describe("EIA crop selection", () => {
     ];
     const cached = new EiaCompressionCache(lz4.compress);
     cached.compressRects(rects, payload);
-    const [withCache] = await compressEIAv1(
-      frames,
-      undefined,
-      undefined,
-      cached,
-    );
-    const [withoutHit] = await compressEIAv1(
+    const withCache = await compressEIAv1(frames, undefined, undefined, cached);
+    const withoutHit = await compressEIAv1(
       frames,
       undefined,
       undefined,
@@ -198,8 +193,8 @@ describe("EIA crop selection", () => {
       optimizeEia: true,
       compressionCache: cache,
     });
-    const [cached] = await compressEIAv1(images, undefined, undefined, cache);
-    const [uncached] = await compressEIAv1(images);
+    const cached = await compressEIAv1(images, undefined, undefined, cache);
+    const uncached = await compressEIAv1(images);
     expect(cached).toEqual(uncached);
   });
 
@@ -213,8 +208,8 @@ describe("EIA crop selection", () => {
     expect(optimized[1].cropped?.rects[0].buffer).toEqual(data.subarray(0, 3));
     expect(optimized[1].cropped?.merged).toEqual(data);
     expect(optimized[1].cropped?.merged).toBe(data);
-    const [archive] = await compressEIAv1(optimized);
-    const [oldArchive] = await compressEIAv1(baseline);
+    const archive = await compressEIAv1(optimized);
+    const oldArchive = await compressEIAv1(baseline);
     expect(archive.length).toBeLessThan(oldArchive.length);
     const end = archive.indexOf(36);
     const manifest = JSON.parse(archive.subarray(4, end).toString());
@@ -330,7 +325,7 @@ describe("EIA crop selection", () => {
         ],
       ],
     ]);
-    const [archive] = await compressEIAv1(
+    const archive = await compressEIAv1(
       [image(0, pixels)],
       undefined,
       animations,

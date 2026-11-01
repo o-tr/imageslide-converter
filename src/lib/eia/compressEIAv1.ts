@@ -39,8 +39,8 @@ export const compressEIAv1 = async (
   signage?: EIASignageManifest,
   animationMap?: Map<number, RawAnimationData[]>,
   compressionCache?: EiaCompressionCache,
-): Promise<Buffer[]> => {
-  if (data.length === 0) return [];
+): Promise<Buffer> => {
+  if (data.length === 0) throw new Error("No slides to compress");
 
   // Decoders need every base before the slides that reference it.
   const imagesByIndex = new Map<number, RawImageObjV1Cropped>();
@@ -70,7 +70,7 @@ export const compressEIAv1 = async (
       `${EIA_SIZE_LIMIT_ERROR}: compressed size ${compressed.length} exceeds the limit of ${FileSizeLimit} bytes`,
     );
   }
-  return [compressed];
+  return compressed;
 };
 
 const compressEIAv1Part = async (

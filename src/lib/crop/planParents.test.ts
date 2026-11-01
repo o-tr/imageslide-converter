@@ -117,7 +117,7 @@ describe("planParents", () => {
       parentPlan,
     });
     expect(cropped.map((c) => c.index)).toEqual(images.map((i) => i.index));
-    const [archive] = await compressEIAv1(cropped, undefined, undefined, cache);
+    const archive = await compressEIAv1(cropped, undefined, undefined, cache);
     const frames = decodeEIAv1(Uint8Array.from(archive).buffer).frames;
     expect(frames).toHaveLength(images.length);
     frames.forEach((frame, i) => {

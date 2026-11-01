@@ -3,7 +3,7 @@ import { ResultAtom } from "@/atoms/convert";
 import { DeckCraftSessionAtom } from "@/atoms/deckcraft";
 import { OutputFileNameAtom, SelectedFilesAtom } from "@/atoms/file-drop";
 import { useRouter } from "@/compat/navigation";
-import { Alert, Button, Flex, List, Spin } from "@/components/primitives";
+import { Alert, Button, Flex, Spin } from "@/components/primitives";
 import { getNormalFileId } from "@/lib/service/getNormalFileId";
 import { getNormalPreSignedPut } from "@/lib/service/getNormalPreSignedPut";
 import { postRegisterFile } from "@/lib/service/postRegisterFile";
@@ -22,7 +22,7 @@ export const Upload: FC = () => {
   const files = useAtomValue(SelectedFilesAtom);
   const outputFileName = useAtomValue(OutputFileNameAtom);
   const router = useRouter();
-  const [progress, setProgress] = useState<Record<string, number>>({});
+  const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState<Stage>("preparing");
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -37,86 +37,44 @@ export const Upload: FC = () => {
     let cancelled = false;
     let currentStage: Stage = "preparing";
     setError(null);
-    setProgress({});
+    setProgress(0);
     setStage("preparing");
 
     // Defer the first request so Strict Mode's setup/cleanup cycle can cancel it.
     void Promise.resolve().then(async () => {
       if (cancelled) return;
       try {
-        const data = result.data.map((input) => {
-          const file = new File(
-            [
-              typeof input === "string"
-                ? new TextEncoder().encode(input)
-                : new Uint8Array(input),
-            ],
-            typeof input === "string" ? "file.txt" : "file.bin",
-            {
-              type:
-                typeof input === "string"
-                  ? "text/plain"
-                  : "application/octet-stream",
-            },
-          );
-          return { fileSize: file.size, file };
+        const file = new File([new Uint8Array(result.data)], "file.bin", {
+          type: "application/octet-stream",
         });
         const fileId = await getNormalFileId(controller.signal);
         const preSignedPut = await getNormalPreSignedPut(
           fileId,
-          data.map((input) => input.fileSize),
+          file.size,
           controller.signal,
         );
-        if (
-          preSignedPut.length !== data.length ||
-          new Set(preSignedPut.map((item) => item.index)).size !==
-            data.length ||
-          preSignedPut.some(
-            (item) =>
-              !Number.isInteger(item.index) ||
-              item.index < 0 ||
-              item.index >= data.length ||
-              item.fileId !== fileId,
-          )
-        )
-          throw new Error("Invalid upload URLs");
+        if (preSignedPut.fileId !== fileId)
+          throw new Error("Invalid upload URL");
         if (cancelled) return;
         currentStage = "uploading";
         setStage(currentStage);
-        setProgress(
-          Object.fromEntries(
-            preSignedPut.map(({ index }) => [`${fileId}_${index}`, 0]),
-          ),
-        );
-        await Promise.all(
-          preSignedPut.map(async (val) => {
-            const { file } = data[val.index];
-            await axios.put(val.url, file, {
-              signal: controller.signal,
-              headers: {
-                "Content-Type": file.type || "application/octet-stream",
-              },
-              onUploadProgress: (event) => {
-                if (!cancelled)
-                  setProgress((previous) => ({
-                    ...previous,
-                    [`${fileId}_${val.index}`]: Math.min(
-                      1,
-                      event.loaded / (event.total || file.size || 1),
-                    ),
-                  }));
-              },
-            });
-          }),
-        );
+        await axios.put(preSignedPut.url, file, {
+          signal: controller.signal,
+          headers: { "Content-Type": "application/octet-stream" },
+          onUploadProgress: (event) => {
+            if (!cancelled)
+              setProgress(
+                Math.min(1, event.loaded / (event.total || file.size || 1)),
+              );
+          },
+        });
         if (cancelled) return;
         currentStage = "registering";
         setStage(currentStage);
         await postRegisterFile(
           fileId,
           outputFileName || files[0]?.fileName || "untitled",
-          data.length,
-          data.reduce((sum, item) => sum + item.fileSize, 0),
+          file.size,
           result.format,
           result.version,
           controller.signal,
@@ -174,18 +132,10 @@ export const Upload: FC = () => {
   if (stage === "registering") return <Completed />;
   return (
     <div className="grid flex-1 place-items-center">
-      <List
-        itemLayout="horizontal"
-        dataSource={Object.entries(progress)}
-        renderItem={(item) => (
-          <List.Item>
-            <Flex gap="middle" align="center">
-              <Spin percent={Math.floor(item[1] * 100)} size="large" />
-              <div>{item[0]}</div>
-            </Flex>
-          </List.Item>
-        )}
-      />
+      <Flex gap="middle" align="center">
+        <Spin percent={Math.floor(progress * 100)} size="large" />
+        <div>アップロード中</div>
+      </Flex>
     </div>
   );
 };
