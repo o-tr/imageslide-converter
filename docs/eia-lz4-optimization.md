@@ -1617,3 +1617,37 @@ error messages, and a regression test checks that cycles are still rejected.
 For a 350-slide chain of 1×1 images with compression stubbed, 12 warmed
 alternating Chrome samples gave median serialization times of 2.3 → 0.8 ms;
 archives matched byte-for-byte. This does not measure real slide compression.
+
+## Slide parent planning and near-lossless smoothing
+
+These changes alter only which slides reference which and which pixel values
+are encoded; EIA v1 and standard LZ4 frames are unchanged.
+
+- Parents and keyframes come from a deck-wide similarity graph
+  (`src/lib/crop/planParents.ts`): each slide is either a master or a delta
+  against a similar slide anywhere in the deck. Edge cost is the estimated
+  LZ4 size, decoded bytes and a per-depth penalty; Prim from a virtual root
+  plus a local search picks the forest, with depth at most 6. A parent may
+  have any number of children. Source-identical slides become one-pixel
+  references.
+- `nearLossless` snaps a pixel to its left, then upper, neighbour when every
+  channel is within 2 (`IMAGE_NEAR_LOSSLESS_TOLERANCE`; 0 disables it).
+- For slides whose plan puts the delta at least 10% below the master, the
+  exact master compression used to confirm it is skipped.
+- Inputs of 64 KiB or more skip the exhaustive profile sweep in
+  `compressLz4Best`.
+
+Measured on five PDF decks rendered at 1280x720 with pdfjs (not DeckCraft
+output): archives are 17-37% smaller than with fixed keyframes every 10
+slides. On the TypeUdon async decoder (`eia_async`, slice budget 450000), two
+decks needed 27-32% fewer VM instructions to decode every item once, and the
+sum of per-slide chains (each slide decoded with its parents) fell 23-51%.
+Conversion CPU time for three decks fell 28-57%.
+
+Tried and not kept: re-weighting the encoder's decode-cost estimate to a fit
+of measured VM instructions (R^2 = 0.9997: about 184 per sequence, 80 per copy,
+33 per length-extension byte) changed decoding by +0.2% to +0.6%; snapping
+delta pixels to the parent's value made archives 0.4-1.5% larger; allowing
+16-32 rectangles or a lower rectangle penalty changed size by about 0.5%.
+Dropping the min-6 candidate saves encoder time but raised decode
+instructions by 6%.

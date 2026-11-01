@@ -318,7 +318,9 @@ describe("LZ4 search encoder", () => {
     };
     for (let i = 0; i < data.length; i++) data[i] = random() & 255;
     for (let i = blockSize; i < data.length; i++) data[i] = random() % 16;
-    const frame = compressLz4Best(data);
+    const frame = compressLz4Best(data, {
+      profileSweepLimit: Number.POSITIVE_INFINITY,
+    });
     expect(createHash("sha256").update(frame).digest("hex")).toBe(
       "4542b4839490ac83a952ba515e3908743f3b6d87c7d140bf417ca9b6e1428ab8",
     );
@@ -357,7 +359,9 @@ describe("LZ4 search encoder", () => {
       if (i > rawLength + 64 && random() % 3)
         data[i] = data[i - 1 - (random() % 64)];
     }
-    const frame = compressLz4Best(data);
+    const frame = compressLz4Best(data, {
+      profileSweepLimit: Number.POSITIVE_INFINITY,
+    });
     expect(createHash("sha256").update(frame).digest("hex")).toBe(
       "7de2082ccf7a8bb43b91859cd1a6c13bc5ce6938b5c2a2f934b30eec11706601",
     );
@@ -421,7 +425,9 @@ describe("LZ4 search encoder", () => {
     }
     expect(contexts.has(0)).toBe(false);
     expect(frame).not.toBeNull();
-    const encoded = compressLz4Best(data);
+    const encoded = compressLz4Best(data, {
+      profileSweepLimit: Number.POSITIVE_INFINITY,
+    });
     expect(createHash("sha256").update(encoded).digest("hex")).toBe(
       "d555382456cee0da04d40ce3a97d326a7a40d008fe9ac389474a724f5dcb85c7",
     );
@@ -448,7 +454,9 @@ describe("LZ4 search encoder", () => {
       if (i > blockSize + 64 && random() % 3)
         data[i] = data[i - 1 - (random() % 64)];
     }
-    const frame = compressLz4Best(data);
+    const frame = compressLz4Best(data, {
+      profileSweepLimit: Number.POSITIVE_INFINITY,
+    });
     expect(createHash("sha256").update(frame).digest("hex")).toBe(
       "f705dd69899e63f5309760c4e7e665af2b1d5cfa85c4cfe3e02f7108f7377117",
     );

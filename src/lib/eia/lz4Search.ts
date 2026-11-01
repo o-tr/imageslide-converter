@@ -9,6 +9,7 @@ import lz4 from "lz4js";
 import { mergeLz4Literals } from "./lz4LiteralMerge.ts";
 
 const BLOCK_SIZE = 4 * 1024 * 1024;
+const PROFILE_SWEEP_LIMIT = 64 * 1024;
 const WINDOW = 65536;
 const SEARCH_DEPTH = 64;
 const HEADER = [4, 34, 77, 24, 64, 112, 223];
@@ -589,6 +590,11 @@ export function compressLz4Search(input: Uint8Array): Uint8Array {
   return requireFrame(compressLz4Frame(input, SEARCH_DEPTH, true));
 }
 
+// Measured against TypeUdon (321 items from two real decks), VM instructions fit
+// about 184 per sequence + 80 per native copy + 33 per length-extension byte
+// (R^2 = 0.9997), so the weights used below under-count copies and extensions.
+// Re-weighting to that ratio changed decode instructions by +0.2% to +0.6% and
+// archive size by under 0.03%, so the existing weights are kept.
 // Compare the operations used by the TypeUdon decoder. This is a conservative
 // filter, not a substitute for measuring native extern work or Unity frame time.
 function decodeWork(frame: Uint8Array) {
@@ -706,7 +712,14 @@ function hasValidBlockEnds(frame: Uint8Array): boolean {
 }
 
 /** Favor lower decode work while limiting size growth relative to the compact candidate. */
-export function compressLz4Best(input: Uint8Array): Uint8Array {
+export function compressLz4Best(
+  input: Uint8Array,
+  options: {
+    /** Inputs at least this long skip the exhaustive profile sweep. */
+    profileSweepLimit?: number;
+  } = {},
+): Uint8Array {
+  const profileSweepLimit = options.profileSweepLimit ?? PROFILE_SWEEP_LIMIT;
   const early4Stats = {
     depthLimited: false,
     minimumActive: Number.POSITIVE_INFINITY,
@@ -858,22 +871,27 @@ export function compressLz4Best(input: Uint8Array): Uint8Array {
     // images with many similar text fragments. Keep the deep search for
     // small payloads and bound work for larger ones; all candidates remain
     // standard LZ4 and the existing fast-frame size ceiling still applies.
+    // At 64 KiB and above the profile sweep is skipped: on two real decks
+    // (107 slide payloads, 0.1-2.7 MB) it cost about half of all encoder time
+    // for +0.05% size and +0.2% TypeUdon decode instructions.
     const profiles: readonly (readonly [number, number, readonly number[]])[] =
-      input.length >= 16 * 1024
-        ? [
-            [64, 1, [8, 12]],
-            [64, 4, input.length >= 1024 * 1024 ? [4] : [4, 8]],
-          ]
-        : [
-            [2048, 1, [4, 6, 8, 10, 12]],
-            [8192, 1, [4, 6, 8]],
-            [512, 4, [4, 6, 8, 10, 12]],
-            // Explore the full LZ4 offset window and wider lazy lookahead. Encoder
-            // work is deliberately traded for lower decoder work here.
-            [65535, 1, [4, 6, 8, 10, 12]],
-            [8192, 4, [4, 6, 8, 10, 12]],
-            [8192, 8, [4, 6, 8, 10, 12]],
-          ];
+      input.length >= profileSweepLimit
+        ? []
+        : input.length >= 16 * 1024
+          ? [
+              [64, 1, [8, 12]],
+              [64, 4, input.length >= 1024 * 1024 ? [4] : [4, 8]],
+            ]
+          : [
+              [2048, 1, [4, 6, 8, 10, 12]],
+              [8192, 1, [4, 6, 8]],
+              [512, 4, [4, 6, 8, 10, 12]],
+              // Explore the full LZ4 offset window and wider lazy lookahead. Encoder
+              // work is deliberately traded for lower decoder work here.
+              [65535, 1, [4, 6, 8, 10, 12]],
+              [8192, 4, [4, 6, 8, 10, 12]],
+              [8192, 8, [4, 6, 8, 10, 12]],
+            ];
     for (const [depth, lookahead, matches] of profiles) {
       let previous:
         | { depthLimited: boolean; minimumActive: number }

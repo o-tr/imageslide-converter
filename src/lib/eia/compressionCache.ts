@@ -87,7 +87,11 @@ export class EiaCompressionCache {
   private readonly recentContent: ContentEntry[] = [];
   private recentContentBytes = 0;
 
-  constructor(private readonly encode = compressLz4Best) {}
+  constructor(
+    private readonly encode: (
+      input: Uint8Array,
+    ) => Uint8Array = compressLz4Best,
+  ) {}
 
   private findContent(input: Uint8Array, key: number): Uint8Array | undefined {
     let comparisons = 0;

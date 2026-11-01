@@ -271,10 +271,14 @@ describe.skipIf(!deckDir || !process.env.CROP_NL)("near-lossless", () => {
           buffer: nearLossless(d.buffer, d.rect.width, d.rect.height, tol),
         }));
         await measure(`nl tol=${tol}`, deck, (cache) => {
+          const tp = performance.now();
           const plan = planParents(deck, {
             estimateSize: (p) => lz4.compress(p).length,
             maxDepth: 6,
+            depthPenalty: 1500,
+            evaluated: Number(process.env.EVAL ?? 4),
           });
+          console.log(`  planning ${(performance.now() - tp).toFixed(0)}ms`);
           return cropImages(deck, {
             optimizeEia: true,
             compressionCache: cache,

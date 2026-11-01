@@ -19,6 +19,8 @@ export type ParentPlan = {
   depths: number[];
   /** Estimated bytes (edge costs without depth penalty). */
   estimatedCost: number;
+  /** Estimated master cost / chosen delta cost per position (delta slides). */
+  masterAdvantage?: (number | undefined)[];
 };
 
 export type PlanParentsOptions = {
@@ -34,6 +36,11 @@ export type PlanParentsOptions = {
   depthPenalty?: number;
   /** Cost in bytes per decoded (uncompressed) byte. */
   decodeWeight?: number;
+  /**
+   * Candidates per slide that get a full cost estimate (bounding boxes and
+   * compression); the rest are ranked and dropped by changed-pixel count.
+   */
+  evaluated?: number;
   /** Fixed JSON/metadata cost estimates in bytes. */
   masterOverhead?: number;
   deltaOverhead?: number;
@@ -44,15 +51,14 @@ export type PlanParentsOptions = {
  * Cost of encoding `child` as a delta against `parent`, or null when the
  * delta degenerates into a full-frame rectangle (a master is never worse).
  */
-export const deltaCost = (
+const deltaCostFromDiff = (
   child: RawImageObjV1,
-  parent: RawImageObjV1,
+  diff: Uint8Array,
+  changed: number,
   o: Required<PlanParentsOptions>,
 ): number | null => {
   const { width, height } = child.rect;
-  const stats = { count: 0, stopAt: Number.POSITIVE_INFINITY };
-  const diff = rgb242diff(parent, child, stats);
-  if (stats.count === 0) return o.deltaOverhead + o.rectOverhead;
+  if (changed === 0) return o.deltaOverhead + o.rectOverhead;
   const boxes = optimizeBoundingBox(
     mergeOverlapBoundingBox(
       shrinkOverlapBoundingBox(
@@ -96,6 +102,7 @@ export const planParents = (
   const o: Required<PlanParentsOptions> = {
     thumbnailGridSize: 32,
     neighbors: 4,
+    evaluated: 4,
     sequenceNeighbors: 1,
     maxDepth: 3,
     depthPenalty: 1500,
@@ -143,9 +150,18 @@ export const planParents = (
         if (p >= 0 && p < n && sameSize(p, c)) chosen.add(p);
       }
     }
-    const list: { parent: number; cost: number }[] = [];
+    // Rank every candidate by its changed-pixel count (one cheap scan), then
+    // spend the expensive estimate only on the best few.
+    const scanned: { p: number; diff: Uint8Array; changed: number }[] = [];
     for (const p of chosen) {
-      const cost = deltaCost(rawImages[c], rawImages[p], o);
+      const stats = { count: 0, stopAt: Number.POSITIVE_INFINITY };
+      const diff = rgb242diff(rawImages[p], rawImages[c], stats);
+      scanned.push({ p, diff, changed: stats.count });
+    }
+    scanned.sort((a, b) => a.changed - b.changed);
+    const list: { parent: number; cost: number }[] = [];
+    for (const { p, diff, changed } of scanned.slice(0, o.evaluated)) {
+      const cost = deltaCostFromDiff(rawImages[c], diff, changed, o);
       if (cost !== null && cost < masterCost[c]) list.push({ parent: p, cost });
     }
     edges.push(list);
@@ -251,5 +267,8 @@ export const planParents = (
   }
   let estimatedCost = 0;
   for (let c = 0; c < n; c++) estimatedCost += edgeCost(c, parents[c]);
-  return { order: finalOrder, parents, depths, estimatedCost };
+  const masterAdvantage = parents.map((p, c) =>
+    p === null ? undefined : masterCost[c] / edgeCost(c, p),
+  );
+  return { order: finalOrder, parents, depths, estimatedCost, masterAdvantage };
 };

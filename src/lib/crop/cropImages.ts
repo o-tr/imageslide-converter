@@ -17,6 +17,9 @@ import {
   selectBestParent,
 } from "./selectBestParent";
 
+/** Planned master/delta cost ratio above which the exact master check is skipped. */
+const MASTER_SKIP_ADVANTAGE = 1.1;
+
 export interface CropOptions {
   onProgress?: (completed: number, total: number) => void;
   keyframeInterval?: number;
@@ -106,6 +109,7 @@ export const cropImages = (
     currentThumbnail: Uint8Array,
     i: number,
     bestParent: BestParentResult,
+    skipMasterComparison = false,
   ): void => {
     // The selected mask is private to this iteration and is not needed after
     // component extraction, so it can double as the visited-pixel workspace.
@@ -238,9 +242,12 @@ export const cropImages = (
       // Adding its decimal digit count is monotonic, so a delta below this
       // bound wins without compressing the full image merely to compare it.
       const minimumMasterLength = Math.ceil(currentImage.buffer.length / 255);
+      // A plan whose estimate puts the delta far below the master has already
+      // decided; compressing the full image to confirm it is the costly part.
       let certainlyDelta =
+        skipMasterComparison ||
         minimumMasterLength + String(minimumMasterLength).length >
-        deltaFixedCost;
+          deltaFixedCost;
       // A sequence with no matching four-byte prefix in the prior LZ4 window
       // also contributes to a conservative size bound. Avoid even scanning
       // when that bound could not possibly prove the delta smaller.
@@ -400,15 +407,22 @@ export const cropImages = (
         image,
         stats,
       );
-      encodeAgainstParent(image, noThumbnail, pos, {
-        parent: {
-          index: parent.index,
-          thumbnail: noThumbnail,
-          rect: parent.rect,
+      const planned = plan.masterAdvantage?.[pos];
+      encodeAgainstParent(
+        image,
+        noThumbnail,
+        pos,
+        {
+          parent: {
+            index: parent.index,
+            thumbnail: noThumbnail,
+            rect: parent.rect,
+          },
+          diff,
+          hasSuppressedDifferences: stats.hasSuppressedDifferences,
         },
-        diff,
-        hasSuppressedDifferences: stats.hasSuppressedDifferences,
-      });
+        planned !== undefined && planned >= MASTER_SKIP_ADVANTAGE,
+      );
       const left = (remainingChildren.get(parentPos) ?? 1) - 1;
       remainingChildren.set(parentPos, left);
       if (left === 0 && parent.index !== image.index) {
