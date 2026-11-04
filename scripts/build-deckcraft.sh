@@ -2,18 +2,16 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 source_dir="$root/vendor/deckcraft"
-patch_file="$root/patches/deckcraft-bridge.patch"
 if [[ ! -f "$source_dir/Cargo.toml" ]]; then
   echo 'Run git submodule update --init --recursive first.' >&2
   exit 1
 fi
-# Build from a temporary copy so the pinned submodule stays clean.
+# Build from a temporary copy so generated files leave the submodule clean.
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 cp -a "$source_dir/." "$tmp_dir/"
 rm -f "$tmp_dir/.git"
 cd "$tmp_dir"
-git apply "$patch_file"
 # Web fonts come from the runtime catalog, not the WebAssembly binary.
 unset CRAFT_FONTS_DIR CRAFT_FONTS_REQUIRED
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${TMPDIR:-/tmp}/imageslide-deckcraft-target}"

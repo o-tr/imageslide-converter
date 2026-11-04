@@ -1,6 +1,6 @@
 # DeckCraft integration
 
-The pinned DeckCraft submodule is used to build the browser editor. The DeckCraft bridge patch is applied to a temporary copy, leaving the submodule clean. The bridge accepts messages only from its same-origin parent. Modified builds retain the MIT notices in `public/deckcraft`.
+The browser editor is built from the pinned `o-tr/deckcraft-web` fork in the DeckCraft submodule. The build uses a temporary copy, leaving the submodule clean. The bridge accepts messages only from its same-origin parent. Modified builds retain the MIT notices in `public/deckcraft`.
 
 ## Build
 
