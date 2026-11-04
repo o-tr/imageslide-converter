@@ -11,12 +11,17 @@ tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 cp -a "$source_dir/." "$tmp_dir/"
 rm -f "$tmp_dir/.git"
+# A shared Cargo target can otherwise reuse workspace artifacts built from a
+# different copy whose source mtimes happen to be newer than these files.
+find "$tmp_dir" -type f -exec touch {} +
 cd "$tmp_dir"
 # Web fonts come from the runtime catalog, not the WebAssembly binary.
 unset CRAFT_FONTS_DIR CRAFT_FONTS_REQUIRED
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${TMPDIR:-/tmp}/imageslide-deckcraft-target}"
 cd apps/deckcraft-web
-trunk build --release
+# Keep this profile local to the WebAssembly build.
+env CARGO_PROFILE_RELEASE_OPT_LEVEL=z CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
+  trunk build --release
 node "$root/scripts/instrument-deckcraft.mjs" "$tmp_dir/dist/web/index.html"
 cd "$tmp_dir"
 mkdir -p "$root/public/deckcraft"
