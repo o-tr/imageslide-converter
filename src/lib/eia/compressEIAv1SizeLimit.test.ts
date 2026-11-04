@@ -2,7 +2,7 @@ import { Buffer } from "buffer";
 import type { RawImageObjV1 } from "@/_types/text-zip/v1";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/const/convert", () => ({
+vi.mock("@/const/fileSizeLimit", () => ({
   FileSizeLimit: 2000,
   EIA_SIZE_LIMIT_ERROR: "EIA_SIZE_LIMIT_EXCEEDED",
 }));

@@ -12,6 +12,8 @@ import {
 import { loadPptxFonts } from "@/lib/deckcraft/loadFonts";
 
 import type { SelectedFile } from "@/_types/file-picker";
+import { ConversionVisualAtom } from "@/atoms/conversion-visual";
+import { TargetResolutionAtom } from "@/atoms/convert";
 import {
   type DeckCraftSession,
   SetDeckCraftSessionAtom,
@@ -20,6 +22,7 @@ import { OutputFileNameAtom, SelectedFilesAtom } from "@/atoms/file-drop";
 import { useRouter } from "@/compat/navigation";
 import { useTheme } from "@/components/ThemeProvider";
 import { Alert, Button, Input, Modal, message } from "@/components/primitives";
+import { RESOLUTION_DIMENSIONS } from "@/const/resolutions";
 import { useAtom, useSetAtom } from "jotai";
 import { Check, LoaderCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -51,7 +54,15 @@ export function DeckCraftEditor({
   const { resolvedTheme } = useTheme();
   const themeRef = useRef(resolvedTheme);
   themeRef.current = resolvedTheme;
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportProgress, setExportProgress] = useState<{
+    completed: number;
+    total: number | null;
+    frame: number;
+    frames: number;
+  } | null>(null);
+  const [resolution] = useAtom(TargetResolutionAtom);
+  const setVisual = useSetAtom(ConversionVisualAtom);
   const surface = useRef<HTMLDivElement>(null);
   const images = useRef<Promise<SelectedFile>[]>([]);
   const slideIndexes = useRef<number[]>([]);
@@ -66,6 +77,8 @@ export function DeckCraftEditor({
     >(),
   );
   const exporting = useRef(false);
+  const exportWorker = useRef<Worker | null>(null);
+  const exportOptions = useRef({ width: 1920, height: 1080, animated: true });
   const [loading, setLoading] = useState(true);
   const [editorReady, setEditorReady] = useState(false);
   const [wasmProgress, setWasmProgress] = useState<{
@@ -118,6 +131,22 @@ export function DeckCraftEditor({
     },
     [],
   );
+
+  useEffect(() => {
+    if (!active) {
+      setExportProgress(null);
+      return;
+    }
+    if (!exportProgress) {
+      setVisual(null);
+      return;
+    }
+    setVisual({
+      count: exportProgress.total ?? exportProgress.completed,
+      visibleCount: exportProgress.completed,
+      graph: null,
+    });
+  }, [active, exportProgress, setVisual]);
 
   useEffect(() => {
     prepareDeckcraftHost();
@@ -243,18 +272,75 @@ export function DeckCraftEditor({
       } else if (data.type === "opened") {
         setLoading(false);
       } else if (data.type === "close") {
-        setSettingsOpen(false);
         closeSession(null);
       } else if (data.type === "request-export" && !exporting.current) {
-        images.current = [];
-        slideIndexes.current = [];
-        animationFrames.current.clear();
-        exporting.current = true;
-        sendDeckcraft({
-          source: "imageslide-poc",
-          type: "export",
-          allowStaticGif: !GIF_ANIMATION_ENABLED,
-        });
+        setExportDialogOpen(true);
+      } else if (
+        data.type === "export-snapshot" &&
+        exporting.current &&
+        data.bytes instanceof Uint8Array
+      ) {
+        try {
+          const total = data.name?.trim() ? Number(data.name) : Number.NaN;
+          if (Number.isInteger(total) && total > 0)
+            setExportProgress((current) => current && { ...current, total });
+          const initial = await (
+            window as typeof window & {
+              imageSlideInitialFonts?: Promise<Uint8Array[]>;
+            }
+          ).imageSlideInitialFonts;
+          const extra = presentation ? (await presentation).fonts : [];
+          if (cancelled || !exporting.current) return;
+          const worker = new Worker(
+            new URL(
+              "../../../../../../worker/deckcraftExport.ts",
+              import.meta.url,
+            ),
+            { type: "module" },
+          );
+          exportWorker.current = worker;
+          worker.onmessage = (event: MessageEvent<StartupEvent>) => {
+            void onMessage(event.data);
+          };
+          worker.onerror = (event) => {
+            void onMessage({
+              type: "export-error",
+              name: event.message || "Worker が停止しました",
+            });
+          };
+          worker.onmessageerror = () => {
+            void onMessage({
+              type: "export-error",
+              name: "Worker の応答を読み込めませんでした",
+            });
+          };
+          const payload = {
+            bytes: data.bytes,
+            fonts: [
+              ...(initial ?? []),
+              ...extra.map((font) => new Uint8Array(font)),
+            ],
+            ...exportOptions.current,
+          };
+          try {
+            worker.postMessage({
+              ...payload,
+              wasmModule: deckcraftHost().state.wasmModule,
+            });
+          } catch (error) {
+            if (
+              !(error instanceof DOMException) ||
+              error.name !== "DataCloneError"
+            )
+              throw error;
+            worker.postMessage(payload);
+          }
+        } catch (error) {
+          void onMessage({
+            type: "export-error",
+            name: error instanceof Error ? error.message : String(error),
+          });
+        }
       } else if (data.type === "open-error") {
         const detail = typeof data.name === "string" ? data.name.trim() : "";
         setEditorError(
@@ -265,7 +351,7 @@ export function DeckCraftEditor({
       } else if (
         data.type === "slide" &&
         exporting.current &&
-        data.bytes instanceof Uint8Array
+        (data.bytes instanceof Uint8Array || data.bitmap instanceof ImageBitmap)
       ) {
         let metadata: {
           index: number;
@@ -287,10 +373,22 @@ export function DeckCraftEditor({
             throw new Error("invalid metadata");
         } catch {
           exporting.current = false;
+          exportWorker.current?.terminate();
+          exportWorker.current = null;
           sendDeckcraft({ source: "imageslide-poc", type: "export-finished" });
+          setExportProgress(null);
           message.error("スライド情報を受け取れませんでした");
           return;
         }
+        setExportProgress(
+          (current) =>
+            current && {
+              ...current,
+              completed: current.completed + 1,
+              frame: 0,
+              frames: metadata.frames,
+            },
+        );
         slideIndexes.current.push(metadata.index);
         if (metadata.frames > 0)
           animationFrames.current.set(metadata.index, {
@@ -298,27 +396,32 @@ export function DeckCraftEditor({
             count: metadata.frames,
             frames: [],
           });
-        const blob = new Blob([data.bytes as BlobPart], { type: "image/png" });
+        const bitmapPromise = data.bitmap
+          ? Promise.resolve(data.bitmap)
+          : createImageBitmap(
+              new Blob([data.bytes as BlobPart], { type: "image/png" }),
+            );
+        const canvasPromise = bitmapPromise.then((bitmap) => {
+          const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+          const context = canvas.getContext("2d");
+          if (!context) throw new Error("Canvas を作成できませんでした");
+          context.drawImage(bitmap, 0, 0);
+          bitmap.close();
+          return canvas;
+        });
         images.current.push(
-          createImageBitmap(blob).then((bitmap) => {
-            const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-            const context = canvas.getContext("2d");
-            if (!context) throw new Error("Canvas を作成できませんでした");
-            context.drawImage(bitmap, 0, 0);
-            bitmap.close();
-            return {
-              id: createId(),
-              fileName: `${file?.name ?? "スライド"} (${metadata.index + 1})`,
-              note: metadata.note,
-              canvas,
-              metadata: { fileType: "image" },
-            };
-          }),
+          canvasPromise.then((canvas) => ({
+            id: createId(),
+            fileName: `${file?.name ?? "スライド"} (${metadata.index + 1})`,
+            note: metadata.note,
+            canvas,
+            metadata: { fileType: "image" },
+          })),
         );
       } else if (
         data.type === "animation-frame" &&
         exporting.current &&
-        data.bytes instanceof Uint8Array
+        (data.bytes instanceof Uint8Array || data.bitmap instanceof ImageBitmap)
       ) {
         try {
           const metadata = JSON.parse(data.name ?? "") as {
@@ -326,6 +429,9 @@ export function DeckCraftEditor({
             frame: number;
           };
           const animation = animationFrames.current.get(metadata.index);
+          setExportProgress(
+            (current) => current && { ...current, frame: metadata.frame + 1 },
+          );
           if (
             !animation ||
             !Number.isInteger(metadata.frame) ||
@@ -334,25 +440,30 @@ export function DeckCraftEditor({
             animation.frames[metadata.frame]
           )
             throw new Error("invalid frame metadata");
-          const blob = new Blob([data.bytes as BlobPart], {
-            type: "image/png",
+          const bitmapPromise = data.bitmap
+            ? Promise.resolve(data.bitmap)
+            : createImageBitmap(
+                new Blob([data.bytes as BlobPart], { type: "image/png" }),
+              );
+          animation.frames[metadata.frame] = bitmapPromise.then((bitmap) => {
+            const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+            const context = canvas.getContext("2d");
+            if (!context) throw new Error("Canvas を作成できませんでした");
+            context.drawImage(bitmap, 0, 0);
+            bitmap.close();
+            return canvas;
           });
-          animation.frames[metadata.frame] = createImageBitmap(blob).then(
-            (bitmap) => {
-              const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-              const context = canvas.getContext("2d");
-              if (!context) throw new Error("Canvas を作成できませんでした");
-              context.drawImage(bitmap, 0, 0);
-              bitmap.close();
-              return canvas;
-            },
-          );
         } catch {
           exporting.current = false;
+          exportWorker.current?.terminate();
+          exportWorker.current = null;
           sendDeckcraft({ source: "imageslide-poc", type: "export-finished" });
+          setExportProgress(null);
           message.error("GIF フレーム情報を受け取れませんでした");
         }
       } else if (data.type === "export-end" && exporting.current) {
+        exportWorker.current?.terminate();
+        exportWorker.current = null;
         exporting.current = false;
         try {
           const slides = await Promise.all(images.current);
@@ -391,9 +502,10 @@ export function DeckCraftEditor({
           );
           if (!cancelled) {
             setFiles(slides);
-            setSettingsOpen(true);
+            router.push("./convert");
           }
         } catch (error) {
+          if (!cancelled) setExportProgress(null);
           if (!cancelled)
             message.error(
               error instanceof Error
@@ -408,8 +520,11 @@ export function DeckCraftEditor({
             });
         }
       } else if (data.type === "export-error" && exporting.current) {
+        exportWorker.current?.terminate();
+        exportWorker.current = null;
         exporting.current = false;
         sendDeckcraft({ source: "imageslide-poc", type: "export-finished" });
+        setExportProgress(null);
         message.error(data.name || "スライドの書き出しに失敗しました");
       }
     };
@@ -424,12 +539,21 @@ export function DeckCraftEditor({
       // Reset the persistent host even if image decoding is still finishing.
       sendDeckcraft({ type: "export-finished" });
       exporting.current = false;
+      exportWorker.current?.terminate();
+      exportWorker.current = null;
       unsubscribe();
     };
-  }, [closeSession, file, session.id, setFiles, sourceSlides, updateStartup]);
+  }, [
+    closeSession,
+    file,
+    session.id,
+    setFiles,
+    sourceSlides,
+    updateStartup,
+    router,
+  ]);
 
   const close = () => {
-    setSettingsOpen(false);
     closeSession(null);
   };
   return (
@@ -566,24 +690,82 @@ export function DeckCraftEditor({
           </div>
         )}
       </section>
+      {active && exportProgress && (
+        <div
+          className="fixed inset-0 z-[90] grid place-items-center overflow-hidden"
+          aria-busy="true"
+        >
+          <div
+            className="relative z-10 px-8 py-6 text-center [text-shadow:0_1px_8px_var(--background)]"
+            aria-live="polite"
+          >
+            <LoaderCircle
+              className="mx-auto size-8 animate-spin"
+              aria-hidden="true"
+            />
+            <h2 className="mt-4 text-xl font-semibold">
+              スライドを書き出しています...
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {exportProgress.total === null
+                ? exportProgress.completed > 0
+                  ? `画像を生成: ${exportProgress.completed} スライド`
+                  : "書き出しの準備中"
+                : `画像を生成: ${exportProgress.completed} / ${exportProgress.total} スライド`}
+            </p>
+            {exportProgress.frames > 0 &&
+              exportProgress.frame < exportProgress.frames && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  アニメーションを生成: {exportProgress.frame} /{" "}
+                  {exportProgress.frames} フレーム
+                </p>
+              )}
+            <p className="mt-4 text-xs text-muted-foreground">
+              画像の生成が終わると、親子関係の解析に進みます
+            </p>
+          </div>
+        </div>
+      )}
       <Modal
-        title="出力設定"
-        open={active && settingsOpen}
-        onCancel={() => setSettingsOpen(false)}
-        onOk={() => {
-          setSettingsOpen(false);
-          router.push("./convert");
+        title="スライドの書き出し"
+        open={active && exportDialogOpen}
+        onCancel={() => {
+          setExportDialogOpen(false);
+          sendDeckcraft({ type: "export-finished" });
         }}
-        okText="変換する"
+        onOk={() => {
+          setExportDialogOpen(false);
+          images.current = [];
+          slideIndexes.current = [];
+          animationFrames.current.clear();
+          exporting.current = true;
+          setExportProgress({ completed: 0, total: null, frame: 0, frames: 0 });
+          const size = RESOLUTION_DIMENSIONS[resolution];
+          exportOptions.current = {
+            width: size.width,
+            height: size.height,
+            animated: GIF_ANIMATION_ENABLED,
+          };
+          sendDeckcraft({
+            type: "export",
+            allowStaticGif: !GIF_ANIMATION_ENABLED,
+            width: size.width,
+            height: size.height,
+          });
+        }}
+        okText="書き出す"
         cancelText="編集に戻る"
       >
+        <p className="mb-4 text-sm text-muted-foreground">
+          選択したサイズに収まるようスライドを画像化します。高解像度ほど時間がかかります。
+        </p>
         <Input
           value={outputName}
           onChange={(event) => setOutputName(event.target.value)}
           placeholder="ファイル名"
           style={{ marginBottom: 16 }}
         />
-        {settingsOpen && <SettingsPanel />}
+        {exportDialogOpen && <SettingsPanel />}
       </Modal>
     </>
   );

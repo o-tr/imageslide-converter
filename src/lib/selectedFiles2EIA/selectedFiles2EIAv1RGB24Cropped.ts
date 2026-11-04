@@ -30,6 +30,15 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
   selectedFiles: SelectedFile[],
   signage?: EIASignageManifest,
   onProgress?: (completed: number, total: number) => void,
+  onGraph?: (
+    parents: (number | null)[],
+    stage: "planned" | "final",
+    rawBytes?: number,
+    payloadBytes?: number,
+    resolved?: boolean[],
+  ) => void,
+  onCompress?: () => void,
+  onGraphItem?: (index: number, parent: number | null) => void,
 ): Promise<Buffer> => {
   const rawImages = selectedFiles.map<RawImageObjV1>((file, index) => ({
     index,
@@ -58,12 +67,34 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
     maxDepth: SLIDE_PARENT_MAX_DEPTH,
     depthPenalty: SLIDE_PARENT_DEPTH_PENALTY,
   });
+  onGraph?.(
+    parentPlan.parents,
+    "planned",
+    undefined,
+    undefined,
+    rawImages.map(() => false),
+  );
   const croppedImages = cropImages(rawImages, {
     parentPlan,
     onProgress,
+    onItem: onGraphItem,
     optimizeEia: true,
     compressionCache,
   });
+  onGraph?.(
+    croppedImages.map((image) => image.cropped?.baseIndex ?? null),
+    "final",
+    rawImages.reduce((sum, image) => sum + image.buffer.length, 0),
+    croppedImages.reduce(
+      (sum, image) =>
+        sum +
+        (image.cropped
+          ? image.cropped.rects.reduce((n, rect) => n + rect.buffer.length, 0)
+          : image.buffer.length),
+      0,
+    ),
+  );
+  onCompress?.();
   console.log(
     `after compress size: ${croppedImages.reduce((acc, cur) => acc + (cur.cropped ? cur.cropped.rects.reduce((acc, cur) => acc + cur.buffer.length, 0) : cur.buffer.length), 0)}`,
   );

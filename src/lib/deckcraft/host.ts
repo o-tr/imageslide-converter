@@ -9,6 +9,7 @@ export type StartupEvent = {
   type: string;
   name?: string;
   bytes?: Uint8Array | null;
+  bitmap?: ImageBitmap;
   received?: number;
   total?: number | null;
   completed?: number;
@@ -87,6 +88,7 @@ function createRuntime() {
   const state = {
     ready: false,
     failed: false,
+    wasmModule: undefined as WebAssembly.Module | undefined,
     startup: new Map<string, StartupEvent>(),
   };
   const report = (data: StartupEvent) => {
@@ -137,12 +139,16 @@ function createRuntime() {
   bridge.imageSlideInitialFonts = loadInitialFonts(report);
   // The Rust shell handles this rejection and shows its diagnostic.
   bridge.imageSlideInitialFonts.catch(() => {});
-  void startWasm(report, controller.signal, attempt).catch((error) =>
-    report({
-      type: "wasm-error",
-      message: error instanceof Error ? error.message : String(error),
-    }),
-  );
+  void startWasm(report, controller.signal, attempt)
+    .then((wasm) => {
+      if (!disposed) state.wasmModule = wasm;
+    })
+    .catch((error) =>
+      report({
+        type: "wasm-error",
+        message: error instanceof Error ? error.message : String(error),
+      }),
+    );
   return {
     host,
     queue,
@@ -251,4 +257,5 @@ async function startWasm(
   if (signal.aborted) return;
   await bindings.default({ module_or_path: wasm });
   report({ type: "wasm-ready" });
+  return wasm;
 }

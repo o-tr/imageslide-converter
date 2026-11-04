@@ -157,6 +157,12 @@ it("initializes the host module with the downloaded and compiled WASM", async ()
     total: 8,
   });
   expect(instance.state.ready).toBe(true);
+  await vi.waitFor(() =>
+    expect(instance.state.wasmModule).toBe(
+      (initialized.mock.calls[0][0] as { module_or_path: WebAssembly.Module })
+        .module_or_path,
+    ),
+  );
   expect(deckcraftHost()).toBe(instance);
 });
 

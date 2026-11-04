@@ -39,9 +39,22 @@ export type WorkerMessage =
 export type WorkerResponse =
   | {
       type: "compress-progress";
-      phase: "prepare" | "crop";
+      phase: "prepare" | "plan" | "crop" | "compress";
       completed: number;
       total: number;
+    }
+  | {
+      type: "compress-graph";
+      parents: (number | null)[];
+      stage: "planned" | "final";
+      resolved?: boolean[];
+      rawBytes?: number;
+      payloadBytes?: number;
+    }
+  | {
+      type: "compress-graph-item";
+      index: number;
+      parent: number | null;
     }
   | {
       type: "compress";

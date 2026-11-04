@@ -2,10 +2,11 @@ import type { FormatItemType } from "@/_types/text-zip/formats";
 import { selectedFiles2EIAv1RGB24Cropped } from "@/lib/selectedFiles2EIA/selectedFiles2EIAv1RGB24Cropped";
 import { selectedFiles2EIAv1RGB24CroppedBase64 } from "@/lib/selectedFiles2EIA/selectedFiles2EIAv1RGB24CroppedBase64";
 
-export const FileSizeLimit = 95 * 1024 * 1024;
-/** Prefix of the error thrown when an EIA archive would exceed FileSizeLimit. */
-export const EIA_SIZE_LIMIT_ERROR = "EIA_SIZE_LIMIT_EXCEEDED";
-export const ActualFileSizeLimit = 100 * 1024 * 1024;
+export {
+  FileSizeLimit,
+  EIA_SIZE_LIMIT_ERROR,
+  ActualFileSizeLimit,
+} from "./fileSizeLimit";
 
 /** Version number recorded for files produced by this converter (ImageSlide v0.3.x). */
 export const OUTPUT_VERSION = 1;

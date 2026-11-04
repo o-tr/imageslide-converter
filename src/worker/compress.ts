@@ -133,6 +133,12 @@ worker.addEventListener(
         }
       });
       console.log("compress", files);
+      worker.postMessage({
+        type: "compress-progress",
+        phase: "plan",
+        completed: 0,
+        total: files.length,
+      } satisfies WorkerResponse);
       const result = await selectedFiles2EIAv1RGB24Cropped(
         files,
         undefined,
@@ -145,6 +151,29 @@ worker.addEventListener(
           };
           worker.postMessage(progress);
         },
+        (parents, stage, rawBytes, payloadBytes, resolved) => {
+          worker.postMessage({
+            type: "compress-graph",
+            parents,
+            stage,
+            rawBytes,
+            payloadBytes,
+            resolved,
+          } satisfies WorkerResponse);
+        },
+        () =>
+          worker.postMessage({
+            type: "compress-progress",
+            phase: "compress",
+            completed: 0,
+            total: files.length,
+          } satisfies WorkerResponse),
+        (index, parent) =>
+          worker.postMessage({
+            type: "compress-graph-item",
+            index,
+            parent,
+          } satisfies WorkerResponse),
       );
       const message: WorkerResponse = {
         type: "compress",
