@@ -2,6 +2,13 @@
 
 import { GIF_ANIMATION_ENABLED } from "@/const/env";
 import { createId } from "@/lib/createId";
+import {
+  type StartupEvent,
+  deckcraftHost,
+  onDeckcraftEvent,
+  prepareDeckcraftHost,
+  sendDeckcraft,
+} from "@/lib/deckcraft/host";
 import { loadPptxFonts } from "@/lib/deckcraft/loadFonts";
 
 import type { SelectedFile } from "@/_types/file-picker";
@@ -12,16 +19,10 @@ import {
 import { OutputFileNameAtom, SelectedFilesAtom } from "@/atoms/file-drop";
 import { useRouter } from "@/compat/navigation";
 import { useTheme } from "@/components/ThemeProvider";
-import {
-  Alert,
-  Button,
-  Input,
-  Modal,
-  Spin,
-  message,
-} from "@/components/primitives";
+import { Alert, Button, Input, Modal, message } from "@/components/primitives";
 import { useAtom, useSetAtom } from "jotai";
-import { useEffect, useRef, useState } from "react";
+import { Check, LoaderCircle } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SettingsPanel } from "../Settings";
 
 /** The embedded editor writes startup failures into its loading element. */
@@ -51,8 +52,7 @@ export function DeckCraftEditor({
   const themeRef = useRef(resolvedTheme);
   themeRef.current = resolvedTheme;
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const frame = useRef<HTMLIFrameElement>(null);
-  const startupObserver = useRef<MutationObserver | null>(null);
+  const surface = useRef<HTMLDivElement>(null);
   const images = useRef<Promise<SelectedFile>[]>([]);
   const slideIndexes = useRef<number[]>([]);
   const animationFrames = useRef(
@@ -67,106 +67,151 @@ export function DeckCraftEditor({
   );
   const exporting = useRef(false);
   const [loading, setLoading] = useState(true);
+  const [editorReady, setEditorReady] = useState(false);
+  const [wasmProgress, setWasmProgress] = useState<{
+    received: number;
+    total: number | null;
+    done: boolean;
+  }>({ received: 0, total: null, done: false });
+  const [initialFonts, setInitialFonts] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
+
+  const [fontStatus, setFontStatus] = useState<
+    "loading" | "done" | "skipped" | "failed"
+  >("loading");
+  const [slideOpening, setSlideOpening] = useState(false);
+  const [fontProgress, setFontProgress] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
 
-  useEffect(() => () => startupObserver.current?.disconnect(), []);
+  const updateStartup = useCallback(
+    (data: {
+      type: string;
+      received?: number;
+      total?: number | null;
+      completed?: number;
+      message?: string;
+    }) => {
+      if (data.type === "wasm-progress" && typeof data.received === "number") {
+        setWasmProgress({
+          received: data.received,
+          total: typeof data.total === "number" ? data.total : null,
+          done: false,
+        });
+      } else if (data.type === "wasm-ready") {
+        setWasmProgress((current) => ({ ...current, done: true }));
+      } else if (data.type === "wasm-error") {
+        setEditorError(
+          `DeckCraft を読み込めませんでした: ${data.message ?? "不明なエラー"}`,
+        );
+      } else if (
+        data.type === "initial-font-progress" &&
+        typeof data.completed === "number" &&
+        typeof data.total === "number"
+      ) {
+        setInitialFonts({ completed: data.completed, total: data.total });
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
-    const controller = new AbortController();
-    setEditorError(null);
-    fetch("/deckcraft/index.html", {
-      cache: "no-store",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (response.status === 404) {
-          if (!controller.signal.aborted)
-            setEditorError(
-              "DeckCraft のビルドが見つかりません。pnpm build:deckcraft を実行してください。",
-            );
-          return;
-        }
-        if (!response.ok) {
-          if (!controller.signal.aborted)
-            setEditorError(
-              `DeckCraft を読み込めませんでした（HTTP ${response.status}）。`,
-            );
-          return;
-        }
-        const html = await response.text();
-        if (
-          !controller.signal.aborted &&
-          !/<canvas\b[^>]*\bid\s*=\s*["']deckcraft_canvas["']/i.test(html)
-        )
-          setEditorError(
-            "DeckCraft のビルドが見つかりません。pnpm build:deckcraft を実行してください。",
-          );
-      })
-      .catch(() => {
-        if (!controller.signal.aborted)
-          setEditorError(
-            "DeckCraft を取得できませんでした。サーバーへの接続を確認してください。",
-          );
-      });
-    return () => controller.abort();
+    prepareDeckcraftHost();
   }, []);
 
   useEffect(() => {
-    if (!resolvedTheme) return;
-    frame.current?.contentWindow?.postMessage(
-      {
-        source: "imageslide-poc",
-        type: "theme",
-        dark: resolvedTheme === "dark",
-      },
-      window.location.origin,
-    );
+    const target = surface.current;
+    if (!target) return;
+    const { host } = deckcraftHost();
+    const update = () => {
+      const rect = target.getBoundingClientRect();
+      Object.assign(host.style, {
+        left: `${rect.left}px`,
+        top: `${rect.top}px`,
+        width: `${rect.width}px`,
+        height: `${rect.height}px`,
+        visibility: active && !editorError && !loading ? "visible" : "hidden",
+        pointerEvents: active && !editorError && !loading ? "auto" : "none",
+      });
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(target);
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+      host.style.visibility = "hidden";
+      host.style.pointerEvents = "none";
+    };
+  }, [active, editorError, loading]);
+
+  useEffect(() => {
+    if (resolvedTheme)
+      sendDeckcraft({ type: "theme", dark: resolvedTheme === "dark" });
   }, [resolvedTheme]);
 
   useEffect(() => {
     let cancelled = false;
-    const onMessage = async (event: MessageEvent) => {
-      if (
-        event.origin !== window.location.origin ||
-        event.source !== frame.current?.contentWindow ||
-        event.data?.source !== "deckcraft-poc"
-      )
-        return;
-      const data = event.data;
+    let fontLoading = true;
+    const presentation = file
+      ? (async () => {
+          const bytes = await file.arrayBuffer();
+          let fonts: ArrayBuffer[] = [];
+          let fontFailed = false;
+          try {
+            fonts = await loadPptxFonts(bytes, (completed, total) => {
+              if (!cancelled && fontLoading)
+                setFontProgress({ completed, total });
+            });
+          } catch (error) {
+            fontFailed = true;
+            console.warn("Could not load presentation fonts", error);
+          } finally {
+            fontLoading = false;
+            if (!cancelled)
+              setFontStatus(
+                fontFailed ? "failed" : fonts.length > 0 ? "done" : "skipped",
+              );
+          }
+          return { bytes, fonts };
+        })()
+      : null;
+    // Attach a handler immediately: the editor may not be ready when reading fails.
+    presentation?.catch(() => {});
+    const onMessage = async (data: StartupEvent) => {
+      if (data.requestId && data.requestId !== session.id) return;
+      updateStartup(data);
       if (data.type === "ready") {
-        startupObserver.current?.disconnect();
+        setEditorReady(true);
         if (themeRef.current) {
-          frame.current?.contentWindow?.postMessage(
-            {
-              source: "imageslide-poc",
-              type: "theme",
-              dark: themeRef.current === "dark",
-            },
-            window.location.origin,
-          );
+          sendDeckcraft({
+            source: "imageslide-poc",
+            type: "theme",
+            dark: themeRef.current === "dark",
+          });
         }
         try {
-          if (file) {
-            const bytes = await file.arrayBuffer();
-            let fonts: ArrayBuffer[] = [];
-            try {
-              fonts = await loadPptxFonts(bytes);
-            } catch (error) {
-              console.warn("Could not load presentation fonts", error);
-            }
+          if (file && presentation) {
+            const { bytes, fonts } = await presentation;
             if (cancelled) return;
-            frame.current?.contentWindow?.postMessage(
-              {
-                source: "imageslide-poc",
-                type: "open",
-                name: file.name,
-                bytes,
-                fonts,
-              },
-              window.location.origin,
-              [bytes],
-            );
+            setSlideOpening(true);
+            sendDeckcraft({
+              source: "imageslide-poc",
+              type: "open",
+              requestId: session.id,
+              name: file.name,
+              bytes,
+              fonts,
+            });
           } else if (sourceSlides) {
+            setSlideOpening(true);
             const slides = await Promise.all(
               sourceSlides.map(async (slide) => ({
                 name: `${slide.fileName}.png`,
@@ -179,11 +224,12 @@ export function DeckCraftEditor({
               })),
             );
             if (cancelled) return;
-            frame.current?.contentWindow?.postMessage(
-              { source: "imageslide-poc", type: "import-images", slides },
-              window.location.origin,
-              slides.map((slide) => slide.bytes),
-            );
+            sendDeckcraft({
+              source: "imageslide-poc",
+              type: "import-images",
+              requestId: session.id,
+              slides,
+            });
           }
         } catch (error) {
           if (!cancelled) {
@@ -204,14 +250,11 @@ export function DeckCraftEditor({
         slideIndexes.current = [];
         animationFrames.current.clear();
         exporting.current = true;
-        frame.current?.contentWindow?.postMessage(
-          {
-            source: "imageslide-poc",
-            type: "export",
-            allowStaticGif: !GIF_ANIMATION_ENABLED,
-          },
-          window.location.origin,
-        );
+        sendDeckcraft({
+          source: "imageslide-poc",
+          type: "export",
+          allowStaticGif: !GIF_ANIMATION_ENABLED,
+        });
       } else if (data.type === "open-error") {
         const detail = typeof data.name === "string" ? data.name.trim() : "";
         setEditorError(
@@ -231,7 +274,7 @@ export function DeckCraftEditor({
           fps: number;
         };
         try {
-          metadata = JSON.parse(data.name);
+          metadata = JSON.parse(data.name ?? "");
           if (
             !Number.isInteger(metadata.index) ||
             typeof metadata.note !== "string" ||
@@ -244,10 +287,7 @@ export function DeckCraftEditor({
             throw new Error("invalid metadata");
         } catch {
           exporting.current = false;
-          frame.current?.contentWindow?.postMessage(
-            { source: "imageslide-poc", type: "export-finished" },
-            window.location.origin,
-          );
+          sendDeckcraft({ source: "imageslide-poc", type: "export-finished" });
           message.error("スライド情報を受け取れませんでした");
           return;
         }
@@ -281,7 +321,7 @@ export function DeckCraftEditor({
         data.bytes instanceof Uint8Array
       ) {
         try {
-          const metadata = JSON.parse(data.name) as {
+          const metadata = JSON.parse(data.name ?? "") as {
             index: number;
             frame: number;
           };
@@ -309,10 +349,7 @@ export function DeckCraftEditor({
           );
         } catch {
           exporting.current = false;
-          frame.current?.contentWindow?.postMessage(
-            { source: "imageslide-poc", type: "export-finished" },
-            window.location.origin,
-          );
+          sendDeckcraft({ source: "imageslide-poc", type: "export-finished" });
           message.error("GIF フレーム情報を受け取れませんでした");
         }
       } else if (data.type === "export-end" && exporting.current) {
@@ -365,52 +402,35 @@ export function DeckCraftEditor({
             );
         } finally {
           if (!cancelled)
-            frame.current?.contentWindow?.postMessage(
-              { source: "imageslide-poc", type: "export-finished" },
-              window.location.origin,
-            );
+            sendDeckcraft({
+              source: "imageslide-poc",
+              type: "export-finished",
+            });
         }
       } else if (data.type === "export-error" && exporting.current) {
         exporting.current = false;
-        frame.current?.contentWindow?.postMessage(
-          { source: "imageslide-poc", type: "export-finished" },
-          window.location.origin,
-        );
+        sendDeckcraft({ source: "imageslide-poc", type: "export-finished" });
         message.error(data.name || "スライドの書き出しに失敗しました");
       }
     };
-    window.addEventListener("message", onMessage);
+    const unsubscribe = onDeckcraftEvent(onMessage);
+    const { state } = deckcraftHost();
+    for (const event of state.startup.values()) {
+      if (event.type !== "ready") updateStartup(event);
+    }
+    if (state.ready) void onMessage({ type: "ready" });
     return () => {
       cancelled = true;
+      // Reset the persistent host even if image decoding is still finishing.
+      sendDeckcraft({ type: "export-finished" });
       exporting.current = false;
-      window.removeEventListener("message", onMessage);
+      unsubscribe();
     };
-  }, [closeSession, file, setFiles, sourceSlides]);
+  }, [closeSession, file, session.id, setFiles, sourceSlides, updateStartup]);
 
   const close = () => {
     setSettingsOpen(false);
     closeSession(null);
-  };
-  const watchStartup = () => {
-    startupObserver.current?.disconnect();
-    const element =
-      frame.current?.contentDocument?.getElementById("deckcraft_loading");
-    if (!element) return;
-    const checkError = () => {
-      const error = deckCraftStartupError(element.textContent);
-      if (error) {
-        startupObserver.current?.disconnect();
-        setEditorError(error);
-      }
-    };
-    const observer = new MutationObserver(checkError);
-    startupObserver.current = observer;
-    observer.observe(element, {
-      childList: true,
-      characterData: true,
-      subtree: true,
-    });
-    checkError();
   };
   return (
     <>
@@ -425,21 +445,123 @@ export function DeckCraftEditor({
           </div>
         )}
         {!editorError && (
-          <iframe
-            ref={frame}
-            title="DeckCraft"
-            src="/deckcraft/index.html?blank"
-            className="min-h-[480px] w-full flex-1 border-0"
-            allow="fullscreen; clipboard-read; clipboard-write"
-            onLoad={watchStartup}
+          <div
+            ref={surface}
+            className="min-h-[480px] w-full flex-1"
             aria-hidden={loading}
-            tabIndex={loading ? -1 : undefined}
           />
         )}
         {loading && !editorError && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-background p-6 text-foreground">
-            <Spin size="large" />
-            <p aria-live="polite">スライドを読み込んでいます…</p>
+            <div className="w-full max-w-sm space-y-5" aria-live="polite">
+              <h2 className="text-center text-lg font-medium">
+                スライドを読み込んでいます
+              </h2>
+              {[
+                {
+                  label: "DeckCraft 本体",
+                  status: wasmProgress.done || editorReady ? "done" : "loading",
+                },
+                {
+                  label: "初期フォント",
+                  status:
+                    editorReady ||
+                    (initialFonts &&
+                      initialFonts.completed === initialFonts.total)
+                      ? "done"
+                      : "loading",
+                },
+                {
+                  label: "エディターの初期化",
+                  status: editorReady
+                    ? "done"
+                    : wasmProgress.done
+                      ? "loading"
+                      : "waiting",
+                },
+                ...(file
+                  ? [{ label: "スライドのフォント", status: fontStatus }]
+                  : []),
+                {
+                  label: "スライドを開く",
+                  status: slideOpening ? "loading" : "waiting",
+                },
+              ].map(({ label, status }) => (
+                <div
+                  key={label}
+                  className={status === "waiting" ? "opacity-50" : ""}
+                >
+                  <div className="flex items-center justify-between gap-4 text-sm">
+                    <span>{label}</span>
+                    <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
+                      {status === "loading" &&
+                        label === "DeckCraft 本体" &&
+                        wasmProgress.received > 0 &&
+                        `${(wasmProgress.received / 1048576).toFixed(1)} MB${wasmProgress.total ? ` / ${(wasmProgress.total / 1048576).toFixed(1)} MB` : ""}`}
+                      {status === "loading" &&
+                        label === "初期フォント" &&
+                        initialFonts &&
+                        `${initialFonts.completed} / ${initialFonts.total}`}
+                      {status === "loading" &&
+                        label === "スライドのフォント" &&
+                        fontProgress &&
+                        fontProgress.total > 0 &&
+                        `${fontProgress.completed} / ${fontProgress.total}`}
+                      {status === "loading" && (
+                        <LoaderCircle
+                          className="size-4 animate-spin"
+                          aria-label="読み込み中"
+                        />
+                      )}
+                      {status === "done" && (
+                        <>
+                          <span>完了</span>
+                          <Check className="size-4" aria-hidden="true" />
+                        </>
+                      )}
+                      {status === "skipped" && "取得なし"}
+                      {status === "failed" && "取得できませんでした"}
+                      {status === "waiting" && "待機中"}
+                    </span>
+                  </div>
+                  {status === "loading" && (
+                    <div
+                      className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
+                      aria-hidden="true"
+                    >
+                      {label === "DeckCraft 本体" && wasmProgress.total ? (
+                        <div
+                          className="h-full rounded-full bg-primary transition-[width]"
+                          style={{
+                            width: `${Math.min(100, (wasmProgress.received / wasmProgress.total) * 100)}%`,
+                          }}
+                        />
+                      ) : label === "初期フォント" &&
+                        initialFonts &&
+                        initialFonts.total > 0 ? (
+                        <div
+                          className="h-full rounded-full bg-primary transition-[width]"
+                          style={{
+                            width: `${(initialFonts.completed / initialFonts.total) * 100}%`,
+                          }}
+                        />
+                      ) : label === "スライドのフォント" &&
+                        fontProgress &&
+                        fontProgress.total > 0 ? (
+                        <div
+                          className="h-full rounded-full bg-primary transition-[width]"
+                          style={{
+                            width: `${(fontProgress.completed / fontProgress.total) * 100}%`,
+                          }}
+                        />
+                      ) : (
+                        <div className="deckcraft-loading-bar h-full w-1/3 rounded-full bg-primary" />
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
             <Button onClick={close}>戻る</Button>
           </div>
         )}

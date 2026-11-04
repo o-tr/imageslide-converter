@@ -27,8 +27,10 @@ it("covers the editor with an accessible loading state until the file opens", ()
 
   expect(html).toContain('aria-busy="true"');
   expect(html).toContain('aria-hidden="true"');
+  expect(html).not.toContain("<iframe");
   expect(html).toContain('aria-live="polite"');
-  expect(html).toContain("スライドを読み込んでいます…");
+  expect(html).toContain("DeckCraft 本体");
+  expect(html).toContain("deckcraft-loading-bar");
   expect(html).toContain("戻る");
 });
 

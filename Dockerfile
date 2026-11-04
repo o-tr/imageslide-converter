@@ -1,10 +1,11 @@
 # Compile the browser editor without embedding fonts.
 FROM rust:1-bookworm AS deckcraft
 WORKDIR /work
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs && rm -rf /var/lib/apt/lists/*
 RUN rustup target add wasm32-unknown-unknown \
     && cargo install trunk --version 0.22.1 --locked
 COPY vendor/deckcraft/ vendor/deckcraft/
-COPY scripts/build-deckcraft.sh scripts/build-deckcraft.sh
+COPY scripts/build-deckcraft.sh scripts/instrument-deckcraft.mjs scripts/
 RUN bash scripts/build-deckcraft.sh
 
 FROM node:24-alpine AS builder
