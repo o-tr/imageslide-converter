@@ -4,6 +4,12 @@ export type FontEntry = { family: string; style?: string; path: string };
 let catalogPromise: Promise<FontEntry[]> | undefined;
 const fonts = new Map<string, Promise<ArrayBuffer>>();
 
+/** Discard cached data when a failed editor startup is retried. */
+export function clearFontResources() {
+  catalogPromise = undefined;
+  fonts.clear();
+}
+
 export function loadFontCatalog(): Promise<FontEntry[]> {
   if (!catalogPromise) {
     const request = fetch("/deckcraft-fonts/catalog.json").then(

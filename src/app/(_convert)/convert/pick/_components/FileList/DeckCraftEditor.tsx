@@ -6,6 +6,7 @@ import {
   type StartupEvent,
   deckcraftHost,
   onDeckcraftEvent,
+  prepareDeckcraftHost,
   sendDeckcraft,
 } from "@/lib/deckcraft/host";
 import { loadPptxFonts } from "@/lib/deckcraft/loadFonts";
@@ -117,6 +118,10 @@ export function DeckCraftEditor({
     },
     [],
   );
+
+  useEffect(() => {
+    prepareDeckcraftHost();
+  }, []);
 
   useEffect(() => {
     const target = surface.current;

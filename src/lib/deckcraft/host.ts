@@ -1,4 +1,8 @@
-import { loadFontBytes, loadFontCatalog } from "./fontResources";
+import {
+  clearFontResources,
+  loadFontBytes,
+  loadFontCatalog,
+} from "./fontResources";
 
 /** One DeckCraft instance lives in the host window for the lifetime of the page. */
 export type StartupEvent = {
@@ -26,10 +30,21 @@ type DeckcraftWindow = Window & {
 
 const eventName = "imageslide-deckcraft";
 let runtime: ReturnType<typeof createRuntime> | undefined;
+let generation = 0;
 
 export function deckcraftHost() {
   runtime ??= createRuntime();
   return runtime;
+}
+
+/** Start a fresh runtime only when a new editor session follows a startup failure. */
+export function prepareDeckcraftHost() {
+  if (runtime?.state.failed) {
+    runtime.dispose();
+    runtime = undefined;
+    clearFontResources();
+  }
+  return deckcraftHost();
 }
 
 export function sendDeckcraft(data: Record<string, unknown>) {
@@ -44,6 +59,9 @@ export function onDeckcraftEvent(handler: (data: StartupEvent) => void) {
 }
 
 function createRuntime() {
+  const attempt = ++generation;
+  const controller = new AbortController();
+  let disposed = false;
   const host = document.createElement("div");
   Object.assign(host.style, {
     position: "fixed",
@@ -66,9 +84,15 @@ function createRuntime() {
   root.append(style, canvas, loading);
   const queue: Record<string, unknown>[] = [];
   let currentRequestId: string | undefined;
-  const state = { ready: false, startup: new Map<string, StartupEvent>() };
+  const state = {
+    ready: false,
+    failed: false,
+    startup: new Map<string, StartupEvent>(),
+  };
   const report = (data: StartupEvent) => {
+    if (disposed) return;
     if (data.type === "ready") state.ready = true;
+    if (data.type === "wasm-error" && !state.ready) state.failed = true;
     if (
       [
         "wasm-progress",
@@ -113,13 +137,23 @@ function createRuntime() {
   bridge.imageSlideInitialFonts = loadInitialFonts(report);
   // The Rust shell handles this rejection and shows its diagnostic.
   bridge.imageSlideInitialFonts.catch(() => {});
-  void startWasm(report).catch((error) =>
+  void startWasm(report, controller.signal, attempt).catch((error) =>
     report({
       type: "wasm-error",
       message: error instanceof Error ? error.message : String(error),
     }),
   );
-  return { host, queue, state };
+  return {
+    host,
+    queue,
+    state,
+    dispose() {
+      disposed = true;
+      controller.abort();
+      observer.disconnect();
+      host.remove();
+    },
+  };
 }
 
 async function loadInitialFonts(report: (data: StartupEvent) => void) {
@@ -160,20 +194,30 @@ async function loadInitialFonts(report: (data: StartupEvent) => void) {
   );
 }
 
-async function startWasm(report: (data: StartupEvent) => void) {
+async function startWasm(
+  report: (data: StartupEvent) => void,
+  signal: AbortSignal,
+  attempt: number,
+) {
   const response = await fetch("/deckcraft/host-manifest.json", {
     cache: "no-store",
+    signal,
   });
   if (!response.ok)
     throw new Error(
       "DeckCraft のビルドが見つかりません。pnpm build:deckcraft を実行してください。",
     );
   const manifest: { module: string; wasm: string } = await response.json();
+  if (signal.aborted) return;
   const url = (name: string) =>
     new URL(name, `${location.origin}/deckcraft/`).href;
-  const modulePromise = import(/* @vite-ignore */ url(manifest.module));
+  const moduleUrl = new URL(url(manifest.module));
+  // wasm-bindgen initializes once per module. A failed instance needs a fresh module on retry.
+  if (attempt > 1)
+    moduleUrl.searchParams.set("deckcraft-retry", String(attempt));
+  const modulePromise = import(/* @vite-ignore */ moduleUrl.href);
   const wasmPromise = (async () => {
-    const result = await fetch(url(manifest.wasm));
+    const result = await fetch(url(manifest.wasm), { signal });
     if (!result.ok)
       throw new Error(`WASM の取得に失敗しました (HTTP ${result.status})`);
     const length = Number(result.headers.get("content-length"));
@@ -204,6 +248,7 @@ async function startWasm(report: (data: StartupEvent) => void) {
       : WebAssembly.compile(await monitored.arrayBuffer());
   })();
   const [bindings, wasm] = await Promise.all([modulePromise, wasmPromise]);
+  if (signal.aborted) return;
   await bindings.default({ module_or_path: wasm });
   report({ type: "wasm-ready" });
 }
