@@ -14,7 +14,10 @@ beforeEach(() => {
   );
   vi.stubEnv("IRON_SESSION_COOKIE_NAME", "imageslide_test");
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 it("starts Discord OAuth with a CSRF cookie and the public origin", async () => {
   const { authHandler } = await import("@/auth");
@@ -53,6 +56,34 @@ it("starts Discord OAuth with a CSRF cookie and the public origin", async () => 
   expect(target.searchParams.get("redirect_uri")).toBe(
     "https://slides.example.com/api/auth/callback/discord",
   );
+
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
+    Response.json({ access_token: "test-token", token_type: "Bearer" }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  const callbackCookie = response.headers
+    .getSetCookie()
+    .map((value) => value.split(";")[0])
+    .join("; ");
+  const callback = new URL(
+    "https://slides.example.com/api/auth/callback/discord",
+  );
+  callback.searchParams.set("code", "test-code");
+  callback.searchParams.set("state", target.searchParams.get("state") ?? "");
+  callback.searchParams.set("iss", "https://discord.com");
+  await authHandler(
+    new Request(callback, { headers: { cookie: callbackCookie } }),
+  );
+  expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+    "https://discord.com/api/oauth2/token",
+  );
+
+  fetchMock.mockClear();
+  callback.searchParams.set("iss", "https://example.com");
+  await authHandler(
+    new Request(callback, { headers: { cookie: callbackCookie } }),
+  );
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 
 it("keeps issued upload IDs in a signed cookie across requests", async () => {

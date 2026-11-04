@@ -11,6 +11,7 @@ export const authConfig: AuthConfig = {
     Discord({
       clientId: process.env.DISCORD_CLIENT_ID ?? "",
       clientSecret: process.env.DISCORD_CLIENT_SECRET ?? "",
+      issuer: "https://discord.com",
       authorization: { params: { scope: "identify email" } },
     }),
   ],
