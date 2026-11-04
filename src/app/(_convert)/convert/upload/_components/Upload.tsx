@@ -3,7 +3,7 @@ import { ResultAtom } from "@/atoms/convert";
 import { DeckCraftSessionAtom } from "@/atoms/deckcraft";
 import { OutputFileNameAtom, SelectedFilesAtom } from "@/atoms/file-drop";
 import { useRouter } from "@/compat/navigation";
-import { Alert, Button, Flex, Spin } from "@/components/primitives";
+import { Alert, Button } from "@/components/primitives";
 import { getNormalFileId } from "@/lib/service/getNormalFileId";
 import { getNormalPreSignedPut } from "@/lib/service/getNormalPreSignedPut";
 import { postRegisterFile } from "@/lib/service/postRegisterFile";
@@ -11,8 +11,7 @@ import { sha256Base64 } from "@/lib/sha256Base64";
 import axios from "axios";
 import { useAtomValue, useSetAtom } from "jotai";
 import { type FC, useEffect, useState } from "react";
-import { Completed } from "./Completed";
-import { Preparing } from "./Preparing";
+import { ConversionStatus } from "../../_components/ConversionStatus";
 
 type Stage = "preparing" | "uploading" | "registering";
 
@@ -109,8 +108,11 @@ export const Upload: FC = () => {
 
   if (error) {
     return (
-      <div className="grid flex-1 place-items-center px-4">
-        <div className="flex w-full max-w-lg flex-col items-center gap-4">
+      <div className="fixed inset-0 z-[90] grid place-items-center px-4">
+        <div
+          data-relation-label
+          className="flex w-full max-w-lg flex-col items-center gap-4 rounded-xl border bg-background p-6 shadow-lg"
+        >
           <Alert type="error" message={error} />
           <Button
             type="primary"
@@ -130,14 +132,24 @@ export const Upload: FC = () => {
       </div>
     );
   }
-  if (stage === "preparing") return <Preparing />;
-  if (stage === "registering") return <Completed />;
+  const title =
+    stage === "preparing"
+      ? "アップロードを準備しています"
+      : stage === "uploading"
+        ? "アップロードしています"
+        : "ファイルを登録しています";
+  const detail =
+    stage === "preparing"
+      ? "ファイルの確認と送信先の準備中"
+      : stage === "uploading"
+        ? "変換したファイルを送信中"
+        : "サーバーの応答を待っています";
   return (
-    <div className="grid flex-1 place-items-center">
-      <Flex gap="middle" align="center">
-        <Spin percent={Math.floor(progress * 100)} size="large" />
-        <div>アップロード中</div>
-      </Flex>
-    </div>
+    <ConversionStatus
+      title={title}
+      detail={detail}
+      stage={3}
+      progress={stage === "uploading" ? progress : undefined}
+    />
   );
 };

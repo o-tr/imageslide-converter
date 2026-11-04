@@ -1,6 +1,8 @@
 "use client";
 
+import { RelationCanvas } from "@/app/(_convert)/convert/convert/_components/RelationCanvas";
 import { DeckCraftEditor } from "@/app/(_convert)/convert/pick/_components/FileList/DeckCraftEditor";
+import { ConversionVisualAtom } from "@/atoms/conversion-visual";
 import { DeckCraftSessionAtom } from "@/atoms/deckcraft";
 import { usePathname } from "@/compat/navigation";
 import { DragWatcher } from "@/components/DragWatcher";
@@ -13,12 +15,26 @@ export default function ConvertLayout({
   children,
 }: Readonly<{ children: ReactNode }>) {
   const session = useAtomValue(DeckCraftSessionAtom);
-  const isPickPage = usePathname() === "/convert/pick";
+  const pathname = usePathname();
+  const visual = useAtomValue(ConversionVisualAtom);
+  const isPickPage = pathname === "/convert/pick";
   const editorActive = isPickPage && !!session;
 
   return (
     <Layout className={"!min-h-screen h-screen"}>
       <PageContent className={"flex flex-col overflow-hidden"}>
+        {visual &&
+          (isPickPage ||
+            pathname === "/convert/convert" ||
+            pathname === "/convert/upload") && (
+            <div className="pointer-events-none fixed inset-0 z-[80] overflow-hidden bg-background">
+              <RelationCanvas
+                count={visual.count}
+                visibleCount={visual.visibleCount}
+                graph={visual.graph}
+              />
+            </div>
+          )}
         <div
           className={editorActive ? "flex min-h-0 flex-1 flex-col" : "hidden"}
         >

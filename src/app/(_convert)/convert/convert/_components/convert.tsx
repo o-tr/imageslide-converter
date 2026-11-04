@@ -1,9 +1,10 @@
 "use client";
 import type { WorkerResponse } from "@/_types/worker";
+import { ConversionVisualAtom } from "@/atoms/conversion-visual";
 import { ResultAtom, TargetResolutionAtom } from "@/atoms/convert";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
 import { useRouter } from "@/compat/navigation";
-import { Alert, Button, Flex, Spin } from "@/components/primitives";
+import { Alert, Button, Flex } from "@/components/primitives";
 import {
   DEFAULT_FORMAT_ID,
   EIA_SIZE_LIMIT_ERROR,
@@ -13,7 +14,7 @@ import {
 import { postCompress } from "@/lib/workerService/postCompress";
 import { useAtomValue, useSetAtom } from "jotai";
 import { type FC, useEffect, useRef, useState } from "react";
-import { RelationCanvas } from "./RelationCanvas";
+import { ConversionStatus } from "../../_components/ConversionStatus";
 
 export const Convert: FC = () => {
   const _files = useAtomValue(SelectedFilesAtom);
@@ -29,6 +30,7 @@ export const Convert: FC = () => {
   const [failed, setFailed] = useState<boolean | "size-limit">(false);
   const _resolution = useAtomValue(TargetResolutionAtom);
   const setResults = useSetAtom(ResultAtom);
+  const setVisual = useSetAtom(ConversionVisualAtom);
   const router = useRouter();
 
   const initRef = useRef(false);
@@ -70,6 +72,10 @@ export const Convert: FC = () => {
         );
       });
   }, [_files, _resolution, router, setResults]);
+  useEffect(() => {
+    if (failed) setVisual(null);
+    else if (total > 0) setVisual({ count: total, visibleCount: total, graph });
+  }, [failed, total, graph, setVisual]);
   if (failed) {
     return (
       <div className="grid flex-1 place-items-center px-4">
@@ -97,40 +103,27 @@ export const Convert: FC = () => {
     compress: "画像データを圧縮してファイルを作成中",
   }[phase];
   return (
-    <div className="relative grid min-h-[600px] flex-1 place-items-center overflow-hidden">
-      <RelationCanvas count={total} graph={graph} />
-      <div className="relative z-10 max-w-md px-8 py-6 text-center [text-shadow:0_1px_8px_var(--background)]">
-        <div className="flex justify-center">
-          <Spin size="large" />
-        </div>
-        <div aria-live="polite">
-          <h2 className="mt-4 text-xl font-semibold">
-            ファイルを変換しています...
-          </h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {phaseLabel}
-            {(phase === "prepare" || phase === "crop") &&
-              `: ${completed} / ${total} ファイル`}
+    <ConversionStatus
+      title={
+        phase === "compress"
+          ? "スライドを圧縮しています"
+          : "スライドを変換しています"
+      }
+      detail={`${phaseLabel}${phase === "prepare" || phase === "crop" ? `: ${completed} / ${total} ファイル` : ""}`}
+      stage={phase === "compress" ? 2 : phase === "prepare" ? 0 : 1}
+    >
+      {graph && (
+        <p>{`親子関係を確定: ${graph.stage === "final" ? total : (graph.resolved?.filter(Boolean).length ?? 0)} / ${total}`}</p>
+      )}
+      {graph?.rawBytes !== undefined &&
+        graph.payloadBytes !== undefined &&
+        graph.rawBytes > 0 && (
+          <p className="mt-1">
+            差分抽出後: 元画像の約{" "}
+            {Math.round((graph.payloadBytes / graph.rawBytes) * 100)}%（圧縮前）
           </p>
-          <p className="mt-4 text-xs text-muted-foreground">
-            {graph
-              ? `親子関係を確定: ${graph.stage === "final" ? total : (graph.resolved?.filter(Boolean).length ?? 0)} / ${total}`
-              : "スライドの比較を準備しています"}
-          </p>
-          {graph?.rawBytes !== undefined &&
-            graph.payloadBytes !== undefined &&
-            graph.rawBytes > 0 && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                差分抽出後: 元画像の約{" "}
-                {Math.round((graph.payloadBytes / graph.rawBytes) * 100)}
-                %（圧縮前）
-              </p>
-            )}
-          <p className="mt-3 text-xs text-muted-foreground">
-            紫: 基準画像　緑: 親との差分　灰: 検討中
-          </p>
-        </div>
-      </div>
-    </div>
+        )}
+      <p className="mt-2">紫: 基準画像　緑: 親との差分　灰: 検討中</p>
+    </ConversionStatus>
   );
 };

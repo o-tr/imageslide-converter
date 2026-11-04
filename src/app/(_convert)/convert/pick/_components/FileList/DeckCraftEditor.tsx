@@ -12,6 +12,7 @@ import {
 import { loadPptxFonts } from "@/lib/deckcraft/loadFonts";
 
 import type { SelectedFile } from "@/_types/file-picker";
+import { ConversionVisualAtom } from "@/atoms/conversion-visual";
 import { TargetResolutionAtom } from "@/atoms/convert";
 import {
   type DeckCraftSession,
@@ -25,7 +26,6 @@ import { RESOLUTION_DIMENSIONS } from "@/const/resolutions";
 import { useAtom, useSetAtom } from "jotai";
 import { Check, LoaderCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RelationCanvas } from "../../../convert/_components/RelationCanvas";
 import { SettingsPanel } from "../Settings";
 
 /** The embedded editor writes startup failures into its loading element. */
@@ -62,6 +62,7 @@ export function DeckCraftEditor({
     frames: number;
   } | null>(null);
   const [resolution] = useAtom(TargetResolutionAtom);
+  const setVisual = useSetAtom(ConversionVisualAtom);
   const surface = useRef<HTMLDivElement>(null);
   const images = useRef<Promise<SelectedFile>[]>([]);
   const slideIndexes = useRef<number[]>([]);
@@ -130,6 +131,22 @@ export function DeckCraftEditor({
     },
     [],
   );
+
+  useEffect(() => {
+    if (!active) {
+      setExportProgress(null);
+      return;
+    }
+    if (!exportProgress) {
+      setVisual(null);
+      return;
+    }
+    setVisual({
+      count: exportProgress.total ?? exportProgress.completed,
+      visibleCount: exportProgress.completed,
+      graph: null,
+    });
+  }, [active, exportProgress, setVisual]);
 
   useEffect(() => {
     prepareDeckcraftHost();
@@ -675,14 +692,9 @@ export function DeckCraftEditor({
       </section>
       {active && exportProgress && (
         <div
-          className="fixed inset-0 z-[90] grid place-items-center overflow-hidden bg-background"
+          className="fixed inset-0 z-[90] grid place-items-center overflow-hidden"
           aria-busy="true"
         >
-          <RelationCanvas
-            count={exportProgress.total ?? exportProgress.completed}
-            visibleCount={exportProgress.completed}
-            graph={null}
-          />
           <div
             className="relative z-10 px-8 py-6 text-center [text-shadow:0_1px_8px_var(--background)]"
             aria-live="polite"
