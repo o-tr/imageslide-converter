@@ -52,6 +52,11 @@ export type WorkerResponse =
       payloadBytes?: number;
     }
   | {
+      type: "compress-graph-item";
+      index: number;
+      parent: number | null;
+    }
+  | {
       type: "compress";
       data: Buffer;
     }

@@ -38,6 +38,7 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
     resolved?: boolean[],
   ) => void,
   onCompress?: () => void,
+  onGraphItem?: (index: number, parent: number | null) => void,
 ): Promise<Buffer> => {
   const rawImages = selectedFiles.map<RawImageObjV1>((file, index) => ({
     index,
@@ -66,17 +67,17 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
     maxDepth: SLIDE_PARENT_MAX_DEPTH,
     depthPenalty: SLIDE_PARENT_DEPTH_PENALTY,
   });
-  const resolved = rawImages.map(() => false);
-  const actualParents = parentPlan.parents.slice();
-  onGraph?.(actualParents, "planned", undefined, undefined, resolved);
+  onGraph?.(
+    parentPlan.parents,
+    "planned",
+    undefined,
+    undefined,
+    rawImages.map(() => false),
+  );
   const croppedImages = cropImages(rawImages, {
     parentPlan,
     onProgress,
-    onItem: (index, parent) => {
-      actualParents[index] = parent;
-      resolved[index] = true;
-      onGraph?.(actualParents, "planned", undefined, undefined, resolved);
-    },
+    onItem: onGraphItem,
     optimizeEia: true,
     compressionCache,
   });

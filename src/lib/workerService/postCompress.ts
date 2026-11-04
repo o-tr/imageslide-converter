@@ -5,6 +5,7 @@ import type {
   WorkerResponse,
 } from "@/_types/worker";
 import type { Resolution } from "@/const/resolutions";
+import { createGraphProgress } from "./graphProgress";
 
 const worker = (
   typeof window !== "undefined"
@@ -66,13 +67,18 @@ export const postCompress = (
   };
   console.log("postCompress", message);
   return new Promise<Buffer>((resolve, reject) => {
+    const graphProgress = onGraph ? createGraphProgress(onGraph) : undefined;
     const handler = (event: MessageEvent<WorkerResponse>) => {
       if (event.data.type === "compress-progress") {
         onProgress?.(event.data.completed, event.data.total, event.data.phase);
         return;
       }
       if (event.data.type === "compress-graph") {
-        onGraph?.(event.data);
+        graphProgress?.snapshot(event.data);
+        return;
+      }
+      if (event.data.type === "compress-graph-item") {
+        graphProgress?.item(event.data);
         return;
       }
       if (event.data.type === "compress") {
@@ -98,6 +104,7 @@ export const postCompress = (
       reject(new Error("Compression worker message error"));
     };
     const cleanup = () => {
+      graphProgress?.dispose();
       worker.removeEventListener("message", handler);
       worker.removeEventListener("error", errorHandler);
       worker.removeEventListener("messageerror", messageErrorHandler);

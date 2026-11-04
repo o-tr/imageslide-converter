@@ -168,6 +168,12 @@ worker.addEventListener(
             completed: 0,
             total: files.length,
           } satisfies WorkerResponse),
+        (index, parent) =>
+          worker.postMessage({
+            type: "compress-graph-item",
+            index,
+            parent,
+          } satisfies WorkerResponse),
       );
       const message: WorkerResponse = {
         type: "compress",
