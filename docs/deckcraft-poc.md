@@ -1,10 +1,10 @@
 # DeckCraft integration
 
-The browser editor is built from the pinned `o-tr/deckcraft-web` fork in the DeckCraft submodule. The build uses a temporary copy, leaving the submodule clean. The bridge accepts messages only from its same-origin parent. Modified builds retain the MIT notices in `public/deckcraft`.
+The browser editor is built from the pinned `o-tr/deckcraft-web` fork in the DeckCraft submodule. The build uses a temporary copy, leaving the submodule clean. The app starts the WASM editor in the host page and supplies a canvas in a Shadow Root. The build adapts the web shell in the temporary copy and emits a manifest for its hashed JavaScript and WASM files. The standalone HTML retains its same-origin parent bridge. Modified builds retain the MIT notices in `public/deckcraft`.
 
 ## Build
 
-Requirements: Rust with the `wasm32-unknown-unknown` target, Trunk, Python 3 and the tools Trunk downloads for the WebAssembly build.
+Requirements: Node.js, Rust with the `wasm32-unknown-unknown` target, Trunk, Python 3 and the tools Trunk downloads for the WebAssembly build.
 
 ```sh
 git submodule update --init --recursive
@@ -14,7 +14,7 @@ pnpm build:deckcraft
 pnpm dev
 ```
 
-The web build embeds no fonts. `public/deckcraft` is generated and ignored; build it before running the app locally. The app Dockerfile builds the editor in a separate stage. At runtime, configure the font catalog described below before opening the editor.
+The web build embeds no fonts. `public/deckcraft` is generated and ignored; build it before running the app locally. The app Dockerfile builds the editor in a separate stage. At runtime, configure the font catalog described below before opening the editor. After building, `node scripts/verify-deckcraft-host.mjs` checks that the actual WASM reaches the host canvas using the configured local font pack; it does not exercise browser rendering. `node scripts/test-deckcraft-host-session.mjs` runs native engine tests for replacing a presentation without retaining the old one.
 
 At startup, the browser fetches Inter (or Noto Sans) and Noto Sans JP (or BIZ UDPGothic) from the font catalog for the editor UI and fallback. For PPTX input, it also inspects typefaces referenced in slide and theme XML and downloads matching fonts or available open substitutes from that catalog. Proxima Nova is not in Google Fonts and falls back to Montserrat; substitutions can differ in appearance and metrics. The catalog does not query a user's computer or download from third parties during editing. Fonts and their licences are stored together.
 
@@ -23,8 +23,7 @@ Local PPTX, PDF and image files, and Google Drive PPTX, PDF and images, open in 
 The output settings are shown after a DeckCraft export. The editor remains
 mounted while conversion and upload screens are open, so returning to the
 selection page within that flow restores the current editing session. Opening
-another source starts a new session and clears the previous export. The editor
-is unmounted when leaving the conversion flow.
+another source starts a new session and clears the previous export. The editor instance remains loaded in the host page when leaving the conversion flow; a new source opens in that instance. Reloading the page starts a new instance.
 
 The DeckCraft export bridge renders slides with animated GIF pictures as full-slide animation frames at 10 fps, preserving the slide's drawing order. Their combined loop must fit within 10 seconds, and animation output requires EIA v1 RGB24 (cropped), as supported by ImageSlide v0.3.x. Set `NEXT_PUBLIC_ENABLE_GIF_ANIMATION=false` at build time to export a static image instead. Layouts, unsupported media, embedded fonts, custom typefaces and animations need validation against real presentations. Google Slides files are never modified.
 

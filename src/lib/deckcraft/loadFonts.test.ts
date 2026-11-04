@@ -28,7 +28,11 @@ it("loads only catalogued families and open substitutes used by the PPTX", async
       return { ok: true, json: async () => entries };
     return { ok: true, arrayBuffer: async () => new ArrayBuffer(4) };
   });
-  expect(await loadPptxFonts(pptx)).toHaveLength(6);
+  const progress: number[][] = [];
+  expect(
+    await loadPptxFonts(pptx, (done, total) => progress.push([done, total])),
+  ).toHaveLength(6);
+  expect(progress).toEqual(Array.from({ length: 7 }, (_, done) => [done, 6]));
   expect(calls).toContain("/deckcraft-fonts/fonts/mincho.ttf");
   expect(calls).toContain("/deckcraft-fonts/fonts/carlito.ttf");
   expect(calls).toContain("/deckcraft-fonts/fonts/noto.ttf");

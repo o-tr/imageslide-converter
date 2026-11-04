@@ -50,6 +50,7 @@ function fontFileUrl(path: string): string {
 /** Load available fonts referenced by a PPTX before DeckCraft opens it. */
 export async function loadPptxFonts(
   bytes: ArrayBuffer,
+  onProgress?: (completed: number, total: number) => void,
 ): Promise<ArrayBuffer[]> {
   const zip = await JSZip.loadAsync(bytes);
   const entries = Object.values(zip.files).filter((entry) =>
@@ -79,11 +80,15 @@ export async function loadPptxFonts(
   const selected = catalog.filter((font) =>
     wanted.has(font.family.toLowerCase()),
   );
+  let completed = 0;
+  onProgress?.(completed, selected.length);
   return Promise.all(
     selected.map(async (font) => {
       const res = await fetch(fontFileUrl(font.path));
       if (!res.ok) throw new Error(`${font.family} の読み込みに失敗しました`);
-      return res.arrayBuffer();
+      const data = await res.arrayBuffer();
+      onProgress?.(++completed, selected.length);
+      return data;
     }),
   );
 }

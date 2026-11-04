@@ -149,3 +149,24 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes deckcraft-loading {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+.deckcraft-loading-bar {
+  animation: deckcraft-loading 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deckcraft-loading-bar {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}
