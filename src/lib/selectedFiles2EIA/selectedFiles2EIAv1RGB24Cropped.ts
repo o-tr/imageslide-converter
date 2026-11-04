@@ -30,6 +30,14 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
   selectedFiles: SelectedFile[],
   signage?: EIASignageManifest,
   onProgress?: (completed: number, total: number) => void,
+  onGraph?: (
+    parents: (number | null)[],
+    stage: "planned" | "final",
+    rawBytes?: number,
+    payloadBytes?: number,
+    resolved?: boolean[],
+  ) => void,
+  onCompress?: () => void,
 ): Promise<Buffer> => {
   const rawImages = selectedFiles.map<RawImageObjV1>((file, index) => ({
     index,
@@ -58,12 +66,34 @@ export const selectedFiles2EIAv1RGB24Cropped = async (
     maxDepth: SLIDE_PARENT_MAX_DEPTH,
     depthPenalty: SLIDE_PARENT_DEPTH_PENALTY,
   });
+  const resolved = rawImages.map(() => false);
+  const actualParents = parentPlan.parents.slice();
+  onGraph?.(actualParents, "planned", undefined, undefined, resolved);
   const croppedImages = cropImages(rawImages, {
     parentPlan,
     onProgress,
+    onItem: (index, parent) => {
+      actualParents[index] = parent;
+      resolved[index] = true;
+      onGraph?.(actualParents, "planned", undefined, undefined, resolved);
+    },
     optimizeEia: true,
     compressionCache,
   });
+  onGraph?.(
+    croppedImages.map((image) => image.cropped?.baseIndex ?? null),
+    "final",
+    rawImages.reduce((sum, image) => sum + image.buffer.length, 0),
+    croppedImages.reduce(
+      (sum, image) =>
+        sum +
+        (image.cropped
+          ? image.cropped.rects.reduce((n, rect) => n + rect.buffer.length, 0)
+          : image.buffer.length),
+      0,
+    ),
+  );
+  onCompress?.();
   console.log(
     `after compress size: ${croppedImages.reduce((acc, cur) => acc + (cur.cropped ? cur.cropped.rects.reduce((acc, cur) => acc + cur.buffer.length, 0) : cur.buffer.length), 0)}`,
   );

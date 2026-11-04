@@ -1,4 +1,5 @@
 "use client";
+import type { WorkerResponse } from "@/_types/worker";
 import { ResultAtom, TargetResolutionAtom } from "@/atoms/convert";
 import { SelectedFilesAtom } from "@/atoms/file-drop";
 import { useRouter } from "@/compat/navigation";
@@ -12,11 +13,19 @@ import {
 import { postCompress } from "@/lib/workerService/postCompress";
 import { useAtomValue, useSetAtom } from "jotai";
 import { type FC, useEffect, useRef, useState } from "react";
+import { RelationCanvas } from "./RelationCanvas";
 
 export const Convert: FC = () => {
   const _files = useAtomValue(SelectedFilesAtom);
   const [completed, setCompleted] = useState(0);
-  const [phase, setPhase] = useState<"prepare" | "crop">("prepare");
+  const [total, setTotal] = useState(_files.length);
+  const [phase, setPhase] = useState<"prepare" | "plan" | "crop" | "compress">(
+    "prepare",
+  );
+  const [graph, setGraph] = useState<Extract<
+    WorkerResponse,
+    { type: "compress-graph" }
+  > | null>(null);
   const [failed, setFailed] = useState<boolean | "size-limit">(false);
   const _resolution = useAtomValue(TargetResolutionAtom);
   const setResults = useSetAtom(ResultAtom);
@@ -25,16 +34,23 @@ export const Convert: FC = () => {
   const initRef = useRef(false);
 
   useEffect(() => {
+    if (initRef.current) return;
     if (_files.length < 1) {
       router.push("./pick");
       return;
     }
-    if (initRef.current) return;
+    setTotal(_files.length);
     initRef.current = true;
-    postCompress(_files, _resolution, (count, _total, nextPhase) => {
-      setCompleted(count);
-      setPhase(nextPhase);
-    })
+    postCompress(
+      _files,
+      _resolution,
+      (count, workerTotal, nextPhase) => {
+        setCompleted(count);
+        if (workerTotal > 0) setTotal(workerTotal);
+        setPhase(nextPhase);
+      },
+      setGraph,
+    )
       .then((result) => {
         setResults({
           data: result,
@@ -74,19 +90,47 @@ export const Convert: FC = () => {
     );
   }
 
+  const phaseLabel = {
+    prepare: "画像を準備中",
+    plan: "似ているスライドを比較して親子関係を検討中",
+    crop: "差分を抽出して親子関係を確定中",
+    compress: "画像データを圧縮してファイルを作成中",
+  }[phase];
   return (
-    <div className="grid flex-1 place-items-center">
-      <Flex gap={16} align="center">
-        <Spin size="large" />
+    <div className="relative grid min-h-[600px] flex-1 place-items-center overflow-hidden">
+      <RelationCanvas count={total} graph={graph} />
+      <div className="relative z-10 max-w-md px-8 py-6 text-center [text-shadow:0_1px_8px_var(--background)]">
+        <div className="flex justify-center">
+          <Spin size="large" />
+        </div>
         <div aria-live="polite">
-          <h2 className="text-xl">ファイルを変換しています...</h2>
+          <h2 className="mt-4 text-xl font-semibold">
+            ファイルを変換しています...
+          </h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            {completed < _files.length
-              ? `${phase === "crop" ? "画像の差分処理中" : "画像を準備中"}: ${completed} / ${_files.length} ファイル`
-              : `${phase === "crop" ? "画像の差分処理完了" : "画像の準備完了"}: ${completed} / ${_files.length} ファイル。後続処理を実行中...`}
+            {phaseLabel}
+            {(phase === "prepare" || phase === "crop") &&
+              `: ${completed} / ${total} ファイル`}
+          </p>
+          <p className="mt-4 text-xs text-muted-foreground">
+            {graph
+              ? `親子関係を確定: ${graph.stage === "final" ? total : (graph.resolved?.filter(Boolean).length ?? 0)} / ${total}`
+              : "スライドの比較を準備しています"}
+          </p>
+          {graph?.rawBytes !== undefined &&
+            graph.payloadBytes !== undefined &&
+            graph.rawBytes > 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                差分抽出後: 元画像の約{" "}
+                {Math.round((graph.payloadBytes / graph.rawBytes) * 100)}
+                %（圧縮前）
+              </p>
+            )}
+          <p className="mt-3 text-xs text-muted-foreground">
+            紫: 基準画像　緑: 親との差分　灰: 検討中
           </p>
         </div>
-      </Flex>
+      </div>
     </div>
   );
 };

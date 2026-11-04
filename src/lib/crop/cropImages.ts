@@ -22,6 +22,7 @@ const MASTER_SKIP_ADVANTAGE = 1.1;
 
 export interface CropOptions {
   onProgress?: (completed: number, total: number) => void;
+  onItem?: (index: number, parent: number | null) => void;
   keyframeInterval?: number;
   parentSearchWindow?: number;
   parentSearchTopK?: number;
@@ -358,6 +359,7 @@ export const cropImages = (
       const parentPos = plan.parents[pos];
       if (parentPos === null) {
         addAsMaster(image, noThumbnail, pos, true);
+        options?.onItem?.(image.index, null);
         continue;
       }
       const parent = rawImages[parentPos];
@@ -390,6 +392,7 @@ export const cropImages = (
           },
         });
         parentBuffers.set(image.index, parentBuffer);
+        options?.onItem?.(image.index, parent.index);
         continue;
       }
       const stats = {
@@ -422,6 +425,10 @@ export const cropImages = (
           hasSuppressedDifferences: stats.hasSuppressedDifferences,
         },
         planned !== undefined && planned >= MASTER_SKIP_ADVANTAGE,
+      );
+      options?.onItem?.(
+        image.index,
+        croppedImages[croppedImages.length - 1].cropped?.baseIndex ?? null,
       );
       const left = (remainingChildren.get(parentPos) ?? 1) - 1;
       remainingChildren.set(parentPos, left);

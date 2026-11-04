@@ -19,8 +19,8 @@ cd "$tmp_dir"
 unset CRAFT_FONTS_DIR CRAFT_FONTS_REQUIRED
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${TMPDIR:-/tmp}/imageslide-deckcraft-target}"
 cd apps/deckcraft-web
-# Keep this profile local to the WebAssembly build.
-env CARGO_PROFILE_RELEASE_OPT_LEVEL=z CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
+# Default to the release speed optimization; set DECKCRAFT_OPT_LEVEL=z for smaller builds.
+env CARGO_PROFILE_RELEASE_OPT_LEVEL="${DECKCRAFT_OPT_LEVEL:-3}" CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
   trunk build --release
 node "$root/scripts/instrument-deckcraft.mjs" "$tmp_dir/dist/web/index.html"
 cd "$tmp_dir"

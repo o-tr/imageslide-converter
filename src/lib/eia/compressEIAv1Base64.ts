@@ -6,7 +6,7 @@ import type {
   EIASignageManifest,
 } from "@/_types/eia/v1";
 import type { RawImageObjV1Cropped } from "@/_types/text-zip/v1";
-import { EIA_SIZE_LIMIT_ERROR, FileSizeLimit } from "@/const/convert";
+import { EIA_SIZE_LIMIT_ERROR, FileSizeLimit } from "@/const/fileSizeLimit";
 import { compressLz4Best } from "./lz4Search";
 
 export const compressEIAv1Base64 = async (

@@ -20,7 +20,10 @@ export const postCompress = (
   onProgress?: (
     completed: number,
     total: number,
-    phase: "prepare" | "crop",
+    phase: "prepare" | "plan" | "crop" | "compress",
+  ) => void,
+  onGraph?: (
+    graph: Extract<WorkerResponse, { type: "compress-graph" }>,
   ) => void,
 ): Promise<Buffer> => {
   console.log("postCompress");
@@ -66,6 +69,10 @@ export const postCompress = (
     const handler = (event: MessageEvent<WorkerResponse>) => {
       if (event.data.type === "compress-progress") {
         onProgress?.(event.data.completed, event.data.total, event.data.phase);
+        return;
+      }
+      if (event.data.type === "compress-graph") {
+        onGraph?.(event.data);
         return;
       }
       if (event.data.type === "compress") {
