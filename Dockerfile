@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends nodejs && rm -r
 RUN rustup target add wasm32-unknown-unknown \
     && cargo install trunk --version 0.22.1 --locked
 COPY vendor/deckcraft/ vendor/deckcraft/
-COPY scripts/build-deckcraft.sh scripts/instrument-deckcraft.mjs scripts/patch-deckcraft-host.mjs scripts/
+COPY scripts/build-deckcraft.sh scripts/instrument-deckcraft.mjs scripts/
 RUN bash scripts/build-deckcraft.sh
 
 FROM node:24-alpine AS builder

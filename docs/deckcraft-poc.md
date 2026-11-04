@@ -1,6 +1,6 @@
 # DeckCraft integration
 
-The browser editor is built from the pinned `o-tr/deckcraft-web` fork in the DeckCraft submodule. The build uses a temporary copy, leaving the submodule clean. The app starts the WASM editor in the host page and supplies a canvas in a Shadow Root. The build adapts the web shell in the temporary copy and emits a manifest for its hashed JavaScript and WASM files. The standalone HTML retains its same-origin parent bridge. Modified builds retain the MIT notices in `public/deckcraft`.
+The browser editor is built from the pinned `o-tr/deckcraft-web` fork in the DeckCraft submodule. The build uses a temporary copy, leaving the submodule clean. The app starts the WASM editor in the host page and supplies a canvas in a Shadow Root. The web shell supports the host canvas directly, and the build emits a manifest for its hashed JavaScript and WASM files. The standalone HTML retains its same-origin parent bridge. Modified builds retain the MIT notices in `public/deckcraft`.
 
 ## Build
 

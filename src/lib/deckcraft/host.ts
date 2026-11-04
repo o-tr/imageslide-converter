@@ -1,3 +1,5 @@
+import { loadFontBytes, loadFontCatalog } from "./fontResources";
+
 /** One DeckCraft instance lives in the host window for the lifetime of the page. */
 export type StartupEvent = {
   type: string;
@@ -121,10 +123,7 @@ function createRuntime() {
 }
 
 async function loadInitialFonts(report: (data: StartupEvent) => void) {
-  const response = await fetch("/deckcraft-fonts/catalog.json");
-  if (!response.ok) throw new Error("フォント一覧を取得できませんでした");
-  const catalog: { family: string; style: string; path: string }[] =
-    await response.json();
+  const catalog = await loadFontCatalog();
   const select = (families: string[]) => {
     for (const family of families) {
       const matches = catalog.filter(
@@ -132,8 +131,9 @@ async function loadInitialFonts(report: (data: StartupEvent) => void) {
       );
       if (matches.length)
         return (
-          matches.find((font) => /regular|normal|variable/i.test(font.style)) ??
-          matches[0]
+          matches.find((font) =>
+            /regular|normal|variable/i.test(font.style ?? ""),
+          ) ?? matches[0]
         );
     }
     throw new Error(`必要なフォントがありません: ${families.join(" / ")}`);
@@ -152,21 +152,7 @@ async function loadInitialFonts(report: (data: StartupEvent) => void) {
   progress();
   return Promise.all(
     selected.map(async (font) => {
-      const parts = font.path.split("/");
-      if (
-        parts[0] !== "fonts" ||
-        parts.some(
-          (part) =>
-            !part || part === "." || part === ".." || part.includes("\\"),
-        )
-      )
-        throw new Error("不正なフォントパスです");
-      const result = await fetch(
-        `/deckcraft-fonts/${parts.map(encodeURIComponent).join("/")}`,
-      );
-      if (!result.ok)
-        throw new Error(`フォントを読み込めませんでした: ${font.family}`);
-      const bytes = new Uint8Array(await result.arrayBuffer());
+      const bytes = new Uint8Array(await loadFontBytes(font.path));
       completed++;
       progress();
       return bytes;

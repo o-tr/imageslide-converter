@@ -16,7 +16,6 @@ cd "$tmp_dir"
 unset CRAFT_FONTS_DIR CRAFT_FONTS_REQUIRED
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${TMPDIR:-/tmp}/imageslide-deckcraft-target}"
 cd apps/deckcraft-web
-node "$root/scripts/patch-deckcraft-host.mjs" "$tmp_dir/apps/deckcraft-web/src/web.rs"
 trunk build --release
 node "$root/scripts/instrument-deckcraft.mjs" "$tmp_dir/dist/web/index.html"
 cd "$tmp_dir"

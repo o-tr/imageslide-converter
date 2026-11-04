@@ -18,10 +18,6 @@ try {
     filter: (path) => !path.endsWith("/.git"),
   });
   const shellPath = join(temporary, "apps/deckcraft-web/src/web.rs");
-  run(process.execPath, [
-    resolve(root, "scripts/patch-deckcraft-host.mjs"),
-    shellPath,
-  ]);
   const shell = await readFile(shellPath, "utf8");
   const match = shell.match(
     /fn retain_latest_document\(session: &mut Session\) \{[\s\S]*?\n\}/,
