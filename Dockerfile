@@ -4,7 +4,6 @@ WORKDIR /work
 RUN rustup target add wasm32-unknown-unknown \
     && cargo install trunk --version 0.22.1 --locked
 COPY vendor/deckcraft/ vendor/deckcraft/
-COPY patches/deckcraft-bridge.patch patches/deckcraft-bridge.patch
 COPY scripts/build-deckcraft.sh scripts/build-deckcraft.sh
 RUN bash scripts/build-deckcraft.sh
 
