@@ -18,10 +18,29 @@ export default defineConfig(({ mode }) => {
           const directory =
             process.env.DECKCRAFT_FONT_DIR ||
             path.resolve(process.cwd(), "public/deckcraft/fonts");
-          server.middlewares.use(
-            "/deckcraft-fonts",
-            sirv(directory, { dev: true }),
-          );
+          const serve = sirv(directory, { dev: true });
+          server.middlewares.use("/deckcraft-fonts", (req, res, next) => {
+            // sirv does not percent-decode paths, so font files such as
+            // `Inter[opsz,wght].ttf` (requested as `Inter%5Bopsz%2Cwght%5D.ttf`)
+            // would 404. nginx decodes them in production.
+            try {
+              const url = req.url ?? "/";
+              const q = url.indexOf("?");
+              const pathname = q === -1 ? url : url.slice(0, q);
+              const decoded = decodeURIComponent(pathname);
+              if (decoded.split(/[\\/]/).includes("..")) {
+                res.statusCode = 400;
+                res.end();
+                return;
+              }
+              req.url = decoded + (q === -1 ? "" : url.slice(q));
+            } catch {
+              res.statusCode = 400;
+              res.end();
+              return;
+            }
+            serve(req, res, next);
+          });
         },
       },
       tanstackStart(),
