@@ -42,20 +42,10 @@ export const compressEIAv1 = async (
 ): Promise<Buffer> => {
   if (data.length === 0) throw new Error("No slides to compress");
 
-  // Decoders need every base before the slides that reference it.
-  const imagesByIndex = new Map<number, RawImageObjV1Cropped>();
-  for (const image of data) imagesByIndex.set(image.index, image);
-  const orderedImages: RawImageObjV1Cropped[] = [];
-  const orderedVisited = new Set<number>();
-  const visitImage = (index: number) => {
-    if (orderedVisited.has(index)) return;
-    const image = imagesByIndex.get(index);
-    if (!image) return;
-    orderedVisited.add(index);
-    if (image.cropped) visitImage(image.cropped.baseIndex);
-    orderedImages.push(image);
-  };
-  for (const image of data) visitImage(image.index);
+  // Decoders derive display order solely from manifest order, so slides are
+  // always stored in ascending index order. A base may therefore come after
+  // the slides that reference it; decoders must resolve such references.
+  const orderedImages = [...data].sort((x, y) => x.index - y.index);
 
   const compressed = await compressEIAv1Part(
     orderedImages,

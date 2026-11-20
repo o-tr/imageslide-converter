@@ -13,7 +13,10 @@ export const compressEIAv1Base64 = async (
   data: RawImageObjV1Cropped[],
   signage?: EIASignageManifest,
 ): Promise<Buffer> => {
-  const compressed = await compressEIAv1Base64Part(data, signage);
+  // Decoders derive display order solely from manifest order; always store
+  // slides in ascending index order (bases may appear after their dependents).
+  const ordered = [...data].sort((a, b) => a.index - b.index);
+  const compressed = await compressEIAv1Base64Part(ordered, signage);
   if (compressed.length > FileSizeLimit) {
     throw new Error(
       `${EIA_SIZE_LIMIT_ERROR}: compressed size ${compressed.length} exceeds the limit of ${FileSizeLimit} bytes`,
