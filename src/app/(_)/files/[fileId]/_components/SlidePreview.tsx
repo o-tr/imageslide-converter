@@ -16,6 +16,7 @@ import {
   TbPlayerPause,
   TbPlayerPlay,
 } from "react-icons/tb";
+import { DependencyTree } from "./DependencyTree";
 
 type DecodedAnimation = {
   x: number;
@@ -506,6 +507,7 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
               width: f.width,
               height: f.height,
               hasAnimations: !!f.animations && f.animations.length > 0,
+              dependency: f.dependency,
             });
 
             // Convert animation ImageData to ImageBitmap
@@ -590,18 +592,26 @@ export const SlidePreview: FC<{ urls: string[] }> = ({ urls }) => {
   }
 
   return (
-    <SlidePreviewContainer
-      frames={frames}
-      bitmapMap={bitmapMap}
-      animationMap={animationMap}
-      selectedIndex={selectedIndex}
-      animation={animation}
-      isPlaying={isPlaying}
-      onSelectFrame={handleSelectFrame}
-      onPrevious={handlePrevious}
-      onNext={handleNext}
-      startAnimation={startAnimation}
-      stopAnimation={stopAnimation}
-    />
+    <>
+      <SlidePreviewContainer
+        frames={frames}
+        bitmapMap={bitmapMap}
+        animationMap={animationMap}
+        selectedIndex={selectedIndex}
+        animation={animation}
+        isPlaying={isPlaying}
+        onSelectFrame={handleSelectFrame}
+        onPrevious={handlePrevious}
+        onNext={handleNext}
+        startAnimation={startAnimation}
+        stopAnimation={stopAnimation}
+      />
+      <DependencyTree
+        frames={frames}
+        bitmapMap={bitmapMap}
+        selectedIndex={selectedIndex}
+        onSelectFrame={handleSelectFrame}
+      />
+    </>
   );
 };

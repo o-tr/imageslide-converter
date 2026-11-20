@@ -78,6 +78,14 @@ export const decodeSlides = async (
     }
   }
 
+  // Remap raw EIA base indices to global display indices
+  for (const f of allFrames) {
+    const dep = f.dependency;
+    if (dep?.baseIndex !== undefined) {
+      dep.baseIndex = eiaIndexToGlobalPos.get(dep.baseIndex);
+    }
+  }
+
   // Resolve the signage sequence globally so the original playback order is
   // preserved even when slides are interleaved across part boundaries.
   let mergedAnimation: AnimationSequence | null = null;

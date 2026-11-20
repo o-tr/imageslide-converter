@@ -7,12 +7,32 @@ export type SlideAnimation = {
   frames: ImageData[];
 };
 
+/** EIA frame dependency info (slide-level crop chain and animation refs). */
+export type FrameDependency = {
+  kind: "master" | "cropped";
+  /** Base frame index (cropped only). Raw EIA index in decoders, display index after decodeSlides. */
+  baseIndex?: number;
+  rectCount?: number;
+  /** Diff rectangles (cropped only), in slide pixel coordinates. */
+  rects?: { x: number; y: number; w: number; h: number }[];
+  animations?: {
+    id: string;
+    fps: number;
+    frameCount: number;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  }[];
+};
+
 export type SlideFrame = {
   index: number;
   width: number;
   height: number;
   imageData: ImageData;
   animations?: SlideAnimation[];
+  dependency?: FrameDependency;
 };
 
 export type SlideFrameMeta = {
@@ -20,6 +40,7 @@ export type SlideFrameMeta = {
   width: number;
   height: number;
   hasAnimations?: boolean;
+  dependency?: FrameDependency;
 };
 
 export type AnimationFrame = {
