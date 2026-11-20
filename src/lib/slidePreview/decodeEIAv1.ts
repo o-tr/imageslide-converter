@@ -428,15 +428,20 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
     }
   }
 
-  const baseNames = new Set(
-    manifest.i
-      .filter((f): f is EIAFileV1Cropped => f.t === "c")
-      .map((f) => f.b),
+  // Manifest order is the display order, and a cropped slide's base may appear
+  // later in the manifest. Raw buffers are therefore resolved lazily by name
+  // (recursing into bases) and memoized. The chain depth/cycle pre-pass above
+  // guarantees termination.
+  const itemsByName = new Map<string, EIAFileV1>(
+    manifest.i.map((f) => [f.n, f]),
   );
   const frameBuffers = new Map<string, Uint8Array>();
   const frames: SlideFrame[] = [];
 
-  for (const item of manifest.i) {
+  const resolveFrameBuffer = (item: EIAFileV1): Uint8Array => {
+    const cachedBuffer = frameBuffers.get(item.n);
+    if (cachedBuffer) return cachedBuffer;
+
     let decompressed: Uint8Array;
 
     if (binarySection !== null) {
@@ -471,9 +476,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
       const compressed = base64ToUint8Array(b64);
       decompressed = lz4Decompress(compressed, item.u, item.n);
     } else {
-      // This path is unreachable because manifest.c is validated earlier
-      // to be either "lz4" or "lz4-base64", which sets exactly one of
-      // binarySection or textSection. Kept for TypeScript exhaustiveness.
+      // Unreachable: manifest.c was validated to be "lz4" or "lz4-base64".
       throw new Error("Internal error: decompression path not selected");
     }
 
@@ -502,9 +505,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
       if (!Array.isArray(item.r) || item.r.length === 0) {
         throw new Error(`Cropped frame "${item.n}" has no rects`);
       }
-      const baseBuffer = frameBuffers.get(item.b);
-      if (!baseBuffer) throw new Error(`Base frame "${item.b}" not found`);
-      const baseItem = manifest.i.find((f) => f.n === item.b);
+      const baseItem = itemsByName.get(item.b);
       if (!baseItem)
         throw new Error(`Base frame "${item.b}" not found in manifest`);
       if (baseItem.w !== item.w || baseItem.h !== item.h)
@@ -517,6 +518,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
           `Cropped frame "${item.n}" format "${item.f}" ` +
             `differs from base "${item.b}" format "${baseItem.f}"`,
         );
+      const baseBuffer = resolveFrameBuffer(baseItem);
       rawBuffer = applyRects(
         baseBuffer,
         decompressed,
@@ -527,6 +529,11 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
     }
 
     frameBuffers.set(item.n, rawBuffer);
+    return rawBuffer;
+  };
+
+  for (const item of manifest.i) {
+    const rawBuffer = resolveFrameBuffer(item);
 
     const index = Number(item.n);
     if (item.n === "" || !Number.isFinite(index) || !Number.isInteger(index))
@@ -663,14 +670,10 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
       imageData: rawToImageData(rawBuffer, item.w, item.h, item.f),
       animations,
     });
-
-    // Release raw buffer if no later frame references it as a base
-    if (!baseNames.has(item.n)) {
-      frameBuffers.delete(item.n);
-    }
   }
 
-  const sortedFrames = frames.sort((a, b) => a.index - b.index);
+  // Display order is the manifest order; frames are not re-sorted by name.
+  const sortedFrames = frames;
 
   let rawSignageItems: RawSignageItem[] | undefined;
   if (manifest.m) {
