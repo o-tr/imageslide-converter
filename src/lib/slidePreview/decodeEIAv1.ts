@@ -436,6 +436,21 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
     manifest.i.map((f) => [f.n, f]),
   );
   const frameBuffers = new Map<string, Uint8Array>();
+  // Raw buffers are only needed until the slide is displayed and every cropped
+  // slide that uses it as a base has been resolved; release them afterwards.
+  const pendingBaseRefs = new Map<string, number>();
+  for (const f of manifest.i) {
+    if (f.t === "c")
+      pendingBaseRefs.set(f.b, (pendingBaseRefs.get(f.b) ?? 0) + 1);
+  }
+  const displayedNames = new Set<string>();
+  const releaseIfUnused = (name: string, consumed: boolean) => {
+    if (consumed)
+      pendingBaseRefs.set(name, (pendingBaseRefs.get(name) ?? 1) - 1);
+    if ((pendingBaseRefs.get(name) ?? 0) <= 0 && displayedNames.has(name)) {
+      frameBuffers.delete(name);
+    }
+  };
   const frames: SlideFrame[] = [];
 
   const resolveFrameBuffer = (item: EIAFileV1): Uint8Array => {
@@ -526,6 +541,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
         baseItem.w,
         item.f,
       );
+      releaseIfUnused(baseItem.n, true);
     }
 
     frameBuffers.set(item.n, rawBuffer);
@@ -534,6 +550,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
 
   for (const item of manifest.i) {
     const rawBuffer = resolveFrameBuffer(item);
+    displayedNames.add(item.n);
 
     const index = Number(item.n);
     if (item.n === "" || !Number.isFinite(index) || !Number.isInteger(index))
@@ -670,6 +687,7 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
       imageData: rawToImageData(rawBuffer, item.w, item.h, item.f),
       animations,
     });
+    releaseIfUnused(item.n, false);
   }
 
   // Display order is the manifest order; frames are not re-sorted by name.
