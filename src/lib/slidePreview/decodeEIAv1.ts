@@ -692,8 +692,10 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
       animations:
         item.e?.a && manifest.ac
           ? (item.e.a as EIAAnimationRef[]).flatMap((ref) => {
-              const anim = manifest.ac?.anims.find((a) => a.id === ref.id);
-              return anim
+              const anim = ref
+                ? manifest.ac?.anims.find((a) => a?.id === ref.id)
+                : undefined;
+              return anim && Array.isArray(anim.seq)
                 ? [
                     {
                       id: anim.id,
