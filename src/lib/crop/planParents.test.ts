@@ -91,6 +91,29 @@ describe("planParents", () => {
     expect(Math.max(...counts.values())).toBeGreaterThanOrEqual(2);
   });
 
+  it("flattens a chain when the master is nearly as cheap a parent", () => {
+    // a2 = a1 + one more block, so a2 against a0 costs only slightly more than
+    // against a1; the extra nesting level is not worth it.
+    const n0 = noise(7);
+    const n1 = withBlock(n0, 4, 4, 11);
+    const n2 = withBlock(n1, 16, 4, 12);
+    const plan = planParents(
+      [n0, n1, n2].map((b, i) => image(i, b)),
+      {
+        estimateSize,
+        maxDepth: 6,
+        depthPenalty: 1000,
+        // Keep the master out of a2's candidate shortlist: it is only found by
+        // considering a2's ancestors.
+        neighbors: 1,
+        sequenceNeighbors: 0,
+      },
+    );
+    expect(plan.parents[1]).toBe(0);
+    expect(plan.parents[2]).toBe(0);
+    expect(plan.depths[2]).toBe(1);
+  });
+
   it("round-trips through the EIA encoder and decoder", async () => {
     vi.stubGlobal(
       "ImageData",
