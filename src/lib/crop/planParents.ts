@@ -201,11 +201,26 @@ export const planParents = (
   // under a depth limit), so improve the forest by local search: move a slide
   // under another candidate parent (or make it a master) while the total cost,
   // including the per-depth penalty of its whole subtree, keeps falling.
-  const edgeCost = (c: number, p: number | null) =>
-    p === null
-      ? masterCost[c]
-      : (edges[c].find((e) => e.parent === p)?.cost ??
-        Number.POSITIVE_INFINITY);
+  // Edges outside the candidate shortlist (e.g. a slide's own ancestors) are
+  // evaluated lazily so that flattening unnecessary nesting can be considered.
+  const lazyEdges = new Map<number, number>();
+  const edgeCost = (c: number, p: number | null) => {
+    if (p === null) return masterCost[c];
+    const known = edges[c].find((e) => e.parent === p)?.cost;
+    if (known !== undefined) return known;
+    const key = c * n + p;
+    const cached = lazyEdges.get(key);
+    if (cached !== undefined) return cached;
+    let cost = Number.POSITIVE_INFINITY;
+    if (sameSize(p, c)) {
+      const stats = { count: 0, stopAt: Number.POSITIVE_INFINITY };
+      const diff = rgb242diff(rawImages[p], rawImages[c], stats);
+      const delta = deltaCostFromDiff(rawImages[c], diff, stats.count, o);
+      if (delta !== null && delta < masterCost[c]) cost = delta;
+    }
+    lazyEdges.set(key, cost);
+    return cost;
+  };
   const children: number[][] = Array.from({ length: n }, () => []);
   const rebuildChildren = () => {
     for (const list of children) list.length = 0;
@@ -234,10 +249,16 @@ export const planParents = (
       const oldCost =
         edgeCost(c, parents[c]) + o.depthPenalty * depths[c] * nodes.length;
       let bestMove: { p: number | null; cost: number } | null = null;
-      const options: (number | null)[] = [
+      const ancestors: number[] = [];
+      for (let a = parents[c]; a !== null; a = parents[a]) {
+        // Grandparents and above: a shallower attachment point.
+        if (a !== parents[c]) ancestors.push(a);
+      }
+      const options = new Set<number | null>([
         null,
         ...edges[c].map((e) => e.parent),
-      ];
+        ...ancestors,
+      ]);
       for (const p of options) {
         if (p === parents[c] || (p !== null && inSub.has(p))) continue;
         const depth = p === null ? 0 : depths[p] + 1;
