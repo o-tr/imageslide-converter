@@ -8,6 +8,7 @@ import type {
 } from "@/_types/eia/v1";
 import type {
   DecodeResult,
+  FrameDependency,
   RawSignageItem,
   SlideAnimation,
   SlideFrame,
@@ -680,12 +681,44 @@ export const decodeEIAv1 = (buffer: ArrayBuffer): DecodeResult => {
       }
     }
 
+    const dependency: FrameDependency = {
+      kind: item.t === "c" ? "cropped" : "master",
+      baseIndex: item.t === "c" ? Number(item.b) : undefined,
+      rectCount: item.t === "c" ? item.r.length : undefined,
+      rects:
+        item.t === "c"
+          ? item.r.map(({ x, y, w, h }) => ({ x, y, w, h }))
+          : undefined,
+      animations:
+        item.e?.a && manifest.ac
+          ? (item.e.a as EIAAnimationRef[]).flatMap((ref) => {
+              const anim = ref
+                ? manifest.ac?.anims.find((a) => a?.id === ref.id)
+                : undefined;
+              return anim && Array.isArray(anim.seq)
+                ? [
+                    {
+                      id: anim.id,
+                      fps: anim.fps,
+                      frameCount: anim.seq.length,
+                      x: ref.x,
+                      y: ref.y,
+                      w: ref.w,
+                      h: ref.h,
+                    },
+                  ]
+                : [];
+            })
+          : undefined,
+    };
+
     frames.push({
       index,
       width: item.w,
       height: item.h,
       imageData: rawToImageData(rawBuffer, item.w, item.h, item.f),
       animations,
+      dependency,
     });
     releaseIfUnused(item.n, false);
   }
